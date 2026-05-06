@@ -443,20 +443,21 @@ UIColor blackColor] // TODO
 
 // MPMediaPlayback implementation
 - (())play {
-    log!("TODO: [(MPMoviePlayerController*){:?} play]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePlaying;
-    // Retain this so the object stays alive until handle_players fires and
-    // we release it after posting the notification.
+    log!("HACK: Skipping video [(MPMoviePlayerController*){:?} play]", this);
+    
+    // Set state to playing first
+    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStatePlaying;
+
+    // Queue a "Finished" notification 1 second from now.
+    // This gives the game time to start its 'video waiting' logic before we tell it it's done.
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackDidFinishNotification,
         this,
-        Instant::now() + std::time::Duration::from_millis(50),
+        Instant::now() + std::time::Duration::from_millis(1000),
     ));
 }
-
+    
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
     env.objc
