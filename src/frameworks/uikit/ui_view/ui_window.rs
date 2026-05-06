@@ -211,7 +211,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setRootViewController:(id)view_controller {
     log_dbg!("[(UIWindow*){:?} setRootViewController:{:?}]", this, view_controller);
 
-    // The default behavior in iOS is to add the view controller's view as a
+    // 1. Save the view controller so the getter can return it later
+    // We use a "hidden" property name to store it on the object itself
+    unsafe { env.objc.set_associated_object(this, "rootViewController", view_controller); }
+
+    // 2. The default behavior in iOS is to add the view controller's view as a
     // subview of the window.
     if view_controller != nil {
         let view: id = msg![env; view_controller view];
@@ -220,10 +224,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)rootViewController {
-    log!("TODO: [(UIWindow*){:?} rootViewController] full implementation missing", this);
-    nil
+    // Return the object we saved in setRootViewController
+    unsafe { env.objc.get_associated_object(this, "rootViewController") }
 }
-
+    
 // UIResponder implementation
 // From the Apple UIView docs regarding [UIResponder nextResponder]:
 // "UIWindow returns the application object."
