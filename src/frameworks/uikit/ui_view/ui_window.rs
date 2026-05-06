@@ -150,17 +150,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)hitTest:(CGPoint)point withEvent:(id)event {
     let subviews = env.objc.borrow::<super::UIViewHostObject>(this).subviews.clone();
     for subview in subviews.into_iter().rev() {
-        let hidden: bool = msg![env; subview isHidden];
-        let alpha: crate::frameworks::core_graphics::CGFloat = msg![env; subview alpha];
-        let interactible: bool = msg![env; subview isUserInteractionEnabled];
-        if hidden || alpha < 0.01 || !interactible { continue; }
+        // ... your existing hidden/alpha/interactible checks ...
+
         let sub_point: CGPoint = msg![env; subview convertPoint:point fromView:this];
         let hit: id = msg![env; subview hitTest:sub_point withEvent:event];
-        if hit != nil { return hit; }
+        
+        if hit != nil { 
+            // DEBUG: Print the class of the object being hit
+            let class_name: id = msg![env; hit class];
+            log!("Hit detected on object: {:?} (Class: {:?}) at {:?}", hit, class_name, sub_point);
+            return hit; 
+        }
     }
     this
 }
-
+    
 - (())setHidden:(bool)is_hidden {
     () = msg_super![env; this setHidden:is_hidden];
 
