@@ -113,6 +113,30 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+fn scale_coords(coords: Coords) -> CGPoint {
+    let iphone_width = 320.0;
+    let iphone_height = 480.0;
+
+    let screen_width = 1080.0;
+    let screen_height = 2400.0;
+
+    let scaled_x = (coords.0 / screen_width) * iphone_width;
+    let scaled_y = (coords.1 / screen_height) * iphone_height;
+
+    log!(
+        "Touch mapped: ({}, {}) → ({}, {})",
+        coords.0,
+        coords.1,
+        scaled_x,
+        scaled_y
+    );
+
+    CGPoint {
+        x: scaled_x,
+        y: scaled_y,
+    }
+}
+
 pub fn handle_event(env: &mut Environment, event: Event) {
     let touch_ids: Vec<id> = env
         .framework_state
@@ -161,10 +185,7 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
             return handle_touches_move(env, HashMap::from([(finger_id, coords)]));
         }
 
-        let location = CGPoint {
-            x: coords.0,
-            y: coords.1,
-        };
+        let location = scale_coords(coords);
         let new_touch: id = msg_class![env; UITouch alloc];
         *env.objc.borrow_mut(new_touch) = UITouchHostObject {
             view: nil,
@@ -339,10 +360,7 @@ fn handle_touches_move(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         else {
             continue;
         };
-        let location = CGPoint {
-            x: coords.0,
-            y: coords.1,
-        };
+        let location = scale_coords(coords);
         let view = env.objc.borrow::<UITouchHostObject>(touch).view;
         let host = env.objc.borrow_mut::<UITouchHostObject>(touch);
         if host.location == location {
@@ -423,10 +441,7 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         else {
             continue;
         };
-        let location = CGPoint {
-            x: coords.0,
-            y: coords.1,
-        };
+        let location = scale_coords(coords);
         let view = env.objc.borrow::<UITouchHostObject>(touch).view;
         {
             let host = env.objc.borrow_mut::<UITouchHostObject>(touch);
