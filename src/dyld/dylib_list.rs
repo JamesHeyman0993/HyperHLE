@@ -82,7 +82,6 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::audio_toolbox::DYLIB,
     &frameworks::avfoundation::DYLIB,
     &frameworks::core_animation::DYLIB,
-    &frameworks::core_data::DYLIB,
     &frameworks::core_foundation::DYLIB,
     &frameworks::core_graphics::DYLIB,
     &frameworks::core_location::DYLIB,
