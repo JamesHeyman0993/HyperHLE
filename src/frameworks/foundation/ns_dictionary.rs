@@ -674,14 +674,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     env.objc.borrow::<DictionaryHostObject>(this).count
 }
-    
+       
 - (id)objectForKey:(id)key {
+    if this == nil {
+        return nil;
+    }
     let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
     res
 }
-
+    
 - (id)allKeys {
     all_keys_common(env, this)
 }
@@ -921,21 +924,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setObject:(id)object
              forKey:(id)key {
     if this == nil {
-        log!("Warning: Attempted to setObject on a nil dictionary. Ignoring to avoid crash.");
+        log!("Warning: Ignored setObject:forKey: on a nil dictionary to prevent crash.");
         return;
     }
-    // ... rest of the existing code ...
-                 
-        if key == nil {
-            log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to use nil key — ignoring");
-            return;
-        }
-
-        let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
-        host_obj.insert(env, key, object, /* copy_key: */ true);
-        *env.objc.borrow_mut(this) = host_obj;
-    }
-
+    // ... existing nil checks for object and key ...
+    let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    host_obj.insert(env, key, object, /* copy_key: */ true);
+    *env.objc.borrow_mut(this) = host_obj;
+             }
+    
 - (())removeObjectForKey:(id)key {
     if key.is_null() {
         log!("Warning: [NSMutableDictionary removeObjectForKey:] key is nil — ignored");
