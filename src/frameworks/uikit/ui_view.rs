@@ -503,28 +503,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setExclusiveTouch:(bool)exclusive { env.objc.borrow_mut::<UIViewHostObject>(this).exclusive_touch = exclusive; }
 
 - (())layoutSubviews {
-    // 1. Get the current bounds of THIS view
+    // 1. Only proceed if we actually have subviews to manage
+    let subviews_count = env.objc.borrow::<UIViewHostObject>(this).subviews.len();
+    if subviews_count == 0 { return; }
+
+    // 2. Get the parent bounds once
     let bounds: CGRect = msg![env; this bounds];
-    
-    // 2. Clone the subviews list to avoid borrow checker issues during the loop
+
+    // 3. Clone subview IDs
     let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
 
     for subview in subviews {
-        let autoresizing_mask = env.objc.borrow::<UIViewHostObject>(subview).autoresizing_mask;
+        let mask = env.objc.borrow::<UIViewHostObject>(subview).autoresizing_mask;
         
-        // If the subview has an autoresizing mask, we need to trigger its resize.
-        // For now, we tell the subview to match the parent's layout.
-        if autoresizing_mask != 0 {
-            // This triggers the internal UIKit resize logic
-            let _: () = msg![env; subview setNeedsLayout];
+        // Only touch the subview if it actually has instructions to resize (mask > 0).
+        // This prevents the "Black Screen" on games that don't need manual layout.
+        if mask != 0 {
+            // Instead of setNeedsLayout (which can loop), we just ensure the frame matches.
+            // Many early iOS games expect the subview to fill the parent.
+            let _: () = msg![env; subview setFrame:bounds];
         }
     }
-    
-    // 3. IMPORTANT: Tell the layer to refresh
-    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    let _: () = msg![env; layer setNeedsDisplay];
 }
-    
+       
 // MARK: - Gesture recognizers
 //
 // These methods just track recognizers in a `Vec<id>`. Gesture recognition is
