@@ -162,19 +162,20 @@ fn CGFontCopyFullName(env: &mut Environment, font: CGFontRef) -> CFStringRef {
 
 /// `int CGFontGetUnitsPerEm(CGFontRef font)`
 fn CGFontGetUnitsPerEm(_env: &mut Environment, _font: CGFontRef) -> i32 {
-    // We ignore the font pointer entirely and just return a standard value.
-    // This prevents the game from reading offset 0x78 to find this value.
+    // We ignore the font pointer and return a standard value.
+    // This stops the game from trying to read memory at 0x78.
+    log_dbg!("HACK: CGFontGetUnitsPerEm returning hardcoded 2048");
     2048
 }
 
 /// `int CGFontGetAscent(CGFontRef font)`
 fn CGFontGetAscent(_env: &mut Environment, _font: CGFontRef) -> i32 {
-    // Return a fixed value (approx 80% of 2048)
+    log_dbg!("HACK: CGFontGetAscent returning hardcoded 1638");
     1638
 }
 
 fn CGFontGetDescent(_env: &mut Environment, _font: CGFontRef) -> i32 {
-    // Return a fixed value (approx 20% of 2048, negative)
+    log_dbg!("HACK: CGFontGetDescent returning hardcoded -410");
     -410
 }
 
