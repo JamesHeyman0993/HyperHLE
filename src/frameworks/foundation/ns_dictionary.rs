@@ -669,8 +669,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 // TODO: enumeration, more init methods, etc
 
 - (NSUInteger)count {
+    if this == nil {
+        return 0;
+    }
     env.objc.borrow::<DictionaryHostObject>(this).count
 }
+    
 - (id)objectForKey:(id)key {
     let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
@@ -818,12 +822,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<DictionaryHostObject>(this).count
 }
 - (id)objectForKey:(id)key {
+    if this == nil { 
+        return nil; 
+    }
     let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
     res
 }
-
+    
 // NSCoding implementation
 - (())encodeWithCoder:(id)coder {
     let class: Class = msg![env; coder class];
@@ -913,20 +920,12 @@ pub const CLASSES: ClassExports = objc_classes! {
        
 - (())setObject:(id)object
              forKey:(id)key {
-        // Если объект nil, по правилам iOS должно быть исключение
-        // NSInvalidArgumentException.
-        // Чтобы не ронять эмулятор паникой, логируем ошибку и прерываем
-        // добавление.
-        if object == nil {
-            let key_str = if key != nil {
-                crate::frameworks::foundation::ns_string::to_rust_string(env, key).to_string()
-            } else {
-                "nil".to_string()
-            };
-            log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to insert nil object for key {} — ignoring", key_str);
-            return;
-        }
-
+    if this == nil {
+        log!("Warning: Attempted to setObject on a nil dictionary. Ignoring to avoid crash.");
+        return;
+    }
+    // ... rest of the existing code ...
+                 
         if key == nil {
             log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to use nil key — ignoring");
             return;
