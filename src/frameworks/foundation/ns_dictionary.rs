@@ -410,10 +410,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)dictionary {
     let new_dict: id = msg![env; this alloc];
-    let new_dict: id = msg![env; new_dict init];
-    autorelease(env, new_dict)
+    let initialized: id = msg![env; new_dict init];
+    autorelease(env, initialized)
 }
-
+    
 + (id)dictionaryWithObject:(id)object forKey:(id)key {
     assert_ne!(key, nil); // TODO: raise proper exception
 
@@ -644,10 +644,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)init {
-    *env.objc.borrow_mut(this) = <DictionaryHostObject as Default>::default();
+    let mut host_obj = <DictionaryHostObject as Default>::default();
+    *env.objc.borrow_mut::<DictionaryHostObject>(this) = host_obj;
     this
 }
-
+    
 - (id)initWithDictionary:(id)dictionary {
     init_with_dictionary_common(env, this, dictionary)
 }
