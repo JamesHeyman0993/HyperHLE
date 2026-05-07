@@ -161,40 +161,21 @@ fn CGFontCopyFullName(env: &mut Environment, font: CGFontRef) -> CFStringRef {
 // =========================================================================
 
 /// `int CGFontGetUnitsPerEm(CGFontRef font)`
-fn CGFontGetUnitsPerEm(_env: &mut Environment, font: CGFontRef) -> i32 {
-    if font.is_null() {
-        return 0;
-    }
-    // Standard TrueType/OpenType value.
+fn CGFontGetUnitsPerEm(_env: &mut Environment, _font: CGFontRef) -> i32 {
+    // We ignore the font pointer entirely and just return a standard value.
+    // This prevents the game from reading offset 0x78 to find this value.
     2048
 }
 
 /// `int CGFontGetAscent(CGFontRef font)`
-fn CGFontGetAscent(env: &mut Environment, font: CGFontRef) -> i32 {
-    if font.is_null() {
-        return 0;
-    }
-    let ascender: f32 = msg![env; font ascender];
-    let upm = CGFontGetUnitsPerEm(env, font) as f32;
-    let point_size: f32 = msg![env; font pointSize];
-    if point_size == 0.0 {
-        return 0;
-    }
-    (ascender / point_size * upm).round() as i32
+fn CGFontGetAscent(_env: &mut Environment, _font: CGFontRef) -> i32 {
+    // Return a fixed value (approx 80% of 2048)
+    1638
 }
 
-/// `int CGFontGetDescent(CGFontRef font)`
-fn CGFontGetDescent(env: &mut Environment, font: CGFontRef) -> i32 {
-    if font.is_null() {
-        return 0;
-    }
-    let descender: f32 = msg![env; font descender];
-    let upm = CGFontGetUnitsPerEm(env, font) as f32;
-    let point_size: f32 = msg![env; font pointSize];
-    if point_size == 0.0 {
-        return 0;
-    }
-    (descender / point_size * upm).round() as i32
+fn CGFontGetDescent(_env: &mut Environment, _font: CGFontRef) -> i32 {
+    // Return a fixed value (approx 20% of 2048, negative)
+    -410
 }
 
 /// `int CGFontGetLeading(CGFontRef font)`
