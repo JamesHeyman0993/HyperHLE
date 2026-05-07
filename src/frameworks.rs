@@ -30,7 +30,6 @@ pub mod carbon_core;
 pub mod cf_network;
 pub mod common_crypto;
 pub mod core_animation;
-pub mod core_data;
 pub mod core_audio;
 pub mod core_audio_types;
 pub mod core_foundation;
