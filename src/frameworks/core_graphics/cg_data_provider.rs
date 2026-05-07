@@ -266,21 +266,28 @@ fn CGDataProviderCreateDirect(
     size: i64,
     _callbacks: ConstVoidPtr,
 ) -> CGDataProviderRef {
-    log!("HACK: CGDataProviderCreateDirect returning empty dummy");
-    // Just create a blank data provider of the requested size
+    log!("HACK: CGDataProviderCreateDirect returning dummy provider of size {}", size);
     let len = size as GuestUSize;
     let buf = env.mem.alloc(len);
-    CGDataProviderCreateWithData(env, MutVoidPtr::null(), buf.cast_const().cast(), len, GuestFunction::null_ptr())
+    // Zero out the memory so it's clean
+    env.mem.bytes_at_mut(buf.cast(), len).fill(0);
+
+    CGDataProviderCreateWithData(
+        env,
+        MutVoidPtr::null(),
+        buf.cast_const().cast(),
+        len,
+        GuestFunction::null_ptr(),
+    )
 }
 
-fn CGDataProviderCreateDirect(
+fn CGDataProviderCreateSequential(
     _env: &mut Environment,
     _info: MutVoidPtr,
-    _size: i64,
     _callbacks: ConstVoidPtr,
 ) -> CGDataProviderRef {
-    log!("Warning: CGDataProviderCreateDirect is not supported, returning null");
-    nil // <- was std::ptr::null()
+    log!("Warning: CGDataProviderCreateSequential is not supported, returning nil");
+    nil 
 }
 
 pub const FUNCTIONS: FunctionExports = &[
