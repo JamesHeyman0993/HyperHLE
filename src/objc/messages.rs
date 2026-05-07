@@ -7,7 +7,7 @@
 
 use super::{id, nil, Class, ObjC, IMP, SEL};
 use crate::abi::{CallFromHost, GuestRet};
-use crate::mem::{ConstPtr, MutVoidPtr, SafeRead};
+use crate::mem::{ConstPtr, MutVoidPtr, SafeRead, Ptr};
 use crate::Environment;
 use std::any::TypeId;
 
@@ -128,7 +128,7 @@ fn objc_msgSend_inner(
                         if let Some((sent_id, _)) = message_type_info {
                             let (expected_id, _) = host_imp.type_info();
                             if sent_id != expected_id && !tolerate_type_mismatch {
-                                // Silent warning
+                                // Mismatch allowed
                             }
                         }
                         host_imp.call_from_guest(env)
@@ -171,9 +171,10 @@ pub(super) fn objc_msgSendSuper2(env: &mut Environment, super_ptr: ConstPtr<objc
     objc_msgSend_inner(env, receiver, selector, Some(class), false)
 }
 
-// FIX: Signature must match (Environment, MutVoidPtr, ConstPtr, SEL) for the stret version
 pub(super) fn objc_msgSendSuper2_stret(env: &mut Environment, _stret: MutVoidPtr, super_ptr: ConstPtr<objc_super>, selector: SEL) {
-    objc_msgSendSuper2(env, super_ptr, selector)
+    let objc_super { receiver, class } = env.mem.read(super_ptr);
+    crate::abi::write_next_arg(&mut 0, env.cpu.regs_mut(), &mut env.mem, receiver);
+    objc_msgSend_inner(env, receiver, selector, Some(class), false)
 }
 
 pub trait MsgSendSignature: 'static {
@@ -188,8 +189,8 @@ where
     R: GuestRet,
 {
     let receiver_ptr = &args as *const P as *const id;
-    // FIX: method name is from_mem
-    unsafe { if *receiver_ptr == nil { return R::from_mem(0, &env.mem); } }
+    // FIX: Using Ptr::from_bits(0) to satisfy the ConstVoidPtr requirement
+    unsafe { if *receiver_ptr == nil { return R::from_mem(Ptr::from_bits(0), &env.mem); } }
     
     env.objc.message_type_info = Some(<(R, P) as MsgSendSignature>::type_info());
     if R::SIZE_IN_MEM.is_some() {
@@ -207,8 +208,7 @@ where
     R: GuestRet,
 {
     let receiver_ptr = &args as *const P as *const id;
-    // FIX: method name is from_mem
-    unsafe { if *receiver_ptr == nil { return R::from_mem(0, &env.mem); } }
+    unsafe { if *receiver_ptr == nil { return R::from_mem(Ptr::from_bits(0), &env.mem); } }
 
     if R::SIZE_IN_MEM.is_some() {
         (_touchHLE_objc_msgSend_stret_tolerant as fn(&mut Environment, MutVoidPtr, id, SEL)).call_from_host(env, args)
@@ -240,9 +240,7 @@ macro_rules! msg {
         {
             let sel_name = $crate::objc::selector!($($arg1;)? $name $($(, $($namen)?)*)?);
             let sel = $env.objc.lookup_selector(sel_name).expect("Unknown selector");
-            // FIX: Type hint to R to help the compiler infer GuestRet
-            let res: _ = $crate::objc::msg_send($env, ($receiver, sel, $($arg1, $($argn),*)?));
-            res
+            $crate::objc::msg_send($env, ($receiver, sel, $($arg1, $($argn),*)?))
         }
     }
 }
@@ -279,3 +277,4 @@ macro_rules! msg_super {
 pub fn retain(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object retain] } }
 pub fn release(env: &mut Environment, object: id) { if object != nil { let _: () = msg![env; object release]; } }
 pub fn autorelease(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object autorelease] } }
+    
