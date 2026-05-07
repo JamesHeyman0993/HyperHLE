@@ -224,3 +224,27 @@ com.indiagames.brucelee:  --force-composition --ignore-gl-errors
 
 # Red Ball 3
 com.chillingo.redball3hd: --landscape-left
+
+# LEGO Ninjago: Spinjitzu Scavenger Hunt
+# This is a pure ES 1.1 fixed-function game (uses only glColor4f, glMatrixMode,
+# glVertexPointer, glLoadMatrixf etc., no shaders). The game uploads a
+# 512x512 RGB texture via glTexImage2D(level=0) and only ever sets
+# GL_TEXTURE_WRAP_T (= GL_REPEAT) on it — it never sets
+# GL_TEXTURE_MIN_FILTER, so the texture stays at the ES 1.1 default
+# GL_NEAREST_MIPMAP_LINEAR even though no mipmaps were uploaded. Lenient
+# drivers (Mesa, Apple PowerVR) still sample it; strict drivers
+# (Qualcomm Adreno native ES 1.1 path) treat the texture as incomplete
+# and sample (0, 0, 0, 1), producing a fully black screen with an alive
+# render loop. --fix-texture-min-filter inserts an extra
+# glTexParameteri(GL_TEXTURE_MIN_FILTER, GL_LINEAR) after each level-0
+# upload so the texture is complete on all drivers; the guest can
+# override it later if it ever wants to.
+#
+# The earlier black-screen symptom on Adreno (before the texture-filter
+# fix) was caused by HyperHLE's internal present path trying to clear a
+# non-zero GL_CURRENT_PROGRAM via glUseProgram(0), which was a no-op
+# stub on GLES1Native. That dance has been removed from the ES 1.1
+# present path, so this app no longer needs --prefer-gles2-context.
+# --trace-gl-errors stays so any remaining 0x500 noise is logged with a
+# pointer to the calling host site.
+com.lego.NinjagoSpinjitzuScavengerHunt: --landscape-left --fix-texture-min-filter --trace-gl-errors

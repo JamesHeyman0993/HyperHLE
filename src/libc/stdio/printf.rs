@@ -1373,8 +1373,12 @@ where
                 }
             }
             b'f' | b'g' => {
-                assert_eq!(max_width, 0);
-                // TODO
+                // NOTE: max_width prefix (e.g. "%5f") is ignored — the
+                // float parser reads whatever the input looks like.
+                // Tightening this would require teaching
+                // atof_inner_generic about a max-width budget; for now
+                // an over-read is the same behaviour as before.
+                let _ = max_width;
                 let res = atof_inner_generic(env, &getc_fn, &ungetc_fn, subject, src_char_idx);
                 let val = match res {
                     Ok((val, len)) => {
@@ -1489,9 +1493,14 @@ where
                 }
             }
             b'[' => {
-                assert_eq!(max_width, 0);
                 // Убрали assert!(length_modifier.is_none());
-                // [set] case
+                // [set] case. Honour an optional max-width prefix
+                // (e.g. "%15[abc]"); 0 means "no limit". The loop below
+                // matches as many input characters as fit in the set,
+                // but stops after `max_width` chars when one is given
+                // so the destination buffer (sized for max_width+1) is
+                // not overrun. Used by LEGO Ninjago: Spinjitzu Scavenger
+                // Hunt's text loader (e.g. `sscanf(line, "%15[^=]=%s", …)`).
                 assert_ne!(env.mem.read(format + format_char_idx), b']');
                 let mut c: u8;
                 let inverted = if env.mem.read(format + format_char_idx) == b'^' {
@@ -1526,8 +1535,13 @@ where
                     None
                 };
 
+                let limit = if max_width > 0 { max_width } else { u32::MAX };
+                let mut read_count: u32 = 0;
                 let mut matched = false;
                 loop {
+                    if read_count >= limit {
+                        break;
+                    }
                     let x = getc_fn(env, subject, src_char_idx);
                     if x.is_err() {
                         break;
@@ -1542,6 +1556,7 @@ where
                     }
 
                     matched = true;
+                    read_count += 1;
                     if let Some(ptr) = dst_ptr {
                         env.mem.write(ptr, cc);
                         dst_ptr = Some(ptr + 1);
@@ -1613,15 +1628,23 @@ where
                 continue;
             }
             b's' => {
-                assert_eq!(max_width, 0);
                 // Убрали assert!(length_modifier.is_none());
+                // Honour an optional max-width prefix (e.g. "%127s"); 0
+                // means "no limit". Stops after `max_width` chars when
+                // one is given so the destination buffer (sized for
+                // max_width+1) is not overrun.
                 let mut dst_ptr: Option<MutPtr<u8>> = if !suppress_assignment {
                     Some(args.next(env))
                 } else {
                     None
                 };
                 let orig_dst_ptr = dst_ptr;
+                let limit = if max_width > 0 { max_width } else { u32::MAX };
+                let mut read_count: u32 = 0;
                 loop {
+                    if read_count >= limit {
+                        break;
+                    }
                     let x = getc_fn(env, subject, src_char_idx);
                     if x.is_err() {
                         break;
@@ -1636,6 +1659,7 @@ where
                             dst_ptr = Some(ptr + 1);
                         }
                         src_char_idx += 1;
+                        read_count += 1;
                     } else {
                         ungetc_fn(env, subject, cc);
                         break;

@@ -215,6 +215,9 @@ fn alcCreateContext(
     device: MutPtr<GuestALCdevice>,
     attr_list: ConstPtr<i32>,
 ) -> MutPtr<GuestALCcontext> {
+    // Вектор для хранения очищенного списка атрибутов, который безопасно передадим в OpenAL Soft
+    let mut clean_attrs: Vec<ALCint> = Vec::new();
+
     let attr_list_ptr: *const ALCint = if attr_list.is_null() {
         std::ptr::null()
     } else {
@@ -222,26 +225,32 @@ fn alcCreateContext(
         // список атрибутов завершается нулем (NULL)
         while env.mem.read(ptr) != 0 {
             let attr = env.mem.read(ptr);
-            log_dbg!(
-                "Атрибут alcCreateContext {:#x} => {}",
-                attr,
-                env.mem.read(ptr + 1)
-            );
-            assert!(ALLOWED_CONTEXT_ATTRIBUTES.contains(&attr)); // TODO
+            let val = env.mem.read(ptr + 1);
+            
+            // ИСПРАВЛЕНИЕ: Мягко фильтруем атрибуты вместо жесткого краша (assert убран).
+            // Неизвестные/специфичные для iOS атрибуты просто игнорируем.
+            if ALLOWED_CONTEXT_ATTRIBUTES.contains(&attr) {
+                log_dbg!("Атрибут alcCreateContext {:#x} => {} (разрешен)", attr, val);
+                clean_attrs.push(attr);
+                clean_attrs.push(val);
+            } else {
+                log!("Warning: Игнорируем неподдерживаемый атрибут контекста OpenAL: {:#x} => {}", attr, val);
+            }
+            
             ptr += 2;
         }
-
-        let list_size = Ptr::to_bits(ptr) - Ptr::to_bits(attr_list);
-        let attr_list_slice = env.mem.bytes_at(attr_list.cast(), list_size);
-        attr_list_slice.as_ptr() as *const _
+        
+        if !clean_attrs.is_empty() {
+            clean_attrs.push(0); // Добавляем обязательный завершающий нуль
+            clean_attrs.as_ptr()
+        } else {
+            std::ptr::null()
+        }
     };
 
     let state = State::get(env);
     // Per OpenAL spec, alcCreateContext with an invalid (e.g. NULL) device
-    // must set ALC_INVALID_DEVICE and return NULL. Farm Frenzy initializes
-    // its sound system, fails ("Unable Initialize sound device!"), then still
-    // calls alcCreateContext(NULL, ...) — the game proceeds silently if we
-    // return NULL here.
+    // must set ALC_INVALID_DEVICE and return NULL.
     let Some(&host_device) = state.devices.get(&device) else {
         log!(
             "Warning: alcCreateContext({:?}, ...) called with unknown/NULL device, returning NULL",
@@ -265,7 +274,7 @@ fn alcCreateContext(
     let guest_res = env.mem.alloc_and_write(GuestALCcontext { _filler: 0 });
 
     log_dbg!(
-        "alcCreateContext({:?}, NULL) => {:?} (хост: {:?})",
+        "alcCreateContext({:?}, ...) => {:?} (хост: {:?})",
         device,
         guest_res,
         ctx,

@@ -275,6 +275,22 @@ Other options:
         Enabling this option may solve some rendering issues, but implies
         a performance hit which is undesirable in most of the cases.
 
+    --prefer-gles2-context
+        Force EAGL initWithAPI: to create an OpenGL ES 2.0 context even when
+        the app requested an OpenGL ES 1.1 context.
+
+        Some apps (e.g. Lego Ninjago Spinjitzu Scavenger Hunt) ask EAGL for an
+        ES 1.1 context but actually drive rendering with shader entry points
+        such as glUseProgram and glCreateShader. Without this flag, on real
+        ES drivers (e.g. Adreno / Mali on Android) those calls fall through
+        to the GLES 1.1-only stubs and the app renders an empty (black)
+        frame even though its render loop is alive.
+
+        Apps that legitimately rely on the ES 1.1 fixed-function pipeline
+        (glMatrixMode, glColor4f, glEnableClientState, glVertexPointer, …)
+        should NOT enable this flag, because real ES 2.0 has no fixed-function
+        pipeline.
+
     --allow-network-access
         Allow apps running in touchHLE to access the Internet and the local network.
 
@@ -283,6 +299,28 @@ Other options:
         This only affects return value of glGetError as seen by the guest
         and nothing else. Should be enabled only for apps which really
         need this behaviour.
+
+    --trace-gl-errors
+        For diagnostic builds. After every guest GL call dispatched through
+        the GLES wrapper, also log the host driver's glGetError() value when
+        non-zero. The log line includes the name of the offending entry
+        point so that constant 0x500 (GL_INVALID_ENUM) / 0x501
+        (GL_INVALID_VALUE) noise can be traced back to a specific call.
+        This option exists for debugging black-screen / wrong-render bugs
+        and adds a glGetError() round-trip per call, so it should not be
+        left on for normal use.
+
+    --fix-texture-min-filter
+        Workaround for apps that rely on the default ES 1.1
+        GL_TEXTURE_MIN_FILTER (GL_NEAREST_MIPMAP_LINEAR) being usable
+        on a level-0-only texture. With this flag, after every
+        glTexImage2D(level=0) call HyperHLE issues an extra
+        glTexParameteri(GL_TEXTURE_MIN_FILTER, GL_LINEAR) so that
+        strict drivers (notably Qualcomm Adreno's native ES 1.1 path)
+        don't sample the texture as opaque black just because no
+        mipmaps were uploaded. The guest's own glTexParameteri calls
+        still override this. Apps that legitimately upload mipmaps
+        should NOT enable this flag.
 
     --zero-stack-after-guest-to-host-call=<bytes>
         After a guest-to-host call returns, zero out the given number of

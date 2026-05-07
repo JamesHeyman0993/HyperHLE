@@ -88,6 +88,17 @@ pub trait GLES {
     fn is_es2(&self) -> bool {
         false
     }
+    /// Returns `true` if this backend is a real (native) OpenGL ES 1.1 driver,
+    /// i.e. one that strictly enforces the ES 1.1 spec and rejects desktop-GL
+    /// enums. The desktop GL 2.1 emulation backend (`gles1_on_gl2`) returns
+    /// `false` because it accepts the broader GL 2.1 enum set. Used by
+    /// `present_renderbuffer` to skip state queries / state restores for
+    /// enums that are part of GL 2.1 but not part of ES 1.1 (e.g.
+    /// `GL_COLOR_LOGIC_OP`), which would otherwise generate `GL_INVALID_ENUM`
+    /// on a strict native driver and pollute the GL error queue.
+    fn is_native_es1(&self) -> bool {
+        false
+    }
     // Generic state manipulation
     unsafe fn GetError(&mut self) -> GLenum {
         unimplemented!("GetError not implemented by this backend")

@@ -813,4 +813,21 @@ unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u
         gles11::TEXTURE_MAG_FILTER,
         gles11::LINEAR as _,
     );
+    // Force CLAMP_TO_EDGE on both axes. The CAEAGLLayer pixel buffers we
+    // upload here are virtually always NPOT (e.g. 480x320, 320x480), and
+    // strict ES 1.1 drivers without GL_OES_texture_npot only support NPOT
+    // textures with CLAMP_TO_EDGE wrapping; with GL_REPEAT the texture is
+    // "incomplete" and samples as (0,0,0,1), making the whole composited
+    // window appear black on Mali and similar tile-based GPUs even though
+    // more permissive drivers (Mesa Zink, desktop GL) silently accept it.
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_WRAP_S,
+        gles11::CLAMP_TO_EDGE as _,
+    );
+    gles.TexParameteri(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_WRAP_T,
+        gles11::CLAMP_TO_EDGE as _,
+    );
 }

@@ -58,6 +58,8 @@ where
         );
         return U::default();
     }
+    let trace = env.options.trace_gl_errors;
+    let caller = std::panic::Location::caller();
     let mut gles = super::sync_context(
         &mut env.framework_state.opengles,
         &mut env.objc,
@@ -67,6 +69,18 @@ where
         env.current_thread,
     );
     let res = f(gles.as_mut(), &mut env.mem);
+    if trace {
+        let err = unsafe { gles.GetError() };
+        if err != 0 {
+            log!(
+                "[--trace-gl-errors] glGetError() = {:#x} after host GLES call \
+                 dispatched from {}:{}",
+                err,
+                caller.file(),
+                caller.line()
+            );
+        }
+    }
     #[allow(clippy::let_and_return)]
     res
 }
@@ -76,6 +90,8 @@ fn with_ctx_and_mem_no_skip<T, U>(env: &mut Environment, f: T) -> U
 where
     T: FnOnce(&mut dyn GLES, &mut Mem) -> U,
 {
+    let trace = env.options.trace_gl_errors;
+    let caller = std::panic::Location::caller();
     let mut gles = super::sync_context(
         &mut env.framework_state.opengles,
         &mut env.objc,
@@ -85,6 +101,18 @@ where
         env.current_thread,
     );
     let res = f(gles.as_mut(), &mut env.mem);
+    if trace {
+        let err = unsafe { gles.GetError() };
+        if err != 0 {
+            log!(
+                "[--trace-gl-errors] glGetError() = {:#x} after host GLES call \
+                 dispatched from {}:{}",
+                err,
+                caller.file(),
+                caller.line()
+            );
+        }
+    }
     #[allow(clippy::let_and_return)]
     res
 }
@@ -331,6 +359,19 @@ fn glShadeModel(env: &mut Environment, mode: GLenum) {
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.ShadeModel(mode) })
 }
 fn glScissor(env: &mut Environment, x: GLint, y: GLint, width: GLsizei, height: GLsizei) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glScissor({}, {}, {}, {}) [this log will only be shown once]",
+                x,
+                y,
+                width,
+                height
+            );
+        }
+    }
     let factor = env.options.scale_hack.get() as GLsizei;
     let (x, y) = (x * factor, y * factor);
     let (width, height) = (width * factor, height * factor);
@@ -339,6 +380,19 @@ fn glScissor(env: &mut Environment, x: GLint, y: GLint, width: GLsizei, height: 
     })
 }
 fn glViewport(env: &mut Environment, x: GLint, y: GLint, width: GLsizei, height: GLsizei) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glViewport({}, {}, {}, {}) [this log will only be shown once]",
+                x,
+                y,
+                width,
+                height
+            );
+        }
+    }
     let factor = env.options.scale_hack.get() as GLsizei;
     let (x, y) = (x * factor, y * factor);
     let (width, height) = (width * factor, height * factor);
@@ -754,6 +808,16 @@ fn glGetBufferPointervOES(
 }
 
 fn glDrawArrays(env: &mut Environment, mode: GLenum, first: GLint, count: GLsizei) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glDrawArrays(mode=0x{:x}, first={}, count={}) (app submitting first draw) [this log will only be shown once]",
+                mode, first, count
+            );
+        }
+    }
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         let fog_state_backup = clamp_fog_state_values(gles);
         gles.DrawArrays(mode, first, count);
@@ -767,6 +831,16 @@ fn glDrawElements(
     type_: GLenum,
     indices: ConstVoidPtr,
 ) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glDrawElements(mode=0x{:x}, count={}, type=0x{:x}) (app submitting first indexed draw) [this log will only be shown once]",
+                mode, count, type_
+            );
+        }
+    }
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let fog_state_backup = clamp_fog_state_values(gles);
         let indices = translate_pointer_or_offset_to_host(
@@ -781,6 +855,16 @@ fn glDrawElements(
 }
 
 fn glClear(env: &mut Environment, mask: GLbitfield) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glClear(mask=0x{:x}) [this log will only be shown once]",
+                mask
+            );
+        }
+    }
     with_ctx_and_mem(env, |gles, _mem| unsafe { gles.Clear(mask) });
 }
 fn glClearColor(
@@ -790,6 +874,19 @@ fn glClearColor(
     blue: GLclampf,
     alpha: GLclampf,
 ) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glClearColor({}, {}, {}, {}) [this log will only be shown once]",
+                red,
+                green,
+                blue,
+                alpha
+            );
+        }
+    }
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.ClearColor(red, green, blue, alpha)
     });
@@ -981,10 +1078,64 @@ fn glBindTexture(env: &mut Environment, target: GLenum, texture: GLuint) {
         gles.BindTexture(target, texture)
     })
 }
+/// If `pname` is `GL_TEXTURE_MIN_FILTER` and `param` is a mipmap min-filter
+/// (e.g. `GL_NEAREST_MIPMAP_LINEAR`), return the closest non-mipmap value
+/// (`GL_NEAREST` or `GL_LINEAR`). Otherwise return `param` unchanged.
+///
+/// On strict ES 1.1 drivers (notably ARM Mali r32p1) a texture that only had
+/// level 0 uploaded becomes "incomplete" the moment the guest sets a mipmap
+/// min-filter, and sampling such a texture returns black — which made the
+/// LEGO Ninjago title menu render as a uniform-black quad on Mali-G57 MC2,
+/// even though the LEGO splash logo (whose textures kept the touchHLE-forced
+/// GL_LINEAR override from glTexImage2D) rendered fine.
+fn demipmap_filter_value(pname: GLenum, param: GLint) -> GLint {
+    if pname != gles11::TEXTURE_MIN_FILTER {
+        return param;
+    }
+    let p = param as GLenum;
+    let demipmapped = match p {
+        gles11::NEAREST_MIPMAP_NEAREST | gles11::NEAREST_MIPMAP_LINEAR => gles11::NEAREST,
+        gles11::LINEAR_MIPMAP_NEAREST | gles11::LINEAR_MIPMAP_LINEAR => gles11::LINEAR,
+        _ => return param,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SEEN: AtomicBool = AtomicBool::new(false);
+    if !SEEN.swap(true, Ordering::Relaxed) {
+        log!(
+            "First fix_texture_min_filter override: substituting guest's \
+             glTexParameter(GL_TEXTURE_MIN_FILTER, 0x{:x}) with 0x{:x} \
+             (mipmap modes leave the texture incomplete on strict ES 1.1 \
+             drivers like Mali r32p1, which then samples them as black) \
+             [this log will only be shown once]",
+            p,
+            demipmapped
+        );
+    }
+    demipmapped as GLint
+}
+
+fn maybe_demipmap_min_filter(env: &Environment, pname: GLenum, param: GLint) -> GLint {
+    if !env.options.fix_texture_min_filter {
+        return param;
+    }
+    demipmap_filter_value(pname, param)
+}
+
 fn glTexParameteri(env: &mut Environment, target: GLenum, pname: GLenum, param: GLint) {
+    {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SEEN: AtomicBool = AtomicBool::new(false);
+        if !SEEN.swap(true, Ordering::Relaxed) {
+            log!(
+                "First glTexParameteri(target=0x{:x}, pname=0x{:x}, param=0x{:x}) [this log will only be shown once]",
+                target, pname, param as u32
+            );
+        }
+    }
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    let param = maybe_demipmap_min_filter(env, pname, param);
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.TexParameteri(target, pname, param)
     })
@@ -993,6 +1144,9 @@ fn glTexParameterf(env: &mut Environment, target: GLenum, pname: GLenum, param: 
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    // Floats can also be used to pass enum-valued min-filter params (an
+    // OpenGL quirk), so route them through the same substitution.
+    let param = maybe_demipmap_min_filter(env, pname, param as GLint) as GLfloat;
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.TexParameterf(target, pname, param)
     })
@@ -1001,6 +1155,8 @@ fn glTexParameterx(env: &mut Environment, target: GLenum, pname: GLenum, param: 
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    // Fixed-point can also encode enum values; route through substitution.
+    let param = maybe_demipmap_min_filter(env, pname, param) as GLfixed;
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.TexParameterx(target, pname, param)
     })
@@ -1009,9 +1165,19 @@ fn glTexParameteriv(env: &mut Environment, target: GLenum, pname: GLenum, params
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    let fix_min_filter = env.options.fix_texture_min_filter && pname == gles11::TEXTURE_MIN_FILTER;
     with_ctx_and_mem(env, |gles, mem| unsafe {
-        let params = mem.ptr_at(params, 1);
-        gles.TexParameteriv(target, pname, params)
+        let params_ptr = mem.ptr_at(params, 1);
+        if fix_min_filter {
+            let original: GLint = *params_ptr;
+            let substituted = demipmap_filter_value(pname, original);
+            if substituted != original {
+                let v = [substituted];
+                gles.TexParameteriv(target, pname, v.as_ptr());
+                return;
+            }
+        }
+        gles.TexParameteriv(target, pname, params_ptr)
     })
 }
 fn glTexParameterfv(
@@ -1023,9 +1189,19 @@ fn glTexParameterfv(
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    let fix_min_filter = env.options.fix_texture_min_filter && pname == gles11::TEXTURE_MIN_FILTER;
     with_ctx_and_mem(env, |gles, mem| unsafe {
-        let params = mem.ptr_at(params, 1);
-        gles.TexParameterfv(target, pname, params)
+        let params_ptr = mem.ptr_at(params, 1);
+        if fix_min_filter {
+            let original: GLfloat = *params_ptr;
+            let substituted = demipmap_filter_value(pname, original as GLint) as GLfloat;
+            if substituted != original {
+                let v = [substituted];
+                gles.TexParameterfv(target, pname, v.as_ptr());
+                return;
+            }
+        }
+        gles.TexParameterfv(target, pname, params_ptr)
     })
 }
 fn glTexParameterxv(
@@ -1037,9 +1213,19 @@ fn glTexParameterxv(
     if pname == gles11::TEXTURE_CROP_RECT_OES {
         return;
     }
+    let fix_min_filter = env.options.fix_texture_min_filter && pname == gles11::TEXTURE_MIN_FILTER;
     with_ctx_and_mem(env, |gles, mem| unsafe {
-        let params = mem.ptr_at(params, 1);
-        gles.TexParameterxv(target, pname, params)
+        let params_ptr = mem.ptr_at(params, 1);
+        if fix_min_filter {
+            let original: GLfixed = *params_ptr;
+            let substituted = demipmap_filter_value(pname, original) as GLfixed;
+            if substituted != original {
+                let v = [substituted];
+                gles.TexParameterxv(target, pname, v.as_ptr());
+                return;
+            }
+        }
+        gles.TexParameterxv(target, pname, params_ptr)
     })
 }
 fn image_size_estimate(pixel_count: GuestUSize, format: GLenum, type_: GLenum) -> GuestUSize {
@@ -1080,6 +1266,7 @@ fn glTexImage2D(
             );
         }
     }
+    let fix_filter = env.options.fix_texture_min_filter && level == 0;
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let pixels = if pixels.is_null() {
             std::ptr::null()
@@ -1098,7 +1285,23 @@ fn glTexImage2D(
             format,
             type_,
             pixels,
-        )
+        );
+        if fix_filter {
+            // Set GL_TEXTURE_MIN_FILTER to GL_LINEAR for the bound
+            // texture so it isn't sampled as opaque black on strict
+            // ES 1.1 drivers (notably Qualcomm Adreno) just because
+            // the guest never bothered to override the default
+            // GL_NEAREST_MIPMAP_LINEAR. The guest's own
+            // glTexParameteri(GL_TEXTURE_MIN_FILTER, …) will override
+            // this on subsequent calls — see Options::fix_texture_min_filter.
+            static SEEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SEEN.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                log!(
+                    "First fix_texture_min_filter override: forcing GL_TEXTURE_MIN_FILTER=GL_LINEAR after glTexImage2D(level=0) [this log will only be shown once]"
+                );
+            }
+            gles.TexParameteri(target, gles11::TEXTURE_MIN_FILTER, gles11::LINEAR as GLint);
+        }
     })
 }
 fn glTexSubImage2D(
@@ -1143,6 +1346,7 @@ fn glCompressedTexImage2D(
             );
         }
     }
+    let fix_filter = env.options.fix_texture_min_filter && level == 0;
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = mem
             .ptr_at(data.cast::<u8>(), image_size.try_into().unwrap())
@@ -1156,7 +1360,10 @@ fn glCompressedTexImage2D(
             border,
             image_size,
             data,
-        )
+        );
+        if fix_filter {
+            gles.TexParameteri(target, gles11::TEXTURE_MIN_FILTER, gles11::LINEAR as GLint);
+        }
     })
 }
 fn glCopyTexImage2D(
@@ -1852,6 +2059,100 @@ fn glGetProgramInfoLog(
         }
     });
 }
+fn glGetActiveUniform(
+    env: &mut Environment,
+    program: GLuint,
+    index: GLuint,
+    bufSize: GLsizei,
+    length: MutPtr<GLsizei>,
+    size: MutPtr<GLint>,
+    type_: MutPtr<GLenum>,
+    name: MutPtr<GLubyte>,
+) {
+    with_ctx_and_mem(env, |gles, mem| unsafe {
+        if bufSize <= 0 {
+            if !length.is_null() {
+                mem.write(length, 0);
+            }
+            return;
+        }
+        let mut host_length: GLsizei = 0;
+        let mut host_size: GLint = 0;
+        let mut host_type: GLenum = 0;
+        let mut buf: Vec<u8> = vec![0u8; bufSize as usize];
+        gles.GetActiveUniform(
+            program,
+            index,
+            bufSize,
+            &mut host_length,
+            &mut host_size,
+            &mut host_type,
+            buf.as_mut_ptr().cast(),
+        );
+        if !length.is_null() {
+            mem.write(length, host_length);
+        }
+        if !size.is_null() {
+            mem.write(size, host_size);
+        }
+        if !type_.is_null() {
+            mem.write(type_, host_type);
+        }
+        if !name.is_null() && host_length >= 0 {
+            let count = host_length as usize + 1;
+            let count = count.min(buf.len()).min(bufSize as usize);
+            let dst = mem.ptr_at_mut(name, count.try_into().unwrap_or(0));
+            std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, count);
+        }
+    });
+}
+fn glGetActiveAttrib(
+    env: &mut Environment,
+    program: GLuint,
+    index: GLuint,
+    bufSize: GLsizei,
+    length: MutPtr<GLsizei>,
+    size: MutPtr<GLint>,
+    type_: MutPtr<GLenum>,
+    name: MutPtr<GLubyte>,
+) {
+    with_ctx_and_mem(env, |gles, mem| unsafe {
+        if bufSize <= 0 {
+            if !length.is_null() {
+                mem.write(length, 0);
+            }
+            return;
+        }
+        let mut host_length: GLsizei = 0;
+        let mut host_size: GLint = 0;
+        let mut host_type: GLenum = 0;
+        let mut buf: Vec<u8> = vec![0u8; bufSize as usize];
+        gles.GetActiveAttrib(
+            program,
+            index,
+            bufSize,
+            &mut host_length,
+            &mut host_size,
+            &mut host_type,
+            buf.as_mut_ptr().cast(),
+        );
+        if !length.is_null() {
+            mem.write(length, host_length);
+        }
+        if !size.is_null() {
+            mem.write(size, host_size);
+        }
+        if !type_.is_null() {
+            mem.write(type_, host_type);
+        }
+        if !name.is_null() && host_length >= 0 {
+            let count = host_length as usize + 1;
+            let count = count.min(buf.len()).min(bufSize as usize);
+            let dst = mem.ptr_at_mut(name, count.try_into().unwrap_or(0));
+            std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, count);
+        }
+    });
+}
 fn glShaderSource(
     env: &mut Environment,
     shader: GLuint,
@@ -2362,6 +2663,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glGetShaderInfoLog(_, _, _, _)),
     export_c_func!(glGetProgramiv(_, _, _)),
     export_c_func!(glGetProgramInfoLog(_, _, _, _)),
+    export_c_func!(glGetActiveUniform(_, _, _, _, _, _, _)),
+    export_c_func!(glGetActiveAttrib(_, _, _, _, _, _, _)),
     export_c_func!(glShaderSource(_, _, _, _)),
     export_c_func!(glEnableVertexAttribArray(_)),
     export_c_func!(glDisableVertexAttribArray(_)),

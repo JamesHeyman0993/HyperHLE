@@ -82,6 +82,54 @@ pub struct GLES2Native<'gl_ctx> {
     _gl_lifetime: PhantomData<&'gl_ctx ()>,
 }
 
+/// Returns `true` if `cap` is an ES 1.1 fixed-function capability that has
+/// no analogue on ES 2.0 / shader-based pipelines, so feeding it to
+/// `glEnable` / `glDisable` on an ES 2.0 driver would emit
+/// `GL_INVALID_ENUM`. We silently drop those instead, because they
+/// originate from apps that ask EAGL for an ES 1.1 context but actually
+/// use shaders (see `--prefer-gles2-context`) — those apps still
+/// boilerplate-call e.g. `glEnable(GL_TEXTURE_2D)` even though it has no
+/// effect on a shader pipeline.
+fn is_es1_only_capability(cap: GLenum) -> bool {
+    matches!(
+        cap,
+        gles11::TEXTURE_2D
+            | gles11::LIGHTING
+            | gles11::FOG
+            | gles11::ALPHA_TEST
+            | gles11::COLOR_MATERIAL
+            | gles11::RESCALE_NORMAL
+            | gles11::NORMALIZE
+            | gles11::POINT_SMOOTH
+            | gles11::LINE_SMOOTH
+            // Lighting state arrays
+            | gles11::COLOR_ARRAY
+            | gles11::NORMAL_ARRAY
+            | gles11::VERTEX_ARRAY
+            | gles11::TEXTURE_COORD_ARRAY
+    ) || (
+        // GL_LIGHT0 .. GL_LIGHT7 (0x4000 .. 0x4007)
+        (0x4000..=0x4007).contains(&cap)
+    ) || (
+        // GL_CLIP_PLANE0 .. GL_CLIP_PLANE5 (0x3000 .. 0x3005)
+        (0x3000..=0x3005).contains(&cap)
+    )
+}
+
+/// Same idea as [is_es1_only_capability] but for `glHint` targets that
+/// only exist in ES 1.1.
+fn is_es1_only_hint_target(target: GLenum) -> bool {
+    matches!(
+        target,
+        gles11::PERSPECTIVE_CORRECTION_HINT
+            | gles11::FOG_HINT
+            | gles11::POINT_SMOOTH_HINT
+            | gles11::LINE_SMOOTH_HINT
+    )
+    // Note: GENERATE_MIPMAP_HINT (0x8192) is also valid on ES 2.0
+    // (carried over from EXT_framebuffer_object) so we do NOT drop it.
+}
+
 #[allow(clippy::missing_safety_doc)]
 impl GLES for GLES2Native<'_> {
     fn is_es2(&self) -> bool {
@@ -105,12 +153,21 @@ impl GLES for GLES2Native<'_> {
         gles2::GetError()
     }
     unsafe fn Enable(&mut self, cap: GLenum) {
+        if is_es1_only_capability(cap) {
+            return;
+        }
         gles2::Enable(cap)
     }
     unsafe fn IsEnabled(&mut self, cap: GLenum) -> GLboolean {
+        if is_es1_only_capability(cap) {
+            return gles2::FALSE;
+        }
         gles2::IsEnabled(cap)
     }
     unsafe fn Disable(&mut self, cap: GLenum) {
+        if is_es1_only_capability(cap) {
+            return;
+        }
         gles2::Disable(cap)
     }
     unsafe fn GetBooleanv(&mut self, pname: GLenum, params: *mut GLboolean) {
@@ -123,6 +180,9 @@ impl GLES for GLES2Native<'_> {
         gles2::GetIntegerv(pname, params)
     }
     unsafe fn Hint(&mut self, target: GLenum, mode: GLenum) {
+        if is_es1_only_hint_target(target) {
+            return;
+        }
         gles2::Hint(target, mode)
     }
     unsafe fn Finish(&mut self) {
@@ -284,15 +344,43 @@ impl GLES for GLES2Native<'_> {
         gles2::BindTexture(target, texture)
     }
     unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
+        // GL_GENERATE_MIPMAP (0x8191) is a TexParameter pname only on ES 1.1.
+        // On ES 2.0 the equivalent is the standalone glGenerateMipmap() call.
+        // Apps that ask for an ES 1.1 context but rely on shaders frequently
+        // still use the ES 1.1 form; redirect it transparently.
+        if pname == gles11::GENERATE_MIPMAP {
+            if param != 0 {
+                gles2::GenerateMipmap(target);
+            }
+            return;
+        }
         gles2::TexParameteri(target, pname, param)
     }
     unsafe fn TexParameterf(&mut self, target: GLenum, pname: GLenum, param: GLfloat) {
+        if pname == gles11::GENERATE_MIPMAP {
+            if param != 0.0 {
+                gles2::GenerateMipmap(target);
+            }
+            return;
+        }
         gles2::TexParameterf(target, pname, param)
     }
     unsafe fn TexParameteriv(&mut self, target: GLenum, pname: GLenum, params: *const GLint) {
+        if pname == gles11::GENERATE_MIPMAP {
+            if !params.is_null() && *params != 0 {
+                gles2::GenerateMipmap(target);
+            }
+            return;
+        }
         gles2::TexParameteriv(target, pname, params)
     }
     unsafe fn TexParameterfv(&mut self, target: GLenum, pname: GLenum, params: *const GLfloat) {
+        if pname == gles11::GENERATE_MIPMAP {
+            if !params.is_null() && *params != 0.0 {
+                gles2::GenerateMipmap(target);
+            }
+            return;
+        }
         gles2::TexParameterfv(target, pname, params)
     }
     #[allow(clippy::too_many_arguments)]
@@ -467,6 +555,33 @@ impl GLES for GLES2Native<'_> {
     }
     unsafe fn GetBufferParameteriv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {
         gles2::GetBufferParameteriv(target, pname, params)
+    }
+    // Buffer mapping (`GL_OES_mapbuffer`).
+    //
+    // On real ES 2.0+ drivers (Adreno, Mali, …) the `GL_OES_mapbuffer`
+    // extension is widely supported, so we can route the OES entry points
+    // straight to the extension functions loaded via `gles2::load_with`. Some
+    // games (e.g. LEGO Ninjago Spinjitzu Scavenger Hunt) call these even when
+    // they asked EAGL for an ES 1.1 context — combined with
+    // `--prefer-gles2-context`, they end up here.
+    unsafe fn MapBufferOES(&mut self, target: GLenum, access: GLenum) -> *mut GLvoid {
+        if gles2::MapBufferOES::is_loaded() {
+            gles2::MapBufferOES(target, access)
+        } else {
+            log!(
+                "Warning: glMapBufferOES called but GL_OES_mapbuffer is not \
+                 available on this ES 2.0 driver; returning NULL"
+            );
+            std::ptr::null_mut()
+        }
+    }
+    unsafe fn UnmapBufferOES(&mut self, target: GLenum) -> GLboolean {
+        if gles2::UnmapBufferOES::is_loaded() {
+            gles2::UnmapBufferOES(target)
+        } else {
+            // Caller will fall back to its own write-through copy.
+            gles2::FALSE
+        }
     }
 
     // Framebuffers / renderbuffers (mapped via OES naming → core ES 2 calls)

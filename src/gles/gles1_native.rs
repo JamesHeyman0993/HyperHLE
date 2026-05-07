@@ -77,6 +77,9 @@ pub struct GLES1Native<'gl_ctx> {
 }
 
 impl GLES for GLES1Native<'_> {
+    fn is_native_es1(&self) -> bool {
+        true
+    }
     unsafe fn driver_description(&self) -> String {
         let version = CStr::from_ptr(gles11::GetString(gles11::VERSION) as *const _);
         let vendor = CStr::from_ptr(gles11::GetString(gles11::VENDOR) as *const _);

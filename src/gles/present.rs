@@ -75,9 +75,28 @@ pub unsafe fn present_frame(
     let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
     gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
     gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
-    let matrix = Matrix::<4>::from(&rotation_matrix);
+    // Apply the device-rotation matrix to the TEXTURE matrix, but rotate
+    // around the centre of the tex coord square (0.5, 0.5) instead of the
+    // origin. The naive `LoadMatrixf(rotation_matrix)` rotates around (0, 0),
+    // which sends standard [0, 1]² UVs out of range — e.g. for a 90° rotation
+    // (v, -u) reaches v' = -u ∈ [-1, 0]. On lenient drivers (Mesa, Apple
+    // PowerVR) GL_REPEAT wrap quietly maps that back into [0, 1], but
+    // strict drivers (Qualcomm Adreno's native ES 1.1 path) treat the
+    // resulting sample of an NPOT texture (renderbuffer is typically
+    // 320x480) as undefined and produce a mangled / black presented
+    // frame. Pre- and post-translating by (0.5, 0.5) keeps tex coords in
+    // [0, 1]² for any 90°/180°/270°/identity device rotation while
+    // producing the same visual output as before on lenient drivers.
+    let r = Matrix::<4>::from(&rotation_matrix);
+    let to_center = Matrix::<4>::translate_3d(-0.5, -0.5, 0.0);
+    let from_center = Matrix::<4>::translate_3d(0.5, 0.5, 0.0);
+    // Note: Matrix::multiply(&other) computes `other · self` in
+    // linear-algebra terms (other is applied AFTER self), so to get
+    // `from_center · r · to_center` we chain in the order
+    // to_center.multiply(&r).multiply(&from_center).
+    let centered_rotation = to_center.multiply(&r).multiply(&from_center);
     gles.MatrixMode(gles11::TEXTURE);
-    gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
+    gles.LoadMatrixf(centered_rotation.columns().as_ptr() as *const _);
     gles.Enable(gles11::TEXTURE_2D);
     gles.DrawArrays(gles11::TRIANGLES, 0, 6);
     // clean this up so we don't need to worry about it in e.g. Core Animation

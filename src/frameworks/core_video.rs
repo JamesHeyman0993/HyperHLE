@@ -1,7 +1,78 @@
-use crate::dyld::{HostDylib, HostFunction};
+use crate::dyld::{ConstantExports, HostConstant, HostDylib, HostFunction};
 use crate::mem::{ConstPtr, GuestUSize, MutPtr, MutVoidPtr};
 use crate::Environment;
 use std::sync::Mutex;
+
+// CoreVideo NSString-typed constants used by capture / pixel-buffer APIs.
+// Exposed as Mach-O symbols (e.g. `extern NSString * const kCVPixelBufferPixelFormatTypeKey`).
+pub const kCVPixelBufferPixelFormatTypeKey: &str = "PixelFormatType";
+pub const kCVPixelBufferWidthKey: &str = "Width";
+pub const kCVPixelBufferHeightKey: &str = "Height";
+pub const kCVPixelBufferBytesPerRowAlignmentKey: &str = "BytesPerRowAlignment";
+pub const kCVPixelBufferCGImageCompatibilityKey: &str = "CGImageCompatibility";
+pub const kCVPixelBufferCGBitmapContextCompatibilityKey: &str = "CGBitmapContextCompatibility";
+pub const kCVPixelBufferOpenGLESCompatibilityKey: &str = "OpenGLESCompatibility";
+pub const kCVPixelBufferIOSurfacePropertiesKey: &str = "IOSurfaceProperties";
+pub const kCVPixelBufferPlaneAlignmentKey: &str = "PlaneAlignment";
+pub const kCVPixelBufferExtendedPixelsLeftKey: &str = "ExtendedPixelsLeft";
+pub const kCVPixelBufferExtendedPixelsTopKey: &str = "ExtendedPixelsTop";
+pub const kCVPixelBufferExtendedPixelsRightKey: &str = "ExtendedPixelsRight";
+pub const kCVPixelBufferExtendedPixelsBottomKey: &str = "ExtendedPixelsBottom";
+
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_kCVPixelBufferPixelFormatTypeKey",
+        HostConstant::NSString(kCVPixelBufferPixelFormatTypeKey),
+    ),
+    (
+        "_kCVPixelBufferWidthKey",
+        HostConstant::NSString(kCVPixelBufferWidthKey),
+    ),
+    (
+        "_kCVPixelBufferHeightKey",
+        HostConstant::NSString(kCVPixelBufferHeightKey),
+    ),
+    (
+        "_kCVPixelBufferBytesPerRowAlignmentKey",
+        HostConstant::NSString(kCVPixelBufferBytesPerRowAlignmentKey),
+    ),
+    (
+        "_kCVPixelBufferCGImageCompatibilityKey",
+        HostConstant::NSString(kCVPixelBufferCGImageCompatibilityKey),
+    ),
+    (
+        "_kCVPixelBufferCGBitmapContextCompatibilityKey",
+        HostConstant::NSString(kCVPixelBufferCGBitmapContextCompatibilityKey),
+    ),
+    (
+        "_kCVPixelBufferOpenGLESCompatibilityKey",
+        HostConstant::NSString(kCVPixelBufferOpenGLESCompatibilityKey),
+    ),
+    (
+        "_kCVPixelBufferIOSurfacePropertiesKey",
+        HostConstant::NSString(kCVPixelBufferIOSurfacePropertiesKey),
+    ),
+    (
+        "_kCVPixelBufferPlaneAlignmentKey",
+        HostConstant::NSString(kCVPixelBufferPlaneAlignmentKey),
+    ),
+    (
+        "_kCVPixelBufferExtendedPixelsLeftKey",
+        HostConstant::NSString(kCVPixelBufferExtendedPixelsLeftKey),
+    ),
+    (
+        "_kCVPixelBufferExtendedPixelsTopKey",
+        HostConstant::NSString(kCVPixelBufferExtendedPixelsTopKey),
+    ),
+    (
+        "_kCVPixelBufferExtendedPixelsRightKey",
+        HostConstant::NSString(kCVPixelBufferExtendedPixelsRightKey),
+    ),
+    (
+        "_kCVPixelBufferExtendedPixelsBottomKey",
+        HostConstant::NSString(kCVPixelBufferExtendedPixelsBottomKey),
+    ),
+];
 
 // Структура для управления pixel buffer в памяти гостя
 struct PixelBufferInfo {
@@ -514,5 +585,5 @@ pub const DYLIB: HostDylib = HostDylib {
     aliases: &[],
     function_exports: &[FUNCTIONS],
     class_exports: &[],
-    constant_exports: &[],
+    constant_exports: &[CONSTANTS],
 };

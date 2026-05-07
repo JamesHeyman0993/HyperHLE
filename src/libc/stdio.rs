@@ -758,6 +758,31 @@ fn fileno(env: &mut Environment, file_ptr: MutPtr<FILE>) -> posix_io::FileDescri
     fd
 }
 
+/// `flockfile()` — acquire ownership of a FILE stream for thread-safe I/O.
+///
+/// Since the emulator is single-threaded, this is a no-op, but it is a proper
+/// implementation: in a single-threaded context the calling thread always has
+/// exclusive access to the FILE.
+fn flockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {
+    log_dbg!("flockfile({:?}) (no-op, single-threaded)", _file_ptr);
+}
+
+/// `funlockfile()` — release ownership of a FILE stream.
+///
+/// Counterpart to `flockfile()`. Single-threaded no-op.
+fn funlockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {
+    log_dbg!("funlockfile({:?}) (no-op, single-threaded)", _file_ptr);
+}
+
+/// `ftrylockfile()` — try to acquire ownership of a FILE stream.
+///
+/// Returns 0 on success. In a single-threaded emulator the lock is always
+/// available, so this always succeeds.
+fn ftrylockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) -> i32 {
+    log_dbg!("ftrylockfile({:?}) => 0 (no-op, single-threaded)", _file_ptr);
+    0 // success
+}
+                
 pub const CONSTANTS: ConstantExports = &[
     (
         "___stdinp",
@@ -816,4 +841,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(setvbuf(_, _, _, _)),
     // POSIX-specific functions
     export_c_func!(fileno(_)),
+    export_c_func!(flockfile(_)),
+    export_c_func!(funlockfile(_)),
+    export_c_func!(ftrylockfile(_)),
 ];

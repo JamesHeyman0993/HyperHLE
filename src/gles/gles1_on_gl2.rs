@@ -81,6 +81,18 @@ pub const UNSUPPORTED_CAPABILITIES: &[GLenum] = &[
     gl21::TEXTURE,
 ];
 
+/// Subset of [CAPABILITIES] that is part of desktop OpenGL 2.1 but NOT part of
+/// the OpenGL ES 1.1 spec. A strict native ES 1.1 driver (e.g. ARM Mali on
+/// Android) will return `GL_INVALID_ENUM` from `glEnable`, `glDisable` and
+/// `glGetBooleanv` when handed any of these enums. The GL 2.1 emulation
+/// backend [`super::gles1_on_gl2::GLES1OnGL2`] accepts them all because it
+/// runs on a desktop GL 2.1 driver. Use [`super::GLES::is_native_es1`] to
+/// decide whether to skip these in present-time state save/restore loops.
+pub const CAPABILITIES_GL21_ONLY: &[GLenum] = &[
+    // ES 1.1 has no logical-op stage; this enum is desktop-only.
+    gl21::COLOR_LOGIC_OP,
+];
+
 pub struct ArrayInfo {
     /// Enum used by `glEnableClientState`, `glDisableClientState` and
     /// `glGetBoolean`.
