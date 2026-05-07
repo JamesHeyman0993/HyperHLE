@@ -502,8 +502,29 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)isExclusiveTouch { env.objc.borrow::<UIViewHostObject>(this).exclusive_touch }
 - (())setExclusiveTouch:(bool)exclusive { env.objc.borrow_mut::<UIViewHostObject>(this).exclusive_touch = exclusive; }
 
-- (())layoutSubviews { }
+- (())layoutSubviews {
+    // 1. Get the current bounds of THIS view
+    let bounds: CGRect = msg![env; this bounds];
+    
+    // 2. Clone the subviews list to avoid borrow checker issues during the loop
+    let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
 
+    for subview in subviews {
+        let autoresizing_mask = env.objc.borrow::<UIViewHostObject>(subview).autoresizing_mask;
+        
+        // If the subview has an autoresizing mask, we need to trigger its resize.
+        // For now, we tell the subview to match the parent's layout.
+        if autoresizing_mask != 0 {
+            // This triggers the internal UIKit resize logic
+            let _: () = msg![env; subview setNeedsLayout];
+        }
+    }
+    
+    // 3. IMPORTANT: Tell the layer to refresh
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    let _: () = msg![env; layer setNeedsDisplay];
+}
+    
 // MARK: - Gesture recognizers
 //
 // These methods just track recognizers in a `Vec<id>`. Gesture recognition is
