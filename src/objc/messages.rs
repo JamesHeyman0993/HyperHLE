@@ -224,38 +224,8 @@ fn objc_msgSend_inner(
     loop {
         if class == nil {
             assert!(class != orig_class);
-            let class_host_object = env.objc.get_host_object(orig_class).unwrap();
-            let &super::ClassHostObject {
-                ref name,
-                is_metaclass,
-                ..
-            } = class_host_object.as_any().downcast_ref().unwrap();
-
-            // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: заменили panic! на log! (мягкий фейл
-            // форка) ---
+                    let Some(host_object) = env.objc.get_host_object(class) else {
             log!(
-                "Warning: {} {:?} ({}class \"{}\", {:?}){} does not respond to selector \"{}\"! Returning 0.",
-                if is_metaclass { "Class" } else { "Object" },
-                receiver,
-                if is_metaclass { "meta" } else { "" },
-                name,
-                orig_class,
-                if super2.is_some() {
-                    "'s superclass"
-                } else {
-                    ""
-                },
-                selector.as_str(&env.mem),
-            );
-
-            // Имитируем возврат nil/0, чтобы приложение продолжило работу
-            env.cpu.regs_mut()[0..2].fill(0);
-            return;
-            // ------------------------------------------------------------
-        }
-
-        let Some(host_object) = env.objc.get_host_object(class) else {
-            log_dbg!(
                 "Warning: class {:?} in superclass chain of {:?} has no host object — stopping dispatch",
                 class, receiver
             );
@@ -263,12 +233,11 @@ fn objc_msgSend_inner(
             return;
         };
 
-        if let Some(&super::ClassHostObject {
-            superclass,
-            ref methods,
-            ref name,
-            ..
-        }) = host_object.as_any().downcast_ref()
+        if let Some(co) = host_object.as_any().downcast_ref::<super::ClassHostObject>() {
+            let superclass = co.superclass;
+            let methods = &co.methods;
+            let name = &co.name;
+            
         {
             // Skip method lookup on first iteration if this is the super-call
             // variant of objc_msgSend (look up the superclass first)
@@ -553,6 +522,14 @@ where
     (R, P): MsgSendSignature,
     R: GuestRet,
 {
+    // NUCLEAR SAFETY
+    let receiver_ptr = &args as *const P as *const id;
+    unsafe {
+        if *receiver_ptr == nil {
+            return R::from_uintptr(0);
+        }
+    }
+
     if R::SIZE_IN_MEM.is_some() {
         (_touchHLE_objc_msgSend_stret_tolerant as fn(&mut Environment, MutVoidPtr, id, SEL))
             .call_from_host(env, args)
@@ -633,20 +610,29 @@ impl<
 
 /// [msg_send] but for super-calls (calls [objc_msgSendSuper2]). You probably
 /// want to use [msg_super] rather than calling this directly.
-pub fn msg_send_super2<R, P>(env: &mut Environment, args: P) -> R
+pub fn msg_send<R, P>(env: &mut Environment, args: P) -> R
 where
-    fn(&mut Environment, ConstPtr<objc_super>, SEL): CallFromHost<R, P>,
-    fn(&mut Environment, MutVoidPtr, ConstPtr<objc_super>, SEL): CallFromHost<R, P>,
-    (R, P): MsgSendSuperSignature,
+    fn(&mut Environment, id, SEL): CallFromHost<R, P>,
+    fn(&mut Environment, MutVoidPtr, id, SEL): CallFromHost<R, P>,
+    (R, P): MsgSendSignature,
     R: GuestRet,
 {
+    // NUCLEAR SAFETY: If the receiver is nil, Objective-C rules say return 0/nil.
+    // We use a bit of unsafe/raw pointer magic here to check the receiver 
+    // because P is a generic tuple.
+    let receiver_ptr = &args as *const P as *const id;
+    unsafe {
+        if *receiver_ptr == nil {
+            return R::from_uintptr(0);
+        }
+    }
+
     // Provide type info for dynamic type checking.
-    env.objc.message_type_info = Some(<(R, P) as MsgSendSuperSignature>::WithoutSuper::type_info());
+    env.objc.message_type_info = Some(<(R, P) as MsgSendSignature>::type_info());
     if R::SIZE_IN_MEM.is_some() {
-        todo!() // no stret yet
+        (objc_msgSend_stret as fn(&mut Environment, MutVoidPtr, id, SEL)).call_from_host(env, args)
     } else {
-        (objc_msgSendSuper2 as fn(&mut Environment, ConstPtr<objc_super>, SEL))
-            .call_from_host(env, args)
+        (objc_msgSend as fn(&mut Environment, id, SEL)).call_from_host(env, args)
     }
 }
 
