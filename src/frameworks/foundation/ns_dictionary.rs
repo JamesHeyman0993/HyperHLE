@@ -398,7 +398,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 // - (NSEnumerator*)keyEnumerator
 // We can pick whichever subclass we want for the various alloc methods.
 // For the time being, that will always be _touchHLE_NSDictionary.
-
+    
 @implementation NSDictionary: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
@@ -410,10 +410,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)dictionary {
     let new_dict: id = msg![env; this alloc];
-    let initialized: id = msg![env; new_dict init];
-    autorelease(env, initialized)
+    let new_dict: id = msg![env; new_dict init];
+    autorelease(env, new_dict)
 }
-    
+
 + (id)dictionaryWithObject:(id)object forKey:(id)key {
     assert_ne!(key, nil); // TODO: raise proper exception
 
@@ -484,22 +484,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
-    let path_str = ns_string::to_rust_string(env, path);
-    let result = deserialize_plist_from_file(
+    let path = ns_string::to_rust_string(env, path);
+    deserialize_plist_from_file(
         env,
-        GuestPath::new(&path_str),
+        GuestPath::new(&path),
         /* array_expected: */ false,
-    );
-    
-    if result == nil {
-        log!("Warning: File not found at {}. Faking empty dict to bypass Super Hack.", path_str);
-        let empty_dict: id = msg_class![env; _touchHLE_NSDictionary alloc];
-        let initialized: id = msg![env; empty_dict init]; // Explicit type
-        return initialized;
-    }
-    result
+    )
 }
-       
 - (id)initWithContentsOfURL:(id)url { // NSURL*
     release(env, this);
     let path = ns_url::to_rust_path(env, url);
@@ -618,11 +609,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; key_array count];
     for i in 0..count {
         let key: id = msg![env; key_array objectAtIndex:i];
-        // FIX: Explicitly tell Rust this returns 'unit' (nothing)
-        let _: () = msg![env; this removeObjectForKey:key];
+        () = msg![env; this removeObjectForKey:key];
     }
 }
-    
+
 @end
 
 // Our private subclass that is the single implementation of NSDictionary for
@@ -644,11 +634,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)init {
-    let mut host_obj = <DictionaryHostObject as Default>::default();
-    *env.objc.borrow_mut::<DictionaryHostObject>(this) = host_obj;
+    *env.objc.borrow_mut(this) = <DictionaryHostObject as Default>::default();
     this
 }
-    
+
 - (id)initWithDictionary:(id)dictionary {
     init_with_dictionary_common(env, this, dictionary)
 }
@@ -669,22 +658,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 // TODO: enumeration, more init methods, etc
 
 - (NSUInteger)count {
-    if this == nil {
-        return 0;
-    }
     env.objc.borrow::<DictionaryHostObject>(this).count
 }
-       
 - (id)objectForKey:(id)key {
-    if this == nil {
-        return nil;
-    }
     let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
     res
 }
-    
+
 - (id)allKeys {
     all_keys_common(env, this)
 }
@@ -816,7 +798,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithObjects:(ConstPtr<id>)objects
               forKeys:(ConstPtr<id>)keys
                 count:(NSUInteger)count {
-    init_with_objects_for_keys_count_common(env, this, objects, keys, count)
+                    init_with_objects_for_keys_count_common(env, this, objects, keys, count)
 }
 
 // TODO: enumeration, more init methods, etc
@@ -825,15 +807,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<DictionaryHostObject>(this).count
 }
 - (id)objectForKey:(id)key {
-    if this == nil { 
-        return nil; 
-    }
     let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     let res = host_obj.lookup(env, key);
     *env.objc.borrow_mut(this) = host_obj;
     res
 }
-    
+
 // NSCoding implementation
 - (())encodeWithCoder:(id)coder {
     let class: Class = msg![env; coder class];
@@ -914,25 +893,40 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setValue:(id)value
         forKey:(id)key { // NSString *
+    // TODO: assert that key is a string when using key-value coding
     if value == nil {
-        let _: () = msg![env; this removeObjectForKey:key];
+        msg![env; this removeObjectForKey:key]
     } else {
-        let _: () = msg![env; this setObject:value forKey:key];
+        msg![env; this setObject:value forKey:key]
     }
-        }
-       
+}
+
 - (())setObject:(id)object
              forKey:(id)key {
-    if this == nil {
-        log!("Warning: Ignored setObject:forKey: on a nil dictionary to prevent crash.");
-        return;
+        // Если объект nil, по правилам iOS должно быть исключение
+        // NSInvalidArgumentException.
+        // Чтобы не ронять эмулятор паникой, логируем ошибку и прерываем
+        // добавление.
+        if object == nil {
+            let key_str = if key != nil {
+                crate::frameworks::foundation::ns_string::to_rust_string(env, key).to_string()
+            } else {
+                "nil".to_string()
+            };
+            log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to insert nil object for key {} — ignoring", key_str);
+            return;
+        }
+
+        if key == nil {
+            log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to use nil key — ignoring");
+            return;
+        }
+
+        let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+        host_obj.insert(env, key, object, /* copy_key: */ true);
+        *env.objc.borrow_mut(this) = host_obj;
     }
-    // ... existing nil checks for object and key ...
-    let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
-    host_obj.insert(env, key, object, /* copy_key: */ true);
-    *env.objc.borrow_mut(this) = host_obj;
-             }
-    
+
 - (())removeObjectForKey:(id)key {
     if key.is_null() {
         log!("Warning: [NSMutableDictionary removeObjectForKey:] key is nil — ignored");
@@ -1060,19 +1054,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining setObject:forKey:] attempt to use nil key — ignoring");
         return;
     }
-    
+
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.insert(env, key, object);
     *env.objc.borrow_mut(this) = host_obj;
 }
 
 - (())removeObjectForKey:(id)key {
-    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей 
+    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей
     if key == nil {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining removeObjectForKey:] key is nil — ignored");
         return;
     }
-    
+
     let mut host_obj: CFDictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     host_obj.remove(env, key);
     *env.objc.borrow_mut(this) = host_obj;
@@ -1161,4 +1155,4 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     let desc_imm = msg![env; desc copy];
     release(env, desc);
     autorelease(env, desc_imm)
-}
+        }
