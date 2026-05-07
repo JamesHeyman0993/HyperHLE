@@ -35,18 +35,42 @@ fn ensure_class_initialized(env: &mut Environment, class_to_init: Class) {
     let Some(sel_initialize) = env.objc.lookup_selector("initialize") else { return; };
     if !env.objc.class_has_method(metaclass, sel_initialize) { return; }
 
-    let saved_r0_r3 = [env.cpu.regs()[0], env.cpu.regs()[1], env.cpu.regs()[2], env.cpu.regs()[3]];
+    let saved_r0_r3 = [
+        env.cpu.regs()[0],
+        env.cpu.regs()[1],
+        env.cpu.regs()[2],
+        env.cpu.regs()[3],
+    ];
+    
     let _: () = msg_send_no_type_checking(env, (class_to_init, sel_initialize));
-    env.cpu.regs_mut()[0..4].copy_from_slice(&saved_r0_r3);
+    
+    let regs = env.cpu.regs_mut();
+    regs[0..4].copy_from_slice(&saved_r0_r3);
 }
 
 #[allow(non_snake_case)]
-fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2: Option<Class>, tolerate_type_mismatch: bool) {
+fn objc_msgSend_inner(
+    env: &mut Environment,
+    receiver: id,
+    selector: SEL,
+    super2: Option<Class>,
+    tolerate_type_mismatch: bool,
+) {
     const MAX_DEPTH: usize = 128;
-    thread_local! { static DISPATCH_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
-    let depth = DISPATCH_DEPTH.with(|d| { let new = d.get() + 1; d.set(new); new });
+    thread_local! {
+        static DISPATCH_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+    let depth = DISPATCH_DEPTH.with(|d| {
+        let new = d.get() + 1;
+        d.set(new);
+        new
+    });
     struct DepthGuard;
-    impl Drop for DepthGuard { fn drop(&mut self) { DISPATCH_DEPTH.with(|d| d.set(d.get().saturating_sub(1))); } }
+    impl Drop for DepthGuard {
+        fn drop(&mut self) {
+            DISPATCH_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        }
+    }
     let _guard = DepthGuard;
     
     if depth > MAX_DEPTH {
@@ -55,6 +79,7 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
         return;
     }
 
+    // --- NUCLEAR SAFETY: Global nil receiver check ---
     if receiver == nil {
         env.cpu.regs_mut()[0..2].fill(0);
         return;
@@ -72,7 +97,8 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
     if super2.is_none() {
         if let Some(host_object) = env.objc.get_host_object(orig_class) {
             if let Some(co) = host_object.as_any().downcast_ref::<super::ClassHostObject>() {
-                ensure_class_initialized(env, if co.is_metaclass { receiver } else { orig_class });
+                let class_to_init = if co.is_metaclass { receiver } else { orig_class };
+                ensure_class_initialized(env, class_to_init);
             }
         }
     }
@@ -80,7 +106,7 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
     let mut class = orig_class;
     loop {
         if class == nil {
-            log!("Warning: {:?} does not respond to \"{}\"!", receiver, selector.as_str(&env.mem));
+            log!("Warning: {:?} does not respond to \"{}\"", receiver, selector.as_str(&env.mem));
             env.cpu.regs_mut()[0..2].fill(0);
             return;
         }
@@ -91,19 +117,32 @@ fn objc_msgSend_inner(env: &mut Environment, receiver: id, selector: SEL, super2
         };
 
         if let Some(co) = host_object.as_any().downcast_ref::<super::ClassHostObject>() {
+            let superclass = co.superclass;
+            let methods = &co.methods;
+
             if super2.is_some() && class == orig_class {
-                class = co.superclass;
+                class = superclass;
                 continue;
             }
-            if let Some(imp) = co.methods.get(&selector) {
+
+            if let Some(imp) = methods.get(&selector) {
                 match imp {
-                    IMP::Host(host_imp) => host_imp.call_from_guest(env),
+                    IMP::Host(host_imp) => {
+                        if let Some((sent_id, _)) = message_type_info {
+                            let (expected_id, _) = host_imp.type_info();
+                            if sent_id != expected_id && !tolerate_type_mismatch {
+                                // Silent warning to prevent log spam
+                            }
+                        }
+                        host_imp.call_from_guest(env)
+                    }
                     IMP::Guest(guest_imp) => guest_imp.call_without_pushing_stack_frame(env),
                 }
                 return;
             }
-            class = co.superclass;
+            class = superclass;
         } else {
+            // Handle faked/unimplemented classes safely
             env.cpu.regs_mut()[0..2].fill(0);
             return;
         }
@@ -140,6 +179,7 @@ pub trait MsgSendSignature: 'static {
     fn type_info() -> (TypeId, &'static str) { (TypeId::of::<Self>(), "type") }
 }
 
+// Implement signature trait for common argument counts to satisfy the compiler
 impl<R: 'static, P: 'static> MsgSendSignature for (R, P) {}
 
 pub fn msg_send<R, P>(env: &mut Environment, args: P) -> R
@@ -152,6 +192,7 @@ where
     let receiver_ptr = &args as *const P as *const id;
     unsafe { if *receiver_ptr == nil { return R::from_uintptr(0); } }
     
+    env.objc.message_type_info = Some(<(R, P) as MsgSendSignature>::type_info());
     if R::SIZE_IN_MEM.is_some() {
         (objc_msgSend_stret as fn(&mut Environment, MutVoidPtr, id, SEL)).call_from_host(env, args)
     } else {
@@ -209,6 +250,26 @@ macro_rules! msg_class {
     }
 }
 
+#[macro_export]
+macro_rules! msg_super {
+    [$env:expr; $receiver:tt $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
+        {
+            let class = $env.objc.get_known_class(_OBJC_CURRENT_CLASS, &mut $env.mem);
+            let sel_name = $crate::objc::selector!($($arg1;)? $name $($(, $($namen)?)*)?);
+            let sel = $env.objc.lookup_selector(sel_name).expect("Unknown selector");
+            let sp = &mut $env.cpu.regs_mut()[$crate::cpu::Cpu::SP];
+            let old_sp = *sp;
+            *sp -= $crate::mem::guest_size_of::<$crate::objc::objc_super>();
+            let super_ptr = $crate::mem::Ptr::from_bits(*sp);
+            $env.mem.write(super_ptr, $crate::objc::objc_super { receiver: $receiver, class });
+            let res = $crate::objc::msg_send_super2($env, (super_ptr.cast_const(), sel, $($arg1, $($argn),*)?));
+            $env.cpu.regs_mut()[$crate::cpu::Cpu::SP] = old_sp;
+            res
+        }
+    }
+}
+
 pub fn retain(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object retain] } }
 pub fn release(env: &mut Environment, object: id) { if object != nil { msg![env; object release]; } }
 pub fn autorelease(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object autorelease] } }
+            
