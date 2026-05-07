@@ -490,14 +490,16 @@ pub const CLASSES: ClassExports = objc_classes! {
         GuestPath::new(&path_str),
         /* array_expected: */ false,
     );
+    
     if result == nil {
         log!("Warning: File not found at {}. Faking empty dict to bypass Super Hack.", path_str);
         let empty_dict: id = msg_class![env; _touchHLE_NSDictionary alloc];
-        return msg![env; empty_dict init];
+        let initialized: id = msg![env; empty_dict init]; // Explicit type
+        return initialized;
     }
     result
 }
-    
+       
 - (id)initWithContentsOfURL:(id)url { // NSURL*
     release(env, this);
     let path = ns_url::to_rust_path(env, url);
@@ -616,10 +618,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; key_array count];
     for i in 0..count {
         let key: id = msg![env; key_array objectAtIndex:i];
-        () = msg![env; this removeObjectForKey:key];
+        // FIX: Explicitly tell Rust this returns 'unit' (nothing)
+        let _: () = msg![env; this removeObjectForKey:key];
     }
 }
-
+    
 @end
 
 // Our private subclass that is the single implementation of NSDictionary for
@@ -901,12 +904,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setValue:(id)value
         forKey:(id)key { // NSString *
     if value == nil {
-        msg![env; this removeObjectForKey:key];
+        let _: () = msg![env; this removeObjectForKey:key];
     } else {
-        msg![env; this setObject:value forKey:key];
+        let _: () = msg![env; this setObject:value forKey:key];
     }
         }
-    
+       
 - (())setObject:(id)object
              forKey:(id)key {
         // Если объект nil, по правилам iOS должно быть исключение
