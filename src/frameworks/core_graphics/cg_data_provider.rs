@@ -209,13 +209,26 @@ fn CGDataProviderCreateWithFilename(
 ) -> CGDataProviderRef {
     let path_str = env.mem.cstr_at_utf8(filename).unwrap_or("").to_string();
     log_dbg!("CGDataProviderCreateWithFilename: {}", path_str);
-    let Ok(bytes) = env.fs.read(GuestPath::new(&path_str)) else {
+        let Ok(bytes) = env.fs.read(GuestPath::new(&path_str)) else {
         log!(
-            "Warning: CGDataProviderCreateWithFilename: couldn't read {:?}",
+            "HACK: CGDataProviderCreateWithFilename: couldn't read {:?}, returning empty provider to prevent crash",
             path_str
         );
-        return nil; // <- was std::ptr::null()
+        // Create a 1-byte dummy buffer so the provider isn't empty/null
+        let dummy_bytes = vec![0u8; 1];
+        let len: GuestUSize = 1;
+        let buf = env.mem.alloc(len);
+        env.mem.bytes_at_mut(buf.cast(), len).copy_from_slice(&dummy_bytes);
+
+        return CGDataProviderCreateWithData(
+            env,
+            MutVoidPtr::null(),
+            buf.cast_const().cast(),
+            len,
+            GuestFunction::null_ptr(),
+        );
     };
+    
     let len: GuestUSize = bytes.len().try_into().unwrap();
     let buf = env.mem.alloc(len);
     env.mem
@@ -247,13 +260,17 @@ fn CGDataProviderGetSize(env: &mut Environment, provider: CGDataProviderRef) -> 
     }
 }
 
-fn CGDataProviderCreateSequential(
-    _env: &mut Environment,
+fn CGDataProviderCreateDirect(
+    env: &mut Environment,
     _info: MutVoidPtr,
+    size: i64,
     _callbacks: ConstVoidPtr,
 ) -> CGDataProviderRef {
-    log!("Warning: CGDataProviderCreateSequential is not supported, returning null");
-    nil // <- was std::ptr::null()
+    log!("HACK: CGDataProviderCreateDirect returning empty dummy");
+    // Just create a blank data provider of the requested size
+    let len = size as GuestUSize;
+    let buf = env.mem.alloc(len);
+    CGDataProviderCreateWithData(env, MutVoidPtr::null(), buf.cast_const().cast(), len, GuestFunction::null_ptr())
 }
 
 fn CGDataProviderCreateDirect(
