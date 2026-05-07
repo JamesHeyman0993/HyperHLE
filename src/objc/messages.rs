@@ -79,7 +79,6 @@ fn objc_msgSend_inner(
         return;
     }
 
-    // --- NUCLEAR SAFETY: Global nil receiver check ---
     if receiver == nil {
         env.cpu.regs_mut()[0..2].fill(0);
         return;
@@ -118,20 +117,18 @@ fn objc_msgSend_inner(
 
         if let Some(co) = host_object.as_any().downcast_ref::<super::ClassHostObject>() {
             let superclass = co.superclass;
-            let methods = &co.methods;
-
             if super2.is_some() && class == orig_class {
                 class = superclass;
                 continue;
             }
 
-            if let Some(imp) = methods.get(&selector) {
+            if let Some(imp) = co.methods.get(&selector) {
                 match imp {
                     IMP::Host(host_imp) => {
                         if let Some((sent_id, _)) = message_type_info {
                             let (expected_id, _) = host_imp.type_info();
                             if sent_id != expected_id && !tolerate_type_mismatch {
-                                // Silent warning to prevent log spam
+                                // mismatch handled silently
                             }
                         }
                         host_imp.call_from_guest(env)
@@ -142,7 +139,6 @@ fn objc_msgSend_inner(
             }
             class = superclass;
         } else {
-            // Handle faked/unimplemented classes safely
             env.cpu.regs_mut()[0..2].fill(0);
             return;
         }
@@ -175,12 +171,22 @@ pub(super) fn objc_msgSendSuper2(env: &mut Environment, super_ptr: ConstPtr<objc
     objc_msgSend_inner(env, receiver, selector, Some(class), false)
 }
 
+pub(super) fn objc_msgSendSuper2_stret(env: &mut Environment, _stret: MutVoidPtr, super_ptr: ConstPtr<objc_super>, selector: SEL) {
+    objc_msgSendSuper2(env, super_ptr, selector)
+}
+
 pub trait MsgSendSignature: 'static {
     fn type_info() -> (TypeId, &'static str) { (TypeId::of::<Self>(), "type") }
 }
 
-// Implement signature trait for common argument counts to satisfy the compiler
-impl<R: 'static, P: 'static> MsgSendSignature for (R, P) {}
+// RESTORED: Explicit implementations to avoid E0119 conflict
+impl<R: 'static> MsgSendSignature for (R, (id, SEL)) {}
+impl<R: 'static, P1: 'static> MsgSendSignature for (R, (id, SEL, P1)) {}
+impl<R: 'static, P1: 'static, P2: 'static> MsgSendSignature for (R, (id, SEL, P1, P2)) {}
+impl<R: 'static, P1: 'static, P2: 'static, P3: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3)) {}
+impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4)) {}
+impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static, P5: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4, P5)) {}
+impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static, P5: 'static, P6: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4, P5, P6)) {}
 
 pub fn msg_send<R, P>(env: &mut Environment, args: P) -> R
 where
@@ -190,7 +196,7 @@ where
     R: GuestRet,
 {
     let receiver_ptr = &args as *const P as *const id;
-    unsafe { if *receiver_ptr == nil { return R::from_uintptr(0); } }
+    unsafe { if *receiver_ptr == nil { return R::from_guest(0, &env.mem); } }
     
     env.objc.message_type_info = Some(<(R, P) as MsgSendSignature>::type_info());
     if R::SIZE_IN_MEM.is_some() {
@@ -208,7 +214,7 @@ where
     R: GuestRet,
 {
     let receiver_ptr = &args as *const P as *const id;
-    unsafe { if *receiver_ptr == nil { return R::from_uintptr(0); } }
+    unsafe { if *receiver_ptr == nil { return R::from_guest(0, &env.mem); } }
 
     if R::SIZE_IN_MEM.is_some() {
         (_touchHLE_objc_msgSend_stret_tolerant as fn(&mut Environment, MutVoidPtr, id, SEL)).call_from_host(env, args)
@@ -218,15 +224,24 @@ where
 }
 
 pub trait MsgSendSuperSignature: 'static { type WithoutSuper: MsgSendSignature; }
-impl<R: 'static, P: 'static> MsgSendSuperSignature for (R, P) { type WithoutSuper = (R, id); }
+impl<R: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL)) { type WithoutSuper = (R, (id, SEL)); }
+impl<R: 'static, P1: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1)) { type WithoutSuper = (R, (id, SEL, P1)); }
+impl<R: 'static, P1: 'static, P2: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1, P2)) { type WithoutSuper = (R, (id, SEL, P1, P2)); }
+impl<R: 'static, P1: 'static, P2: 'static, P3: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1, P2, P3)) { type WithoutSuper = (R, (id, SEL, P1, P2, P3)); }
 
 pub fn msg_send_super2<R, P>(env: &mut Environment, args: P) -> R
 where
     fn(&mut Environment, ConstPtr<objc_super>, SEL): CallFromHost<R, P>,
+    fn(&mut Environment, MutVoidPtr, ConstPtr<objc_super>, SEL): CallFromHost<R, P>,
     (R, P): MsgSendSuperSignature,
     R: GuestRet,
 {
-    (objc_msgSendSuper2 as fn(&mut Environment, ConstPtr<objc_super>, SEL)).call_from_host(env, args)
+    env.objc.message_type_info = Some(<(R, P) as MsgSendSuperSignature>::WithoutSuper::type_info());
+    if R::SIZE_IN_MEM.is_some() {
+        (objc_msgSendSuper2_stret as fn(&mut Environment, MutVoidPtr, ConstPtr<objc_super>, SEL)).call_from_host(env, args)
+    } else {
+        (objc_msgSendSuper2 as fn(&mut Environment, ConstPtr<objc_super>, SEL)).call_from_host(env, args)
+    }
 }
 
 #[macro_export]
@@ -272,4 +287,4 @@ macro_rules! msg_super {
 pub fn retain(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object retain] } }
 pub fn release(env: &mut Environment, object: id) { if object != nil { msg![env; object release]; } }
 pub fn autorelease(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object autorelease] } }
-            
+    
