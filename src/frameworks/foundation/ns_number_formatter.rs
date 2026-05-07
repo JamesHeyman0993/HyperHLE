@@ -17,6 +17,7 @@ struct NSNumberFormatterHostObject {
     uses_grouping_separator: bool,
     minimum_fraction_digits: NSUInteger,
     maximum_fraction_digits: NSUInteger,
+    positive_format: id, // Added to track custom formatting strings
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
@@ -38,6 +39,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         uses_grouping_separator: false,
         minimum_fraction_digits: 0,
         maximum_fraction_digits: 0,
+        positive_format: nil,
     };
     env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
 }
@@ -52,6 +54,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     env.objc.dealloc_object(this, &mut env.mem)
+}
+
+// FIX: Added to satisfy Gumball's setup phase
+- (())setFormatterBehavior:(NSUInteger)behavior {
+    log!("Stub: [NSNumberFormatter setFormatterBehavior:{}]", behavior);
+}
+
+// FIX: Added support for positiveFormat
+- (id)positiveFormat {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).positive_format
+}
+
+- (())setPositiveFormat:(id)format {
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).positive_format = format;
 }
 
 - (NSUInteger)numberStyle {
