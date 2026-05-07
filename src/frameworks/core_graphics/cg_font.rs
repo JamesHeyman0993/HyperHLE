@@ -96,12 +96,22 @@ fn CGFontCreateCopyWithVariations(
 }
 
 /// `CGFontRef CGFontCreateWithDataProvider(CGDataProviderRef provider)`
-fn CGFontCreateWithDataProvider(_env: &mut Environment, provider: CFTypeRef) -> CGFontRef {
+fn CGFontCreateWithDataProvider(env: &mut Environment, provider: CFTypeRef) -> CGFontRef {
     log!(
-        "TODO: CGFontCreateWithDataProvider({:?}) — returning NULL",
+        "HACK: CGFontCreateWithDataProvider({:?}) — falling back to system font to prevent crash",
         provider
     );
-    Ptr::null()
+    
+    // Instead of null, we call our internal helper to get a default font.
+    // We pass nil as the name to trigger the system font fallback in font_from_name.
+    let font = font_from_name(env, nil);
+    
+    if font == nil {
+        return Ptr::null();
+    }
+    
+    retain(env, font);
+    font
 }
 
 // =========================================================================
