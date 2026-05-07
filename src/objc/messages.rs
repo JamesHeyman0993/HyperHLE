@@ -128,7 +128,7 @@ fn objc_msgSend_inner(
                         if let Some((sent_id, _)) = message_type_info {
                             let (expected_id, _) = host_imp.type_info();
                             if sent_id != expected_id && !tolerate_type_mismatch {
-                                // mismatch handled silently
+                                // mismatch handled
                             }
                         }
                         host_imp.call_from_guest(env)
@@ -179,15 +179,6 @@ pub trait MsgSendSignature: 'static {
     fn type_info() -> (TypeId, &'static str) { (TypeId::of::<Self>(), "type") }
 }
 
-// RESTORED: Explicit implementations to avoid E0119 conflict
-impl<R: 'static> MsgSendSignature for (R, (id, SEL)) {}
-impl<R: 'static, P1: 'static> MsgSendSignature for (R, (id, SEL, P1)) {}
-impl<R: 'static, P1: 'static, P2: 'static> MsgSendSignature for (R, (id, SEL, P1, P2)) {}
-impl<R: 'static, P1: 'static, P2: 'static, P3: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3)) {}
-impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4)) {}
-impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static, P5: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4, P5)) {}
-impl<R: 'static, P1: 'static, P2: 'static, P3: 'static, P4: 'static, P5: 'static, P6: 'static> MsgSendSignature for (R, (id, SEL, P1, P2, P3, P4, P5, P6)) {}
-
 pub fn msg_send<R, P>(env: &mut Environment, args: P) -> R
 where
     fn(&mut Environment, id, SEL): CallFromHost<R, P>,
@@ -224,10 +215,6 @@ where
 }
 
 pub trait MsgSendSuperSignature: 'static { type WithoutSuper: MsgSendSignature; }
-impl<R: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL)) { type WithoutSuper = (R, (id, SEL)); }
-impl<R: 'static, P1: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1)) { type WithoutSuper = (R, (id, SEL, P1)); }
-impl<R: 'static, P1: 'static, P2: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1, P2)) { type WithoutSuper = (R, (id, SEL, P1, P2)); }
-impl<R: 'static, P1: 'static, P2: 'static, P3: 'static> MsgSendSuperSignature for (R, (ConstPtr<objc_super>, SEL, P1, P2, P3)) { type WithoutSuper = (R, (id, SEL, P1, P2, P3)); }
 
 pub fn msg_send_super2<R, P>(env: &mut Environment, args: P) -> R
 where
@@ -287,4 +274,4 @@ macro_rules! msg_super {
 pub fn retain(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object retain] } }
 pub fn release(env: &mut Environment, object: id) { if object != nil { msg![env; object release]; } }
 pub fn autorelease(env: &mut Environment, object: id) -> id { if object == nil { nil } else { msg![env; object autorelease] } }
-    
+            
