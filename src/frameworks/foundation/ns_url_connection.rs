@@ -112,8 +112,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // --- START HACK ---
     if request != nil {
-        if let Some(url) = msg![env; request URL] {
-            // Pointing directly to foundation::ns_string where it is public
+        // Get the URL as a raw 'id' instead of using 'if let Some'
+        let url: id = msg![env; request URL];
+        
+        if url != nil {
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, url);
             
             if url_str.contains("localfeed.xml") {
@@ -153,6 +155,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let empty_data: id = msg_class![env; NSData data];
     empty_data
                        }
+    
     
 // MARK: - Asynchronous API
 
