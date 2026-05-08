@@ -182,21 +182,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api {
-    if api != kEAGLRenderingAPIOpenGLES1 && api != kEAGLRenderingAPIOpenGLES2 {
-        log!(
-            "TODO: App requested EAGL initWithAPI:{}, returning nil as we only support API 1 and 2",
-            api
-        );
+    // Log what the game actually wants
+    log!("EAGL initWithAPI: {} requested", api);
+
+    // FORCE REDIRECTION: If the game wants 2, we give it 1.
+    // This prevents the GLES2 null-pointer crash at 0x20.
+    let forced_api = if api == kEAGLRenderingAPIOpenGLES2 {
+        log!("HACK: Downgrading Thor from GLES2 to GLES1 to prevent crash.");
+        kEAGLRenderingAPIOpenGLES1
+    } else {
+        api
+    };
+
+    if forced_api != kEAGLRenderingAPIOpenGLES1 && forced_api != kEAGLRenderingAPIOpenGLES2 {
         return nil;
     }
 
-    let effective_api = effective_eagl_api(api, env.options.prefer_gles2_context);
-
-    let mut gles_ins = if effective_api == kEAGLRenderingAPIOpenGLES2 {
-        create_gles2_ctx(env)
-    } else {
-        create_gles1_ctx(env)
-    };
+    // We skip 'effective_eagl_api' and go straight to GLES1
+    let mut gles_ins = create_gles1_ctx(env);
 
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
@@ -205,11 +208,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles_ins);
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).api = effective_api;
+    env.objc.borrow_mut::<EAGLContextHostObject>(this).api = forced_api;
 
     this
 }
-
+    
 - (EAGLRenderingAPI)API {
     env.objc.borrow::<EAGLContextHostObject>(this).api
 }
