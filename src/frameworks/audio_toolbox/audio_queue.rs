@@ -158,6 +158,10 @@ pub fn AudioQueueNewOutput(
     };
 
     let mut format = env.mem.read(in_format);
+
+    // --- GAME SPECIFIC HACKS START ---
+
+    // 1. C&C Red Alert Hack
     if env.bundle.bundle_identifier().starts_with("com.ea.candcra")
         && format.format_id == fourcc(b".mp3")
     {
@@ -172,8 +176,22 @@ pub fn AudioQueueNewOutput(
             channels_per_frame: 2,
             bits_per_channel: 16,
             _reserved: 0,
-        }
+        };
     }
+
+    // 2. FIFA 11 Hack: Fix "non-sensical" Stereo 16-bit PCM
+    // The game reports 2 bytes per frame for stereo, but 16-bit stereo MUST be 4 bytes.
+    if format.format_id == kAudioFormatLinearPCM 
+        && format.channels_per_frame == 2 
+        && format.bits_per_channel == 16 
+        && format.bytes_per_frame == 2 
+    {
+        log!("Applying FIFA 11 hack: Correcting bytes_per_frame/packet from 2 to 4 for Stereo 16-bit.");
+        format.bytes_per_frame = 4;
+        format.bytes_per_packet = 4;
+    }
+
+    // --- GAME SPECIFIC HACKS END ---
 
     let host_object = AudioQueueHostObject {
         format,
@@ -205,7 +223,7 @@ pub fn AudioQueueNewOutput(
     log_if_broken_audio_format(&format);
 
     if !is_supported_audio_format(&format) {
-        log_dbg!("Warning: Audio queue {:?} will be ignored because its format is not yet supported: {:#?}", aq_ref, format);
+        log!("Warning: Audio queue {:?} will be ignored because its format is still not supported: {:#?}", aq_ref, format);
     }
 
     log_dbg!(
