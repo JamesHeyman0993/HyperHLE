@@ -179,10 +179,9 @@ pub const CLASSES: ClassExports = objc_classes! {
              delegate:(id)delegate
      startImmediately:(bool)start_immediately {
 
+    // --- MODIFIED: Never return nil to prevent FIFA/EA crashes ---
     if request == nil {
-        log!("NSURLConnection initWithRequest: nil request — returning nil");
-        release(env, this);
-        return nil;
+        log!("NSURLConnection initWithRequest: nil request — Returning dummy object to prevent crash");
     }
 
     log!(
@@ -198,22 +197,11 @@ pub const CLASSES: ClassExports = objc_classes! {
         host.cancelled = false;
     }
 
-    if start_immediately {
-        // Do NOT call the delegate failure callback synchronously.
-        // Calling it immediately during initWithRequest: triggers the game's
-        // error-handling code before the render loop is set up, which can
-        // leave the app in a broken state (white screen). Instead, silently
-        // drop the request — the app will eventually time out or proceed
-        // without the network data.
-        log!(
-            "NSURLConnection: request will silently fail \
-             (networking not supported in touchHLE)"
-        );
-    }
-
+    // If request was nil, we still return 'this' (the allocated object)
+    // so the game doesn't crash on a null pointer.
     this
-}
-
+     }
+    
 // MARK: - Instance methods
 
 - (())start {
