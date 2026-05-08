@@ -294,54 +294,6 @@ pub fn AudioQueueAllocateBuffer(
 ) -> OSStatus {
     return_if_null!(in_aq);
 
-    if in_buffer_byte_size > 16 * 1024 * 1024 {
-        log!(
-            "Error: AudioQueueAllocateBuffer requested ridiculously large buffer: {:#x} bytes",
-            in_buffer_byte_size
-        );
-        return -50;
-    }
-
-    let host_object = match State::get(&mut env.framework_state)
-        .audio_queues
-        .get_mut(&in_aq)
-    {
-        Some(obj) => obj,
-        None => return 0,
-    };
-
-    let packet_description_capacity =
-        if env.bundle.bundle_identifier().starts_with("com.ea.candcra") {
-            1024
-        } else {
-            0
-        };
-
-    let audio_data = env.mem.alloc(in_buffer_byte_size);
-    let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
-        audio_data_bytes_capacity: in_buffer_byte_size,
-        audio_data,
-        audio_data_byte_size: 0,
-        user_data: Ptr::null(),
-        packet_description_capacity,
-        _packet_descriptions: Ptr::null(),
-        _packet_description_count: 0,
-    });
-
-    host_object.buffers.push(buffer_ptr);
-    env.mem.write(out_buffer, buffer_ptr);
-
-    0 // success
-}
-
-pub fn AudioQueueAllocateBuffer(
-    env: &mut Environment,
-    in_aq: AudioQueueRef,
-    in_buffer_byte_size: GuestUSize,
-    out_buffer: MutPtr<AudioQueueBufferRef>,
-) -> OSStatus {
-    return_if_null!(in_aq);
-
     // 1. Fetch the host object. If this fails, we can't allocate.
     let host_object = match State::get(&mut env.framework_state)
         .audio_queues
