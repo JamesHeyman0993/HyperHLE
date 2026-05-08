@@ -90,7 +90,7 @@ const CLASSES: ClassExports = objc_classes! {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
     
     let cls = env.objc.initialized_classes.iter()
-        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMDeviceMotion")
+        .find(|&&c| env.objc.get_class_name(c) == "CMDeviceMotion")
         .cloned();
 
     if let Some(cls_ptr) = cls {
@@ -107,7 +107,7 @@ const CLASSES: ClassExports = objc_classes! {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
     
     let cls = env.objc.initialized_classes.iter()
-        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMAccelerometerData")
+        .find(|&&c| env.objc.get_class_name(c) == "CMAccelerometerData")
         .cloned();
 
     if let Some(cls_ptr) = cls {
@@ -124,7 +124,7 @@ const CLASSES: ClassExports = objc_classes! {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
     
     let cls = env.objc.initialized_classes.iter()
-        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMGyroData")
+        .find(|&&c| env.objc.get_class_name(c) == "CMGyroData")
         .cloned();
 
     if let Some(cls_ptr) = cls {
@@ -136,7 +136,7 @@ const CLASSES: ClassExports = objc_classes! {
     }
     nil
 }
-                                   
+                                       
 @end
 
 };
