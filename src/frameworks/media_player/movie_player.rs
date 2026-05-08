@@ -499,16 +499,18 @@ UIColor blackColor] // TODO
     // 2. Get the Notification Center
     let nc: id = msg_class![env; NSNotificationCenter defaultCenter];
 
-    // 3. Create the notification name string
-    let name: id = from_rust_string(env, "MPMoviePlayerPlaybackDidFinishNotification".to_string());
+    // 3. Create the notification name string using the full path
+    let name: id = crate::frameworks::foundation::ns_string::from_rust_string(
+        env, 
+        "MPMoviePlayerPlaybackDidFinishNotification".to_string()
+    );
 
     // 4. Post the notification immediately
-    // This tells the game "The video is done, you can enable the buttons now!"
     let _: () = msg![env; nc postNotificationName:name object:this];
 
     this
 }
-    
+       
 @end
 
 };
