@@ -89,11 +89,12 @@ const CLASSES: ClassExports = objc_classes! {
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
     
-    // Use 'initialized_classes' as suggested by the compiler
-    let cls = env.objc.initialized_classes.CMDeviceMotion;
+    // 1. Look up the class pointer from the registry
+    let cls = env.objc.class_get("CMDeviceMotion").expect("CMDeviceMotion class not found");
     
-    // Use 'create_instance' (the common internal name for raw allocation)
-    let stub = env.objc.create_instance(cls);
+    // 2. Create the instance. In many touchHLE versions, this is called 'new_instance_for_class'
+    // or we use the host object allocation directly. Let's try the safest path:
+    let stub = env.objc.borrow_mut::<crate::objc::ObjC>(this).new_instance_for_class(cls);
     
     crate::objc::autorelease(env, stub);
     stub
@@ -101,20 +102,20 @@ const CLASSES: ClassExports = objc_classes! {
 
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
-    let cls = env.objc.initialized_classes.CMAccelerometerData;
-    let stub = env.objc.create_instance(cls);
+    let cls = env.objc.class_get("CMAccelerometerData").expect("CMAccelerometerData class not found");
+    let stub = env.objc.borrow_mut::<crate::objc::ObjC>(this).new_instance_for_class(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)gyroData {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
-    let cls = env.objc.initialized_classes.CMGyroData;
-    let stub = env.objc.create_instance(cls);
+    let cls = env.objc.class_get("CMGyroData").expect("CMGyroData class not found");
+    let stub = env.objc.borrow_mut::<crate::objc::ObjC>(this).new_instance_for_class(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
-            
+                
 @end
 
 };
