@@ -89,11 +89,13 @@ const CLASSES: ClassExports = objc_classes! {
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
     
-    // We get the class pointer by looking it up in the initialized_classes map
-    // We use get_class_by_name which is the standard public way to access that HashSet
-    if let Some(cls) = env.objc.get_class_by_name("CMDeviceMotion") {
+    let cls = env.objc.initialized_classes.iter()
+        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMDeviceMotion")
+        .cloned();
+
+    if let Some(cls_ptr) = cls {
         return env.objc.alloc_object(
-            cls, 
+            cls_ptr, 
             Box::new(crate::objc::TrivialHostObject), 
             &mut env.mem
         );
@@ -103,9 +105,14 @@ const CLASSES: ClassExports = objc_classes! {
 
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
-    if let Some(cls) = env.objc.get_class_by_name("CMAccelerometerData") {
+    
+    let cls = env.objc.initialized_classes.iter()
+        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMAccelerometerData")
+        .cloned();
+
+    if let Some(cls_ptr) = cls {
         return env.objc.alloc_object(
-            cls, 
+            cls_ptr, 
             Box::new(crate::objc::TrivialHostObject), 
             &mut env.mem
         );
@@ -115,16 +122,21 @@ const CLASSES: ClassExports = objc_classes! {
 
 - (id)gyroData {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
-    if let Some(cls) = env.objc.get_class_by_name("CMGyroData") {
+    
+    let cls = env.objc.initialized_classes.iter()
+        .find(|&&c| env.objc.get_class_name(c, &env.mem) == "CMGyroData")
+        .cloned();
+
+    if let Some(cls_ptr) = cls {
         return env.objc.alloc_object(
-            cls, 
+            cls_ptr, 
             Box::new(crate::objc::TrivialHostObject), 
             &mut env.mem
         );
     }
     nil
 }
-                               
+                                   
 @end
 
 };
