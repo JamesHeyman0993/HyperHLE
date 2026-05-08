@@ -594,9 +594,14 @@ pub fn decode_buffer(
     let data_slice = mem.bytes_at(audio_data, audio_data_byte_size);
 
     if !is_supported_audio_format(format) {
-        log!("HACK: Skipping unsupported audio format to prevent panic.");
-        // Return a tiny bit of silence so the system doesn't break
-        return (al::AL_FORMAT_MONO8, format.sample_rate as ALsizei, vec![0; 64]);
+    log!("HACK: Skipping unsupported audio format to prevent panic.");
+    // FIFA 11 might be doing math based on these values. 
+    // Let's return a valid frequency and a non-empty data vector.
+    return (
+        al::AL_FORMAT_MONO16, // Use a standard 16-bit format
+        44100,                // Standard frequency
+        vec![0; 512]         // Give it a larger "silent" buffer (512 bytes)
+    );
     }
     
     match format.format_id {
@@ -1023,22 +1028,20 @@ pub fn AudioQueueStart(
 
     let host_object = state.audio_queues.get_mut(&in_aq).unwrap();
 
-    if is_supported_audio_format(&host_object.format) {
-        host_object.is_running = AudioQueueIsRunning::Running;
+    // Even if the format is unsupported, we MUST mark it as Running
+    // so the game doesn't wait forever or crash.
+    host_object.is_running = AudioQueueIsRunning::Running;
 
-        let al_source = host_object.al_source.unwrap();
-        unsafe { context.SourcePlay(al_source) };
-        assert!(unsafe { context.GetError() } == 0);
+    if is_supported_audio_format(&host_object.format) {
+        if let Some(al_source) = host_object.al_source {
+            unsafe { context.SourcePlay(al_source) };
+            assert!(unsafe { context.GetError() } == 0);
+        }
     } else {
-        log!(
-            "AudioQueueStart: Unsupported format {:?}, not starting",
-            host_object.format
-        );
-        return 0;
+        log!("HACK: AudioQueueStart: Fake-starting unsupported format for FIFA 11 compatibility.");
     }
 
     notify_aq_is_running(env, in_aq);
-
     0 // success
 }
 
