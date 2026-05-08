@@ -87,35 +87,34 @@ const CLASSES: ClassExports = objc_classes! {
 // --- The Crash Fixes ---
 
 - (id)deviceMotion {
-    log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> safe stub", this);
+    log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
     
-    // 1. Get the class. In touchHLE, we use the class name directly from our implementation
-    let cls = env.objc.known_classes.CMDeviceMotion;
+    // Use 'initialized_classes' as suggested by the compiler
+    let cls = env.objc.initialized_classes.CMDeviceMotion;
     
-    // 2. Allocate the object. Instead of .alloc(), we use .new_instance() 
-    // which is the internal way to create a host object without a message send.
-    let stub = env.objc.new_instance(cls);
+    // Use 'create_instance' (the common internal name for raw allocation)
+    let stub = env.objc.create_instance(cls);
     
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)accelerometerData {
-    log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> safe stub", this);
-    let cls = env.objc.known_classes.CMAccelerometerData;
-    let stub = env.objc.new_instance(cls);
+    log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
+    let cls = env.objc.initialized_classes.CMAccelerometerData;
+    let stub = env.objc.create_instance(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)gyroData {
-    log!("HACK: [(CMMotionManager *){:?} gyroData] -> safe stub", this);
-    let cls = env.objc.known_classes.CMGyroData;
-    let stub = env.objc.new_instance(cls);
+    log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
+    let cls = env.objc.initialized_classes.CMGyroData;
+    let stub = env.objc.create_instance(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
-        
+            
 @end
 
 };
