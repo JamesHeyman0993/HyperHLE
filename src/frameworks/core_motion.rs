@@ -86,35 +86,44 @@ const CLASSES: ClassExports = objc_classes! {
 
 // --- The Crash Fixes ---
 
+// --- The Crash Fixes ---
+
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
-    
-    // We dereference env.objc to get the ObjC manager, then call get_class
-    let cls = env.objc.get_class("CMDeviceMotion").expect("CMDeviceMotion class not found");
-    
-    // We use new_instance which is the standard internal allocator
-    let stub = env.objc.new_instance(cls);
-    
-    crate::objc::autorelease(env, stub);
-    stub
+    if let Some(cls) = env.objc.get_class("CMDeviceMotion") {
+        return env.objc.alloc_object(
+            cls, 
+            Box::new(crate::objc::TrivialHostObject), 
+            &mut env.mem
+        );
+    }
+    nil
 }
 
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
-    let cls = env.objc.get_class("CMAccelerometerData").expect("CMAccelerometerData class not found");
-    let stub = env.objc.new_instance(cls);
-    crate::objc::autorelease(env, stub);
-    stub
+    if let Some(cls) = env.objc.get_class("CMAccelerometerData") {
+        return env.objc.alloc_object(
+            cls, 
+            Box::new(crate::objc::TrivialHostObject), 
+            &mut env.mem
+        );
+    }
+    nil
 }
 
 - (id)gyroData {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
-    let cls = env.objc.get_class("CMGyroData").expect("CMGyroData class not found");
-    let stub = env.objc.new_instance(cls);
-    crate::objc::autorelease(env, stub);
-    stub
+    if let Some(cls) = env.objc.get_class("CMGyroData") {
+        return env.objc.alloc_object(
+            cls, 
+            Box::new(crate::objc::TrivialHostObject), 
+            &mut env.mem
+        );
+    }
+    nil
 }
-                   
+                       
 @end
 
 };
