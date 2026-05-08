@@ -292,30 +292,17 @@ pub fn AudioQueueAllocateBuffer(
     in_buffer_byte_size: GuestUSize,
     out_buffer: MutPtr<AudioQueueBufferRef>,
 ) -> OSStatus {
-    return_if_null!(in_aq);
-
-    let state = State::get(&mut env.framework_state);
-    let host_object = match state.audio_queues.get_mut(&in_aq) {
-        Some(obj) => obj,
-        None => {
-            log!("ERROR: AudioQueueAllocateBuffer: Invalid Queue. Returning error.");
-            return -66681; 
-        }
-    };
-
-    // 1. FIFA 11 Fix: Never allow a tiny or zero buffer. 
-    // Match audio usually needs at least 4KB to not trip engine checks.
-    let safe_size = if in_buffer_byte_size < 4096 { 4096 } else { in_buffer_byte_size };
-
-    // 2. Allocate and verify
-    let mut audio_data = env.mem.alloc(safe_size);
-    
-    if audio_data.is_null() {
-        log!("HACK: Allocation failed, forcing emergency buffer to prevent 0x04 crash.");
-        audio_data = env.mem.alloc(4096); // Last ditch effort
+    // If the game gives us a null pointer to write the result into, we have to stop.
+    if out_buffer.is_null() {
+        return -50; // kAudioQueueErr_InvalidParameter
     }
 
-    // 3. Write the struct. This ensures offset 0x04 is a valid pointer.
+    // 1. Force a minimum size and allocate the sound data.
+    let safe_size = if in_buffer_byte_size < 4096 { 4096 } else { in_buffer_byte_size };
+    let audio_data = env.mem.alloc(safe_size);
+
+    // 2. Allocate the Buffer Struct itself. 
+    // Even if the queue lookup fails later, we want this to be valid.
     let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
         audio_data_bytes_capacity: safe_size,
         audio_data,                // Offset 0x04
@@ -326,12 +313,21 @@ pub fn AudioQueueAllocateBuffer(
         _packet_description_count: 0,
     });
 
-    host_object.buffers.push(buffer_ptr);
+    // 3. Try to register it with the host object if it exists.
+    let state = State::get(&mut env.framework_state);
+    if let Some(host_object) = state.audio_queues.get_mut(&in_aq) {
+        host_object.buffers.push(buffer_ptr);
+    } else {
+        log!("Warning: Allocating buffer for unknown/unsupported queue {:?}. Proceeding anyway to prevent crash.", in_aq);
+    }
+
+    // 4. CRITICAL: Write the valid pointer back to the game.
+    // This is what stops the 0x0c NULL-PAGE WRITE.
     env.mem.write(out_buffer, buffer_ptr);
 
-    log_dbg!("AudioQueueAllocateBuffer: SUCCESS. Buffer: {:?}, Data: {:?}", buffer_ptr, audio_data);
+    log_dbg!("AudioQueueAllocateBuffer: Returning valid buffer {:?} for size {}", buffer_ptr, safe_size);
 
-    0 
+    0 // kAudioQueueErr_None
 }
 
 pub fn AudioQueueEnqueueBuffer(
