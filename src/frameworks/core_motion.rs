@@ -86,48 +86,40 @@ const CLASSES: ClassExports = objc_classes! {
 
 // --- The Crash Fixes ---
 
-// --- The Crash Fixes ---
-
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
     
-    // class_get is usually the public wrapper for the private get_class
-    let cls = env.objc.class_get("CMDeviceMotion");
+    // Use the macro to get the class pointer safely
+    let cls = msg_class![env; CMDeviceMotion];
     
-    if cls != crate::objc::nil_class() {
-        return env.objc.alloc_object(
-            cls, 
-            Box::new(crate::objc::TrivialHostObject), 
-            &mut env.mem
-        );
-    }
-    nil
+    // Use alloc_object from your objects.rs
+    return env.objc.alloc_object(
+        cls, 
+        Box::new(crate::objc::TrivialHostObject), 
+        &mut env.mem
+    );
 }
-    
+
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
-    if let Some(cls) = env.objc.get_class("CMAccelerometerData") {
-        return env.objc.alloc_object(
-            cls, 
-            Box::new(crate::objc::TrivialHostObject), 
-            &mut env.mem
-        );
-    }
-    nil
+    let cls = msg_class![env; CMAccelerometerData];
+    return env.objc.alloc_object(
+        cls, 
+        Box::new(crate::objc::TrivialHostObject), 
+        &mut env.mem
+    );
 }
 
 - (id)gyroData {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> lock-safe stub", this);
-    if let Some(cls) = env.objc.get_class("CMGyroData") {
-        return env.objc.alloc_object(
-            cls, 
-            Box::new(crate::objc::TrivialHostObject), 
-            &mut env.mem
-        );
-    }
-    nil
+    let cls = msg_class![env; CMGyroData];
+    return env.objc.alloc_object(
+        cls, 
+        Box::new(crate::objc::TrivialHostObject), 
+        &mut env.mem
+    );
 }
-                       
+                           
 @end
 
 };
