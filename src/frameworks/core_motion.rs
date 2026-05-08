@@ -20,88 +20,94 @@ const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
+// --- New Stub Classes ---
+
+@implementation CMDeviceMotion: NSObject
+// Providing a valid instance for CMMotionManager to return
+@end
+
+@implementation CMAccelerometerData: NSObject
+// Providing a valid instance for CMMotionManager to return
+@end
+
+@implementation CMGyroData: NSObject
+// Providing a valid instance for CMMotionManager to return
+@end
+
+// --- Existing Implementation ---
+
 @implementation CMMotionManager: NSObject
 
 - (bool)isGyroAvailable {
-    // FakeGyroCheck
-    log!("TODO: [(CMMotionManager *){:?} isGyroAvailable] -> true", this);
     true
 }
 - (bool)isDeviceMotionAvailable {
-    // FakeDeviceMotion
-    log!("TODO: [(CMMotionManager *){:?} isDeviceMotionAvailable] -> true", this);
     true
 }
 - (bool)isAccelerometerAvailable {
-    // FakeAccelerometerCheck
-    log!("TODO: [(CMMotionManager *){:?} isAccelerometerAvailable] -> true", this);
     true
 }
 
 - (())setAccelerometerUpdateInterval:(f64)interval {
-    // FakeAccelInterval
-    log!("TODO: [(CMMotionManager *){:?} setAccelerometerUpdateInterval:{}]", this, interval);
+    log_dbg!("[(CMMotionManager *){:?} setAccelerometerUpdateInterval:{}]", this, interval);
 }
 
 - (())startAccelerometerUpdates {
-    // FakeAccelStart
-    log!("TODO: [(CMMotionManager *){:?} startAccelerometerUpdates]", this);
+    log_dbg!("[(CMMotionManager *){:?} startAccelerometerUpdates]", this);
 }
 
 - (())setGyroUpdateInterval:(f64)interval {
-    // FakeGyroInterval
-    log!("TODO: [(CMMotionManager *){:?} setGyroUpdateInterval:{}]", this, interval);
+    log_dbg!("[(CMMotionManager *){:?} setGyroUpdateInterval:{}]", this, interval);
 }
 
 - (())startGyroUpdates {
-    // FakeGyroStart
-    log!("TODO: [(CMMotionManager *){:?} startGyroUpdates]", this);
+    log_dbg!("[(CMMotionManager *){:?} startGyroUpdates]", this);
 }
 
 - (())setDeviceMotionUpdateInterval:(f64)interval {
-    // FakeMotionInterval
-    log!("TODO: [(CMMotionManager *){:?} setDeviceMotionUpdateInterval:{}]", this, interval);
+    log_dbg!("[(CMMotionManager *){:?} setDeviceMotionUpdateInterval:{}]", this, interval);
 }
 
 - (())startDeviceMotionUpdates {
-    // FakeMotionStart
-    log!("TODO: [(CMMotionManager *){:?} startDeviceMotionUpdates]", this);
+    log_dbg!("[(CMMotionManager *){:?} startDeviceMotionUpdates]", this);
 }
 
 - (bool)isDeviceMotionActive {
-    // FakeMotionActive
-    log!("TODO: [(CMMotionManager *){:?} isDeviceMotionActive] -> true", this);
     true
 }
 
 - (bool)isAccelerometerActive {
-    // FakeAccelActive
-    log!("TODO: [(CMMotionManager *){:?} isAccelerometerActive] -> true", this);
     true
 }
 
 - (bool)isGyroActive {
-    // FakeGyroActive
-    log!("TODO: [(CMMotionManager *){:?} isGyroActive] -> true", this);
     true
 }
 
+// --- The Crash Fixes ---
+
 - (id)deviceMotion {
-    // FakeDeviceMotion
-    log!("TODO: [(CMMotionManager *){:?} deviceMotion] -> nil", this);
-    nil
+    log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> returning stub to prevent crash", this);
+    let stub: id = msg_class![env; CMDeviceMotion alloc];
+    let stub: id = msg![env; stub init];
+    crate::objc::autorelease(env, stub);
+    stub
 }
 
 - (id)accelerometerData {
-    // FakeAccelData
-    log!("TODO: [(CMMotionManager *){:?} accelerometerData] -> nil", this);
-    nil
+    log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> returning stub to prevent crash", this);
+    let stub: id = msg_class![env; CMAccelerometerData alloc];
+    let stub: id = msg![env; stub init];
+    crate::objc::autorelease(env, stub);
+    stub
 }
 
 - (id)gyroData {
-    // FakeGyroData
-    log!("TODO: [(CMMotionManager *){:?} gyroData] -> nil", this);
-    nil
+    log!("HACK: [(CMMotionManager *){:?} gyroData] -> returning stub to prevent crash", this);
+    let stub: id = msg_class![env; CMGyroData alloc];
+    let stub: id = msg![env; stub init];
+    crate::objc::autorelease(env, stub);
+    stub
 }
 
 @end
