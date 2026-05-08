@@ -342,41 +342,41 @@ pub fn AudioQueueAllocateBuffer(
 ) -> OSStatus {
     return_if_null!(in_aq);
 
-    // Sanity check: EA games sometimes pass 0 or huge numbers if the init failed
-    if in_buffer_byte_size == 0 || in_buffer_byte_size > 16 * 1024 * 1024 {
-        log!("HACK: Correcting invalid buffer size request ({})", in_buffer_byte_size);
-    }
-    let safe_size = std::cmp::max(in_buffer_byte_size, 1024); 
-
-    let state = State::get(&mut env.framework_state);
-    let host_object = match state.audio_queues.get_mut(&in_aq) {
+    // 1. Fetch the host object. If this fails, we can't allocate.
+    let host_object = match State::get(&mut env.framework_state)
+        .audio_queues
+        .get_mut(&in_aq)
+    {
         Some(obj) => obj,
         None => {
-            log!("ERROR: AudioQueueAllocateBuffer called on invalid queue {:?}. Returning error to prevent NULL write.", in_aq);
+            log!("ERROR: AudioQueueAllocateBuffer called on invalid queue {:?}", in_aq);
             return -66681; // kAudioQueueErr_InvalidQueue
         }
     };
 
+    // 2. FIFA 11 Fix: Ensure we never allocate 0 bytes and the size is reasonable.
+    let safe_size = if in_buffer_byte_size == 0 { 1024 } else { in_buffer_byte_size };
+
+    // 3. Allocate the actual audio data buffer in guest memory.
     let audio_data = env.mem.alloc(safe_size);
     
-    // Ensure audio_data itself isn't null
-    if audio_data.is_null() {
-        log!("FATAL: Memory allocation for audio buffer failed.");
-        return -66687; 
-    }
-
+    // 4. Create the buffer struct itself.
+    // Crucial: We must successfully write this to memory so the game has a valid pointer.
     let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
         audio_data_bytes_capacity: safe_size,
         audio_data,
         audio_data_byte_size: 0,
-        user_data: Ptr::null(),
+        user_data: Ptr::null(), // This is offset 0x0c!
         packet_description_capacity: 0,
         _packet_descriptions: Ptr::null(),
         _packet_description_count: 0,
     });
 
+    // 5. Track it and give it back to the game.
     host_object.buffers.push(buffer_ptr);
     env.mem.write(out_buffer, buffer_ptr);
+
+    log_dbg!("AudioQueueAllocateBuffer: Successfully allocated {} bytes at {:?}", safe_size, buffer_ptr);
 
     0 // success
 }
