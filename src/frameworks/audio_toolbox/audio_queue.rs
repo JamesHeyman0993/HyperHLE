@@ -294,43 +294,41 @@ pub fn AudioQueueAllocateBuffer(
 ) -> OSStatus {
     return_if_null!(in_aq);
 
-    // 1. Fetch the host object. If this fails, we can't allocate.
     let host_object = match State::get(&mut env.framework_state)
         .audio_queues
         .get_mut(&in_aq)
     {
         Some(obj) => obj,
-        None => {
-            log!("ERROR: AudioQueueAllocateBuffer called on invalid queue {:?}", in_aq);
-            return -66681; // kAudioQueueErr_InvalidQueue
-        }
+        None => return -66681, 
     };
 
-    // 2. FIFA 11 Fix: Ensure we never allocate 0 bytes and the size is reasonable.
-    let safe_size = if in_buffer_byte_size == 0 { 1024 } else { in_buffer_byte_size };
+    // 1. Force a minimum size of 1024 to ensure a valid allocation
+    let safe_size = if in_buffer_byte_size < 1024 { 1024 } else { in_buffer_byte_size };
 
-    // 3. Allocate the actual audio data buffer in guest memory.
-    let audio_data = env.mem.alloc(safe_size);
-    
-    // 4. Create the buffer struct itself.
-    // Crucial: We must successfully write this to memory so the game has a valid pointer.
+    // 2. Allocate and check for NULL
+    let mut audio_data = env.mem.alloc(safe_size);
+    if audio_data.is_null() {
+        // Emergency fallback allocation
+        audio_data = env.mem.alloc(4096); 
+    }
+
+    // 3. Explicitly write the struct with the non-null audio_data
     let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
         audio_data_bytes_capacity: safe_size,
-        audio_data,
-        audio_data_byte_size: 0,
-        user_data: Ptr::null(), // This is offset 0x0c!
+        audio_data,                // This is offset 0x04
+        audio_data_byte_size: 0,   // This is offset 0x08
+        user_data: Ptr::null(),    // This is offset 0x0c
         packet_description_capacity: 0,
         _packet_descriptions: Ptr::null(),
         _packet_description_count: 0,
     });
 
-    // 5. Track it and give it back to the game.
     host_object.buffers.push(buffer_ptr);
     env.mem.write(out_buffer, buffer_ptr);
 
-    log_dbg!("AudioQueueAllocateBuffer: Successfully allocated {} bytes at {:?}", safe_size, buffer_ptr);
+    log_dbg!("FIFA Fix: Allocated buffer {:?} with data pointer {:?}", buffer_ptr, audio_data);
 
-    0 // success
+    0 
 }
 
 pub fn AudioQueueEnqueueBuffer(
