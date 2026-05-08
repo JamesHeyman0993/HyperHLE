@@ -111,24 +111,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("NSURLConnection sendSynchronousRequest: stub called");
 
     // --- START HACK ---
-    // Check if the game is asking for the localfeed.xml file
     if request != nil {
         if let Some(url) = msg![env; request URL] {
-            let url_str: String = crate::frameworks::foundation::ns_url::to_rust_string(env, url);
+            // Pointing directly to foundation::ns_string where it is public
+            let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, url);
+            
             if url_str.contains("localfeed.xml") {
                 log!("HACK: Detected localfeed.xml request. Faking success to unblock menu.");
                 
-                // 1. Tell the game the response was "OK" (HTTP 200)
                 if !response_ptr.is_null() {
                     env.mem.write(response_ptr, nil); 
                 }
 
-                // 2. Ensure NO error is reported
                 if !error_ptr.is_null() {
                     env.mem.write(error_ptr, nil);
                 }
 
-                // 3. Return valid (but empty) data so the XML parser doesn't crash
                 return msg_class![env; NSData data];
             }
         }
