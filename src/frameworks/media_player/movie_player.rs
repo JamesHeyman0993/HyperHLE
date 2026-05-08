@@ -487,16 +487,28 @@ UIColor blackColor] // TODO
 
 - (id)initWithContentURL:(id)url {
     log!(
-        "TODO: [(MPMoviePlayerViewController*){:?} initWithContentURL:{:?} ({:?})]",
+        "BYPASSING VIDEO: [(MPMoviePlayerViewController*){:?} initWithContentURL:{:?} ({:?})]",
         this,
         url,
         ns_url::to_rust_path(env, url),
     );
-    // Call designated initializer of UIViewController superclass
+
+    // 1. Standard initialization
     let this: id = msg![env; this init];
+
+    // 2. Get the Notification Center
+    let nc: id = msg_class![env; NSNotificationCenter defaultCenter];
+
+    // 3. Create the notification name string
+    let name: id = from_rust_string(env, "MPMoviePlayerPlaybackDidFinishNotification".to_string());
+
+    // 4. Post the notification immediately
+    // This tells the game "The video is done, you can enable the buttons now!"
+    let _: () = msg![env; nc postNotificationName:name object:this];
+
     this
 }
-
+    
 @end
 
 };
