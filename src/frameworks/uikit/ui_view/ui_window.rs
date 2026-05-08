@@ -285,12 +285,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         log_dbg!("[{:?} shouldAutorotateToInterfaceOrientation:{:?}] => {:?}", vc, orientation, should);
         if should {
             log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
+                        let is_dmc4 = env.bundle.identifier() == "jp.co.capcom.devil4us";
+
             let transform = match orientation {
-                UIInterfaceOrientationLandscapeLeft => CGAffineTransform::make_rotation(-std::f32::consts::FRAC_PI_2),
-                UIInterfaceOrientationLandscapeRight => CGAffineTransform::make_rotation(std::f32::consts::FRAC_PI_2),
+                UIInterfaceOrientationLandscapeLeft => {
+                    let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+                    CGAffineTransform::make_rotation(angle)
+                },
+                UIInterfaceOrientationLandscapeRight => {
+                    let angle = if is_dmc4 { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
+                    CGAffineTransform::make_rotation(angle)
+                },
                 _ => unimplemented!(),
             };
-
+            
+            if is_dmc4 {
+                log!("HACK: Inverting landscape rotation for DMC4 Refrain");
+            }
+            
             let window_frame: CGRect = msg![env; this frame];
             log_dbg!("Window frame: {window_frame:?}");
             let view_frame: CGRect = msg![env; view frame];
