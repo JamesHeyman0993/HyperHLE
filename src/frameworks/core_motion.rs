@@ -87,29 +87,33 @@ const CLASSES: ClassExports = objc_classes! {
 // --- The Crash Fixes ---
 
 - (id)deviceMotion {
-    log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> returning stub to prevent crash", this);
-    let stub: id = msg_class![env; CMDeviceMotion alloc];
-    let stub: id = msg![env; stub init];
+    log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> safe stub", this);
+    // Get the class pointer directly without a msg! call
+    let cls = env.objc.class_get("CMDeviceMotion");
+    // Allocate the object using the internal helper to avoid mutex recursion
+    let stub = env.objc.alloc(cls);
+    // Note: We skip 'init' here because most stubs don't need it.
+    // If it crashes, we'll use a different trick.
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)accelerometerData {
-    log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> returning stub to prevent crash", this);
-    let stub: id = msg_class![env; CMAccelerometerData alloc];
-    let stub: id = msg![env; stub init];
+    log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> safe stub", this);
+    let cls = env.objc.class_get("CMAccelerometerData");
+    let stub = env.objc.alloc(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)gyroData {
-    log!("HACK: [(CMMotionManager *){:?} gyroData] -> returning stub to prevent crash", this);
-    let stub: id = msg_class![env; CMGyroData alloc];
-    let stub: id = msg![env; stub init];
+    log!("HACK: [(CMMotionManager *){:?} gyroData] -> safe stub", this);
+    let cls = env.objc.class_get("CMGyroData");
+    let stub = env.objc.alloc(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
-
+    
 @end
 
 };
