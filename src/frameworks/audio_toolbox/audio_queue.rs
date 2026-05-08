@@ -593,8 +593,12 @@ pub fn decode_buffer(
 ) -> (ALenum, ALsizei, Vec<u8>) {
     let data_slice = mem.bytes_at(audio_data, audio_data_byte_size);
 
-    assert!(is_supported_audio_format(format));
-
+    if !is_supported_audio_format(format) {
+        log!("HACK: Skipping unsupported audio format to prevent panic.");
+        // Return a tiny bit of silence so the system doesn't break
+        return (al::AL_FORMAT_MONO8, format.sample_rate as ALsizei, vec![0; 64]);
+    }
+    
     match format.format_id {
         kAudioFormatAppleIMA4 => {
             assert!(data_slice.len().is_multiple_of(34));
@@ -737,7 +741,10 @@ pub fn decode_buffer(
 
             (f, format.sample_rate as ALsizei, processed_data)
         }
-        _ => unreachable!(),
+                _ => {
+            log!("HACK: Unhandled format ID {}, returning silence", debug_fourcc(format.format_id));
+            (al::AL_FORMAT_MONO8, 44100, vec![0; 64])
+        },
     }
 }
 
