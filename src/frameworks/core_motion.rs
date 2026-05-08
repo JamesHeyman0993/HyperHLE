@@ -90,7 +90,11 @@ const CLASSES: ClassExports = objc_classes! {
 
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> lock-safe stub", this);
-    if let Some(cls) = env.objc.get_class("CMDeviceMotion") {
+    
+    // class_get is usually the public wrapper for the private get_class
+    let cls = env.objc.class_get("CMDeviceMotion");
+    
+    if cls != crate::objc::nil_class() {
         return env.objc.alloc_object(
             cls, 
             Box::new(crate::objc::TrivialHostObject), 
@@ -99,7 +103,7 @@ const CLASSES: ClassExports = objc_classes! {
     }
     nil
 }
-
+    
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> lock-safe stub", this);
     if let Some(cls) = env.objc.get_class("CMAccelerometerData") {
