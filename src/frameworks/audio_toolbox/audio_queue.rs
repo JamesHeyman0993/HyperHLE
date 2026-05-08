@@ -333,6 +333,33 @@ pub fn AudioQueueAllocateBuffer(
     0 // success
 }
 
+pub fn AudioQueueEnqueueBuffer(
+    env: &mut Environment,
+    in_aq: AudioQueueRef,
+    in_buffer: AudioQueueBufferRef,
+    in_num_packet_descs: u32,
+    in_packet_descs: MutVoidPtr,
+) -> OSStatus {
+    return_if_null!(in_aq);
+
+    let state = State::get(&mut env.framework_state);
+    let host_object = match state.audio_queues.get_mut(&in_aq) {
+        Some(obj) => obj,
+        None => return 0,
+    };
+
+    if host_object.buffer_queue.contains(&in_buffer) {
+        return kAudioQueueErr_BufferInQueue;
+    }
+
+    host_object.buffer_queue.push_back(in_buffer);
+
+    // If we have packet descriptions (common in AAC/IMA4), we'd handle them here.
+    // For now, we just track the buffer so it can be played.
+
+    0 // success
+}
+
 fn AudioQueueEnqueueBufferWithParameters(
     env: &mut Environment,
     in_aq: AudioQueueRef,
