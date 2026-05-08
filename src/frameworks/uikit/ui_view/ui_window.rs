@@ -285,8 +285,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         log_dbg!("[{:?} shouldAutorotateToInterfaceOrientation:{:?}] => {:?}", vc, orientation, should);
         if should {
             log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
-                        let is_dmc4 = env.bundle.identifier() == "jp.co.capcom.devil4us";
-
+                        let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
+        
             let transform = match orientation {
                 UIInterfaceOrientationLandscapeLeft => {
                     let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
