@@ -88,32 +88,34 @@ const CLASSES: ClassExports = objc_classes! {
 
 - (id)deviceMotion {
     log!("HACK: [(CMMotionManager *){:?} deviceMotion] -> safe stub", this);
-    // Get the class pointer directly without a msg! call
-    let cls = env.objc.class_get("CMDeviceMotion");
-    // Allocate the object using the internal helper to avoid mutex recursion
-    let stub = env.objc.alloc(cls);
-    // Note: We skip 'init' here because most stubs don't need it.
-    // If it crashes, we'll use a different trick.
+    
+    // 1. Get the class. In touchHLE, we use the class name directly from our implementation
+    let cls = env.objc.known_classes.CMDeviceMotion;
+    
+    // 2. Allocate the object. Instead of .alloc(), we use .new_instance() 
+    // which is the internal way to create a host object without a message send.
+    let stub = env.objc.new_instance(cls);
+    
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)accelerometerData {
     log!("HACK: [(CMMotionManager *){:?} accelerometerData] -> safe stub", this);
-    let cls = env.objc.class_get("CMAccelerometerData");
-    let stub = env.objc.alloc(cls);
+    let cls = env.objc.known_classes.CMAccelerometerData;
+    let stub = env.objc.new_instance(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
 
 - (id)gyroData {
     log!("HACK: [(CMMotionManager *){:?} gyroData] -> safe stub", this);
-    let cls = env.objc.class_get("CMGyroData");
-    let stub = env.objc.alloc(cls);
+    let cls = env.objc.known_classes.CMGyroData;
+    let stub = env.objc.new_instance(cls);
     crate::objc::autorelease(env, stub);
     stub
 }
-    
+        
 @end
 
 };
