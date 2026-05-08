@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! The Core Motion framework.
-
+use crate::{msg, msg_class}; // Add this line
 use crate::dyld::HostDylib;
 use crate::objc::{id, nil, objc_classes, ClassExports};
 
