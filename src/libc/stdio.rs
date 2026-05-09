@@ -811,17 +811,20 @@ pub const CONSTANTS: ConstantExports = &[
 ];
                 
 fn __srget_rust_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // This is what the game actually needs to fill its buffers
+    // This is a low-level libc internal used to refill the FILE buffer.
+    // Since our FILE struct is a host-managed object, we simply
+    // redirect this to our fgetc implementation.
+    log_dbg!("___srget called for stream {:?}", file_ptr);
     fgetc(env, file_ptr)
 }
-        
+
 pub const FUNCTIONS: FunctionExports = &[
     // Standard C functions
     export_c_func!(fopen(_, _)),
     export_c_func!(freopen(_, _, _)),
     export_c_func!(fread(_, _, _, _)),
     export_c_func!(fgetc(_)),
-    export_c_func!(getc(_)), // Fixed the "search_" typo here
+    export_c_func!(getc(_)),
     export_c_func!(ungetc(_, _)),
     export_c_func!(fgets(_, _, _)),
     export_c_func!(fputs(_, _)),
@@ -838,10 +841,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    // Added the third underscore to match the game's "___srget"
+    // Manual export to bypass macro issues with triple underscores
     ("___srget", crate::dyld::HostConstant::Function(|env, args| {
         let file_ptr = args[0].cast();
-        srget_impl(env, file_ptr).into()
+        __srget_rust_impl(env, file_ptr).into()
     })),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
