@@ -38,7 +38,7 @@ struct FILEHostObject {
 pub struct FILE {
     pub fd: posix_io::FileDescriptor,
     // Add this padding to satisfy the 0x7c (124 byte) offset requirement
-    pub _extra_padding: [u8; 156], 
+    pub _extra_padding: [u8; 512], 
 }
 
 unsafe impl SafeRead for FILE {}
@@ -108,7 +108,7 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
     match posix_io::open_direct(env, filename, flags) {
         -1 => Ptr::null(),
         fd => {
-            let res = env.mem.alloc_and_write(FILE { fd, _extra_padding: [0; 156] });
+            let res = env.mem.alloc_and_write(FILE { fd, _extra_padding: [0; 512] });
             State::get_mut(env).file_streams.insert(
                 res,
                 FILEHostObject {
@@ -185,7 +185,7 @@ fn freopen(
         return Ptr::null();
     }
 
-    env.mem.write(stream, FILE { fd: new_fd, _extra_padding: [0; 156] });
+    env.mem.write(stream, FILE { fd: new_fd, _extra_padding: [0; 512] });
 
     log_dbg!(
         "freopen() successfully reopened fd {} as new fd {} for stream {:?}",
@@ -642,21 +642,21 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "___stdinp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDIN_FILENO, _extra_padding: [0; 156] });
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDIN_FILENO, _extra_padding: [0; 512] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
     (
         "___stdoutp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDOUT_FILENO, _extra_padding: [0; 156] });
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDOUT_FILENO, _extra_padding: [0; 512] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
     (
         "___stderrp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDERR_FILENO, _extra_padding: [0; 156] });
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDERR_FILENO, _extra_padding: [0; 512] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
