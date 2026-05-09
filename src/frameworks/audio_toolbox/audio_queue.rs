@@ -327,18 +327,18 @@ pub fn AudioQueueAllocateBuffer(
         audio_data = env.mem.alloc(1024);
     }
 
-    // 4. Create the buffer struct in guest memory.
-    // This ensures offset 0x04 (audio_data) and 0x0c (user_data) are VALID.
+        // 4. Create the buffer struct in guest memory.
+    // We use alloc_and_write to ensure the game has a real, writable memory block.
     let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
         audio_data_bytes_capacity: safe_size,
-        audio_data,                // <--- This fixes the 0x04 READ crash
+        audio_data,                // Offset 0x04
         audio_data_byte_size: 0,
-        user_data: Ptr::null(),    // <--- This fixes the 0x0c WRITE crash
+        user_data: Ptr::null(),    // Offset 0x0c - This is now a valid, writable address
         packet_description_capacity: 0,
         _packet_descriptions: Ptr::null(),
         _packet_description_count: 0,
     });
-
+    
     // 5. Try to register it with the host object (if the queue exists)
     let state = State::get(&mut env.framework_state);
     if let Some(host_object) = state.audio_queues.get_mut(&in_aq) {
@@ -1253,8 +1253,7 @@ pub fn AudioQueueNewInput(
     in_flags: u32,
     out_aq: MutPtr<AudioQueueRef>,
 ) -> OSStatus {
-    log!("TODO: AudioQueueNewInput(...) stubbed");
-
+    // reserved
     assert!(in_flags == 0);
 
     let in_callback_run_loop = if in_callback_run_loop.is_null() {
@@ -1263,7 +1262,18 @@ pub fn AudioQueueNewInput(
         in_callback_run_loop
     };
 
-    let format = env.mem.read(in_format);
+    let mut format = env.mem.read(in_format);
+
+    // FIFA 11 Hack: Must apply here too if the game creates an Input queue
+    if format.format_id == kAudioFormatLinearPCM 
+        && format.channels_per_frame == 2 
+        && format.bits_per_channel == 16 
+        && format.bytes_per_frame == 2 
+    {
+        log!("Applying FIFA 11 hack to AudioQueueNewInput: Correcting format.");
+        format.bytes_per_frame = 4;
+        format.bytes_per_packet = 4;
+    }
 
     let host_object = AudioQueueHostObject {
         format,
@@ -1279,7 +1289,7 @@ pub fn AudioQueueNewInput(
         aq_is_running_proc: None,
         aq_is_running_user_data: None,
         is_running_handler: false,
-        is_input: false,
+        is_input: true, // Set this to true for Input
         input_delay: 0,
     };
 
@@ -1294,7 +1304,9 @@ pub fn AudioQueueNewInput(
 
     ns_run_loop::add_audio_queue(env, in_callback_run_loop, aq_ref);
 
-    0
+    log!("AudioQueueNewInput() stubbed, handle: {:?}", aq_ref);
+
+    0 // success
 }
 
 pub const FUNCTIONS: FunctionExports = &[
