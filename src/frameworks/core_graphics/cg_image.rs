@@ -331,9 +331,39 @@ fn CGImageIsMask(_env: &mut Environment, _image: CGImageRef) -> bool {
     false
 }
 
+fn CGImageCreate(
+    env: &mut Environment,
+    width: GuestUSize,
+    height: GuestUSize,
+    _bits_per_component: GuestUSize,
+    _bits_per_pixel: GuestUSize,
+    _bytes_per_row: GuestUSize,
+    _space: CGColorSpaceRef,
+    _bitmap_info: CGBitmapInfo,
+    provider: CGDataProviderRef,
+    _decode: ConstPtr<CGFloat>,
+    _should_interpolate: bool,
+    _intent: i32,
+) -> CGImageRef {
+    if provider.is_null() {
+        return nil;
+    }
+
+    let bytes = cg_data_provider::borrow_bytes(env, provider);
+    
+    // We assume RGBA (4 bytes per pixel). 
+    // In some cases, the guest might provide fewer bytes than width*height*4,
+    // so to_vec() is used here to pass the data to your Image wrapper.
+    let image = Image::from_pixels(width, height, bytes.to_vec());
+    
+    log_dbg!("CGImageCreate: Created {}x{} image from provider", width, height);
+    from_image(env, image)
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGImageRelease(_)),
     export_c_func!(CGImageRetain(_)),
+    export_c_func!(CGImageCreate(_, _, _, _, _, _, _, _, _, _, _)),
     export_c_func!(CGImageCreateCopyWithColorSpace(_, _)),
     export_c_func!(CGImageCreateWithPNGDataProvider(_, _, _, _)),
     export_c_func!(CGImageCreateWithJPEGDataProvider(_, _, _, _)),
