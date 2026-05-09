@@ -6,7 +6,7 @@
 //! `MPMediaQuery`.
 
 use crate::objc::{id, nil, objc_classes, ClassExports};
-use crate::msg; // Required for the macro
+use crate::msg;
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -15,15 +15,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMediaQuery: NSObject
 
 + (id)playlistsQuery {
-    log!("Gameloft Hack: returning dummy playlistsQuery");
+    log!("Gameloft Hack: returning dummy playlistsQuery (alloc + init)");
     let class_ptr = env.objc.link_class("MPMediaQuery", false, &mut env.mem);
-    msg![env; class_ptr alloc]
+    
+    // 1. Allocate
+    let instance = msg![env; class_ptr alloc];
+    
+    // 2. Initialize
+    msg![env; instance init]
 }
 
 + (id)songsQuery {
-    log!("Gameloft Hack: returning dummy songsQuery");
+    log!("Gameloft Hack: returning dummy songsQuery (alloc + init)");
     let class_ptr = env.objc.link_class("MPMediaQuery", false, &mut env.mem);
-    msg![env; class_ptr alloc]
+    
+    // 1. Allocate
+    let instance = msg![env; class_ptr alloc];
+    
+    // 2. Initialize
+    msg![env; instance init]
 }
 
 @end
