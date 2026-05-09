@@ -821,7 +821,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(freopen(_, _, _)),
     export_c_func!(fread(_, _, _, _)),
     export_c_func!(fgetc(_)),
-    export_c_func!(getc(search_)),
+    export_c_func!(getc(_)), // Fixed the "search_" typo here
     export_c_func!(ungetc(_, _)),
     export_c_func!(fgets(_, _, _)),
     export_c_func!(fputs(_, _)),
@@ -838,7 +838,8 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    ("__srget", crate::dyld::HostConstant::Function(|env, args| {
+    // Added the third underscore to match the game's "___srget"
+    ("___srget", crate::dyld::HostConstant::Function(|env, args| {
         let file_ptr = args[0].cast();
         srget_impl(env, file_ptr).into()
     })),
