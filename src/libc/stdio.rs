@@ -811,33 +811,40 @@ pub const CONSTANTS: ConstantExports = &[
 ];
                 
 fn handle_srget_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // This is a high-visibility log for your Android Logcat
     log_dbg!("SIMPSONS_FIX: ___srget (refill buffer) called for {:?}", file_ptr);
     fgetc(env, file_ptr)
 }
 
 pub const FUNCTIONS: FunctionExports = &[
-    // Keep all your existing exports...
+    // Standard C functions
     export_c_func!(fopen(_, _)),
-    // ...
+    export_c_func!(freopen(_, _, _)),
+    export_c_func!(fread(_, _, _, _)),
+    export_c_func!(fgetc(_)),
+    export_c_func!(getc(_)),
+    export_c_func!(ungetc(_, _)),
+    export_c_func!(fgets(_, _, _)),
+    export_c_func!(fputs(_, _)),
+    export_c_func!(fputc(_, _)),
+    export_c_func!(putc(_, _)),
+    export_c_func!(fwrite(_, _, _, _)),
+    export_c_func!(fseek(_, _, _)),
+    export_c_func!(ftell(_)),
+    export_c_func!(rewind(_)),
+    export_c_func!(fsetpos(_, _)),
+    export_c_func!(fgetpos(_, _)),
+    export_c_func!(feof(_)),
+    export_c_func!(clearerr(_)),
+    export_c_func!(fflush(_)),
+    export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
     
-    // --- START OF FIX ---
-    // We manually map all underscore variations to our handler.
-    // This bypasses the macro to ensure the linker sees these EXACT strings.
-    ("srget", crate::dyld::HostConstant::Func(|env, args| {
-        handle_srget_impl(env, args[0].cast()).into()
-    })),
-    ("_srget", crate::dyld::HostConstant::Func(|env, args| {
-        handle_srget_impl(env, args[0].cast()).into()
-    })),
-    ("__srget", crate::dyld::HostConstant::Func(|env, args| {
-        handle_srget_impl(env, args[0].cast()).into()
-    })),
-    ("___srget", crate::dyld::HostConstant::Func(|env, args| {
-        handle_srget_impl(env, args[0].cast()).into()
-    })),
-    // --- END OF FIX ---
+    // --- THE FIX: MANUAL ALIASING ---
+    // This maps the exact string "___srget" to our function.
+    // We use the macro to generate the logic, but override the name.
+    ("___srget", export_c_func!(handle_srget_impl(_)).1),
+    ("__srget", export_c_func!(handle_srget_impl(_)).1),
+    ("_srget", export_c_func!(handle_srget_impl(_)).1),
 
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
@@ -845,6 +852,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(tmpfile()),
     export_c_func!(setbuf(_, _)),
     export_c_func!(setvbuf(_, _, _, _)),
+    // POSIX-specific functions
     export_c_func!(fileno(_)),
     export_c_func!(flockfile(_)),
     export_c_func!(funlockfile(_)),
