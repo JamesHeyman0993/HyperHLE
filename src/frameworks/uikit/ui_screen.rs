@@ -50,16 +50,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Geometry
 
 - (CGRect)bounds {
-    let (width, height) = env.window().device_family().portrait_size();
+    // Force the legacy iPhone resolution (320x480)
     CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
         size: CGSize {
-            width:  width  as CGFloat,
-            height: height as CGFloat,
+            width:  320.0 as CGFloat,
+            height: 480.0 as CGFloat,
         },
     }
 }
-
+    
 - (CGRect)nativeBounds {
     // Same as bounds at scale 1 — we don't model the physical pixel grid.
     msg![env; this bounds]
@@ -107,16 +107,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Display mode / overscan
 
 - (id)currentMode {
-    let (width, height) = env.window().device_family().portrait_size();
     let size = CGSize {
-        width:  width  as CGFloat,
-        height: height as CGFloat,
+        width:  320.0 as CGFloat,
+        height: 480.0 as CGFloat,
     };
 
-    // Call your new helper function directly
     crate::frameworks::uikit::ui_screen_mode::from_size(env, size, 1.0)
 }
-
+    
 - (id)preferredMode {
     nil
 }
