@@ -810,11 +810,7 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
                 
-fn ___srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // This is a low-level libc internal used to refill the FILE buffer.
-    // Since our FILE struct is a host-managed object, we simply
-    // redirect this to our fgetc implementation.
-    log_dbg!("___srget called for stream {:?}", file_ptr);
+fn srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
     fgetc(env, file_ptr)
 }
             
@@ -841,7 +837,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    export_c_func!(___srget(_)),
+    export_c_func!(srget as ___srget(_)),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
