@@ -736,7 +736,7 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
 
 @end
 
-}; // This is the end of the CLASSES macro
+}; // <--- THIS MUST BE HERE TO CLOSE THE CLASSES BLOCK
 
 fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
     if base_name == nil {
@@ -786,4 +786,4 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
     }
 
     nil
-        }
+}
