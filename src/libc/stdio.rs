@@ -810,9 +810,10 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
                 
-fn simpsons_srget_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // If this is hit, you WILL see this in the logs
-    log_dbg!("SIMPSONS: Intercepted ___srget for file pointer {:?}", file_ptr);
+fn ___srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+    // This is a low-level libc internal used to refill the FILE buffer.
+    // It's called when fgetc or getc runs out of data in the current buffer.
+    log_dbg!("!!! SIMPSONS DATA FETCH: ___srget called for stream {:?} !!!", file_ptr);
     fgetc(env, file_ptr)
 }
 
@@ -839,19 +840,15 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    
-    // Using a raw string key to guarantee the linker sees exactly 3 underscores
-    ("___srget", crate::dyld::Symbol::Function(|env, args| {
-        let file_ptr = args[0].cast();
-        simpsons_srget_impl(env, file_ptr).into()
-    })),
-
+    // This connects the guest's ___srget call to the Rust function above
+    export_c_func!(___srget(_)),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
     export_c_func!(tmpfile()),
     export_c_func!(setbuf(_, _)),
     export_c_func!(setvbuf(_, _, _, _)),
+    // POSIX-specific functions
     export_c_func!(fileno(_)),
     export_c_func!(flockfile(_)),
     export_c_func!(funlockfile(_)),
