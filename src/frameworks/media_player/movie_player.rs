@@ -5,7 +5,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `MPMoviePlayerController` etc.
-
+     
+use crate::frameworks::core_graphics::{CGRect, CGPoint, CGSize};
 use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::foundation::{ns_string, ns_url, NSInteger};
 use crate::frameworks::uikit::ui_device::UIDeviceOrientation;
@@ -147,10 +148,10 @@ fn ensure_view(env: &mut Environment, this: id) -> id {
     }
     let view_alloc: id = msg_class![env; UIView alloc];
     
-    // GIVE THE VIEW A REAL SIZE (iPad size)
-    let rect = crate::objc::CGRect {
-        origin: crate::objc::CGPoint { x: 0.0, y: 0.0 },
-        size: crate::objc::CGSize { width: 1024.0, height: 768.0 },
+    // Use the imported types directly
+    let rect = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize { width: 1024.0, height: 768.0 },
     };
     let view: id = msg![env; view_alloc initWithFrame:rect];
     
