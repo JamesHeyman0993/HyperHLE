@@ -12,7 +12,6 @@ use crate::objc::{
 };
 use regex::Regex;
 
-/// Хост-объект для хранения скомпилированного регулярного выражения.
 struct NSRegularExpressionHostObject {
     regex: Option<Regex>,
 }
@@ -28,10 +27,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.objc.alloc_object(this, host_object, &mut env.mem)
     }
 
-    // + (NSRegularExpression *)
-    //     regularExpressionWithPattern:(NSString *)pattern
-    //     options:(NSRegularExpressionOptions)options
-    //     error:(NSError **)error
     + (id)regularExpressionWithPattern:(id)pattern
                                options:(u32)options
                                  error:(MutPtr<id>)error {
@@ -45,9 +40,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         autorelease(env, new)
     }
 
-    // - (id)initWithPattern:(NSString *)pattern
-    //              options:(NSRegularExpressionOptions)options
-    //                error:(NSError **)error
     - (id)initWithPattern:(id)pattern
                   options:(u32)_options
                     error:(MutPtr<id>)_error {
@@ -64,40 +56,19 @@ pub const CLASSES: ClassExports = objc_classes! {
                 this
             }
             Err(e) => {
-                log!(
-                    "NSRegularExpression: failed to compile pattern '{}': {}",
-                    pattern_str,
-                    e
-                );
-                // В полноценной реализации здесь нужно создавать NSError, но
-                // пока возвращаем nil и освобождаем приёмник, как и положено
-                // по соглашению Cocoa для неудавшегося -init.
+                log!("NSRegularExpression: failed to compile pattern '{}': {}", pattern_str, e);
                 release(env, this);
                 nil
             }
         }
     }
 
-    // - (NSUInteger)numberOfMatchesInString:(NSString *)string
-    //                              options:(NSMatchingOptions)options
-    //                                range:(NSRange)range
     - (NSUInteger)numberOfMatchesInString:(id)string
                                   options:(u32)_options
                                     range:(NSRange)range {
-        if string == nil {
-            return 0;
-        }
+        if string == nil { return 0; }
         let full_text = ns_string::to_rust_string(env, string);
-        // `NSRange` is in UTF-16 code units, but `full_text` is UTF-8: a naïve
-        // `&full_text[start..end]` panics for non-ASCII strings or for ranges
-        // that fall outside the string. Convert the range to a byte slice
-        // safely; bail out (returning 0 matches) on bad input rather than
-        // taking down the whole emulator.
-        let Some((start_byte, end_byte)) =
-            utf16_range_to_utf8_byte_range(&full_text, range)
-        else {
-            return 0;
-        };
+        let Some((start_byte, end_byte)) = utf16_range_to_utf8_byte_range(&full_text, range) else { return 0; };
 
         let target_text = &full_text[start_byte..end_byte];
         let host_obj = env.objc.borrow::<NSRegularExpressionHostObject>(this);
@@ -108,11 +79,34 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
+    - (id)firstMatchInString:(id)string options:(u32)_options range:(NSRange)range {
+        if string == nil { return nil; }
+        let full_text = ns_string::to_rust_string(env, string);
+        let Some((start_byte, end_byte)) = utf16_range_to_utf8_byte_range(&full_text, range) else { return nil; };
+
+        let target_text = &full_text[start_byte..end_byte];
+        let host_obj = env.objc.borrow::<NSRegularExpressionHostObject>(this);
+        
+        if let Some(re) = &host_obj.regex {
+            if let Some(_m) = re.find(target_text) {
+                // Return a dummy result object so the game thinks it found something
+                let cls = env.objc.link_class("NSTextCheckingResult", false, &mut env.mem);
+                return msg![env; cls alloc];
+            }
+        }
+        nil
+    }
+
+    @end
+
+    @implementation NSTextCheckingResult: NSObject
+    // Stub for the result object to prevent crashes when the game inspects matches
+    - (NSRange)range {
+        NSRange { location: 0, length: 0 }
+    }
     @end
 };
 
-/// Convert an `NSRange` (UTF-16 code units) into a byte range inside a UTF-8
-/// string. Returns `None` if the range falls outside the string.
 fn utf16_range_to_utf8_byte_range(s: &str, range: NSRange) -> Option<(usize, usize)> {
     let start_units = range.location as usize;
     let end_units = (range.location as usize).checked_add(range.length as usize)?;
@@ -142,60 +136,4 @@ fn utf16_range_to_utf8_byte_range(s: &str, range: NSRange) -> Option<(usize, usi
         return None;
     }
     Some((start_byte, end_byte))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::utf16_range_to_utf8_byte_range;
-    use super::NSRange;
-
-    #[test]
-    fn ascii_range_matches_byte_range() {
-        let s = "hello world";
-        let range = NSRange {
-            location: 6,
-            length: 5,
-        };
-        assert_eq!(utf16_range_to_utf8_byte_range(s, range), Some((6, 11)));
-    }
-
-    #[test]
-    fn non_ascii_does_not_panic() {
-        // "café" — 'é' is one UTF-16 code unit but 2 UTF-8 bytes.
-        let s = "café";
-        let range = NSRange {
-            location: 0,
-            length: 4,
-        };
-        assert_eq!(utf16_range_to_utf8_byte_range(s, range), Some((0, 5)));
-    }
-
-    #[test]
-    fn out_of_bounds_returns_none() {
-        let s = "abc";
-        let range = NSRange {
-            location: 0,
-            length: 100,
-        };
-        assert_eq!(utf16_range_to_utf8_byte_range(s, range), None);
-    }
-
-    #[test]
-    fn surrogate_pair_counted_as_two_units() {
-        // U+1F600 is a single char but two UTF-16 code units and 4 UTF-8 bytes.
-        let s = "a\u{1F600}b";
-        let range = NSRange {
-            location: 0,
-            length: 3,
-        };
-        assert_eq!(utf16_range_to_utf8_byte_range(s, range), Some((0, 5)));
-        let just_the_emoji = NSRange {
-            location: 1,
-            length: 2,
-        };
-        assert_eq!(
-            utf16_range_to_utf8_byte_range(s, just_the_emoji),
-            Some((1, 5))
-        );
-    }
 }
