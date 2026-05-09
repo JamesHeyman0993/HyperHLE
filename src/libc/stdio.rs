@@ -810,7 +810,7 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
                 
-fn __srget_rust_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+fn ___srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
     // This is a low-level libc internal used to refill the FILE buffer.
     // Since our FILE struct is a host-managed object, we simply
     // redirect this to our fgetc implementation.
@@ -841,11 +841,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    // Manual export to bypass macro issues with triple underscores
-    ("___srget", crate::dyld::HostConstant::Function(|env, args| {
-        let file_ptr = args[0].cast();
-        __srget_rust_impl(env, file_ptr).into()
-    })),
+    export_c_func!(___srget(_)),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
