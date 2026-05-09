@@ -5,8 +5,21 @@
  */
 //! `MPMediaLibrary`.
 
-use crate::objc::{id, nil, objc_classes, ClassExports};
-use crate::msg; // <--- Add this line to fix the "cannot find macro" error
+use crate::{
+    dyld::{ConstantExports, HostConstant},
+    objc::{id, nil, objc_classes, ClassExports},
+};
+use crate::msg;
+
+/// Notification name used by Gameloft games to listen for library changes.
+pub const MPMediaLibraryDidChangeNotification: &str = "MPMediaLibraryDidChangeNotification";
+
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_MPMediaLibraryDidChangeNotification",
+        HostConstant::NSString(MPMediaLibraryDidChangeNotification),
+    ),
+];
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -22,10 +35,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     // 1. Allocate the object
     let instance = msg![env; class_ptr alloc];
     
-    // 2. Initialize the object (This is the missing step!)
+    // 2. Initialize the object so it is not a null/garbage pointer
     msg![env; instance init]
 }
-    
+
++ (u32)authorizationStatus {
+    log!("Gameloft Hack: reporting MediaLibrary authorizationStatus as Authorized (3)");
+    // 3 corresponds to MPMediaLibraryAuthorizationStatusAuthorized
+    3
+}
+
 @end
 
 };
