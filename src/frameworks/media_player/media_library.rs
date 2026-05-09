@@ -14,16 +14,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMediaLibrary: NSObject
 
 + (id)defaultMediaLibrary {
-    log!("Applying Spider-Man/Gameloft hack: returning dummy MPMediaLibrary to prevent NULL-PAGE READ.");
-    
-    // 1. Get the class. link_class ensures it exists and returns a Class handle.
-    // false = not a metaclass.
-    let class = env.objc.link_class("MPMediaLibrary", false, &mut env.mem);
-    
-    // 2. Allocate the object
-    class.alloc(env)
+    log!("Applying Spider-Man/Gameloft hack: Sending alloc to linked MPMediaLibrary class.");
+
+    // 1. Link the class to get a pointer to it
+    let class_ptr = env.objc.link_class("MPMediaLibrary", false, &mut env.mem);
+
+    // 2. Use the msg! macro to call "alloc" on that class pointer.
+    // This returns a valid object instance (id).
+    msg![env; class_ptr alloc]
 }
-    
+        
 @end
 
 };
