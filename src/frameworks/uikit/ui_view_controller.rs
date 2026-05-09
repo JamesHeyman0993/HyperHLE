@@ -680,6 +680,110 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
             return res;
         }
     }
+@implementation UITabBarController: UIViewController
 
+- (())setViewControllers:(id)controllers {
+    log!("[STUB] UITabBarController setViewControllers called");
+}
+
+- (())setViewControllers:(id)controllers animated:(bool)animated {
+    log!("[STUB] UITabBarController setViewControllers:animated: called");
+}
+
+- (id)viewControllers {
+    msg_class![env; NSArray new]
+}
+
+- (id)selectedViewController {
     nil
 }
+
+- (())setSelectedViewController:(id)_vc {
+    // stub
+}
+
+@end
+
+// --- Умные заглушки для пропуска видео и камеры ---
+
+@implementation VideoViewController: UIViewController
+
+- (())viewDidAppear:(bool)animated {
+    () = msg_super![env; this viewDidAppear:animated];
+    log!("[HACK] VideoViewController auto-closing!");
+
+    () = msg![env; this dismissModalViewControllerAnimated:false];
+    let view: id = msg![env; this view];
+    if view != nil {
+        () = msg![env; view removeFromSuperview];
+    }
+}
+
+@end
+
+@implementation BarcodeReaderViewController: UIViewController
+
+- (())viewDidAppear:(bool)animated {
+    () = msg_super![env; this viewDidAppear:animated];
+    log!("[HACK] BarcodeReaderViewController auto-closing!");
+
+    () = msg![env; this dismissModalViewControllerAnimated:false];
+    let view: id = msg![env; this view];
+    if view != nil {
+        () = msg![env; view removeFromSuperview];
+    }
+}
+
+@end
+
+}; // This is the end of the CLASSES macro
+
+fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
+    if base_name == nil {
+        return nil;
+    }
+    let type_: id = get_static_str(env, "nib");
+    let base_name_str = to_rust_string(env, base_name);
+    let bases = [base_name_str.to_string(), base_name_str.to_lowercase()];
+    let suffixes = [
+        "", "~iphone", "~ipad", "-iPhone", "-iPad", "_iPhone", "_iPad",
+    ];
+    for base in &bases {
+        for suffix in &suffixes {
+            let candidate = format!("{}{}", base, suffix);
+            let candidate_ns: id = from_rust_string(env, candidate);
+
+            let path: id = msg![env; bundle pathForResource:candidate_ns ofType:type_];
+            if path != nil {
+                release(env, path);
+                return autorelease(env, candidate_ns);
+            }
+            release(env, candidate_ns);
+        }
+    }
+    nil
+}
+
+fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id) -> id {
+    if class_name == nil {
+        return nil;
+    }
+
+    let res = check_and_resolve_nib(env, bundle, class_name);
+    if res != nil {
+        return res;
+    }
+
+    let class_str = to_rust_string(env, class_name);
+    if class_str.ends_with("Controller") {
+        let short_name = &class_str[..class_str.len() - "Controller".len()];
+        let short_ns = from_rust_string(env, short_name.to_string());
+        let res = check_and_resolve_nib(env, bundle, short_ns);
+        release(env, short_ns);
+        if res != nil {
+            return res;
+        }
+    }
+
+    nil
+        }
