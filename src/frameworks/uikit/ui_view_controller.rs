@@ -629,57 +629,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-
-fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
-    if base_name == nil {
-        return nil;
-    }
-    let type_: id = get_static_str(env, "nib");
-    let base_name_str = to_rust_string(env, base_name);
-    // Перебираем варианты регистра и суффиксов
-    let bases = [base_name_str.to_string(), base_name_str.to_lowercase()];
-    let suffixes = [
-        "", "~iphone", "~ipad", "-iPhone", "-iPad", "_iPhone", "_iPad",
-    ];
-    for base in &bases {
-        for suffix in &suffixes {
-            let candidate = format!("{}{}", base, suffix);
-            let candidate_ns: id = from_rust_string(env, candidate);
-
-            // Проверяем существование файла
-            let path: id = msg![env; bundle pathForResource:candidate_ns ofType:type_];
-            if path != nil {
-                release(env, path);
-                return autorelease(env, candidate_ns);
-            }
-            release(env, candidate_ns);
-        }
-    }
-    nil
-}
-
-fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id) -> id {
-    if class_name == nil {
-        return nil;
-    }
-
-    // 1. Пробуем полное имя класса (напр. MainViewController)
-    let res = check_and_resolve_nib(env, bundle, class_name);
-    if res != nil {
-        return res;
-    }
-
-    // 2. Пробуем имя без суффикса "Controller" (напр. MainView)
-    let class_str = to_rust_string(env, class_name);
-    if class_str.ends_with("Controller") {
-        let short_name = &class_str[..class_str.len() - "Controller".len()];
-        let short_ns = from_rust_string(env, short_name.to_string());
-        let res = check_and_resolve_nib(env, bundle, short_ns);
-        release(env, short_ns);
-        if res != nil {
-            return res;
-        }
-    }
 @implementation UITabBarController: UIViewController
 
 - (())setViewControllers:(id)controllers {
@@ -704,7 +653,7 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
 
 @end
 
-// --- Умные заглушки для пропуска видео и камеры ---
+// --- Smart stubs for skipping video and camera ---
 
 @implementation VideoViewController: UIViewController
 
@@ -736,7 +685,7 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
 
 @end
 
-}; // <--- THIS MUST BE HERE TO CLOSE THE CLASSES BLOCK
+}; // <--- THIS CLOSES THE CLASSES MACRO
 
 fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
     if base_name == nil {
