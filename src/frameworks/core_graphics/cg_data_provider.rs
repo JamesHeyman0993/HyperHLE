@@ -27,10 +27,7 @@ pub type CGDataProviderRef = CFTypeRef;
 /// `(*void)(void *info, const void *data, size_t size)`
 type CGDataProviderReleaseDataCallback = GuestFunction;
 
-// A CGDataProvider is supposed to be a collection of callbacks used for
-// accessing data, but at least for now, we instead only support some specific
-// use-cases.
-
+#[derive(Clone, Copy)]
 enum CGDataProviderHostObject {
     DataWithSize {
         data: ConstVoidPtr,
@@ -38,6 +35,11 @@ enum CGDataProviderHostObject {
         /// User-provided pointer passed to release callback.
         info: MutVoidPtr,
         release_callback: CGDataProviderReleaseDataCallback,
+    },
+    /// For sequential access (common in fonts/streams)
+    Sequential {
+        info: MutVoidPtr,
+        callbacks: ConstVoidPtr,
     },
     // TODO: Maybe we should store image data in guest memory so we don't
     // need a special variant for this.
@@ -50,9 +52,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
 
-// CGDataProvider is a CFType-based type, but in our implementation those
-// are just Objective-C types, so we need a class for it, but its name is not
-// visible anywhere.
 @implementation _touchHLE_CGDataProvider: NSObject
 
 - (())dealloc {
@@ -73,6 +72,10 @@ pub const CLASSES: ClassExports = objc_classes! {
                 );
                 () = release_callback.call_from_host(env, args);
             }
+        },
+        CGDataProviderHostObject::Sequential { info, .. } => {
+            log_dbg!("Deallocating Sequential CGDataProvider for info {:?}", info);
+            // In a full implementation, we would call the releaseInfo callback here.
         },
         CGDataProviderHostObject::CGImage(cg_image) => CGImageRelease(env, cg_image),
         CGDataProviderHostObject::CFData(cf_data) => CFRelease(env, cf_data),
@@ -119,8 +122,6 @@ fn CGDataProviderCreateWithData(
     )
 }
 
-#[allow(rustdoc::broken_intra_doc_links)] // https://github.com/rust-lang/rust/issues/83049
-/// This is for use by [super::cg_image::CGImageGetDataProvider].
 pub(super) fn from_cg_image(env: &mut Environment, cg_image: CGImageRef) -> CGDataProviderRef {
     CGImageRetain(env, cg_image);
     let class = env
@@ -133,7 +134,6 @@ pub(super) fn from_cg_image(env: &mut Environment, cg_image: CGImageRef) -> CGDa
     )
 }
 
-/// Generic interface for host code.
 pub(super) fn borrow_bytes(env: &mut Environment, provider: CGDataProviderRef) -> &[u8] {
     match *env.objc.borrow(provider) {
         CGDataProviderHostObject::DataWithSize { data, size, .. } => {
@@ -146,6 +146,10 @@ pub(super) fn borrow_bytes(env: &mut Environment, provider: CGDataProviderRef) -
             let data = CFDataGetBytePtr(env, cf_data);
             let size = CFDataGetLength(env, cf_data);
             env.mem.bytes_at(data, size.try_into().unwrap())
+        }
+        CGDataProviderHostObject::Sequential { .. } => {
+            log!("Warning: borrow_bytes called on a Sequential provider; this is likely to fail.");
+            &[]
         }
     }
 }
@@ -160,15 +164,9 @@ fn CGDataProviderCopyData(env: &mut Environment, provider: CGDataProviderRef) ->
         ),
         CGDataProviderHostObject::CGImage(cg_image) => {
             let bytes = cg_image::borrow_image(&env.objc, cg_image).pixels();
-
             let len: NSUInteger = bytes.len().try_into().unwrap();
             let alloc = env.mem.alloc(len);
-            env.mem
-                .bytes_at_mut(alloc.cast(), len)
-                .copy_from_slice(bytes);
-
-            // TODO: it would be cleaner to use CFDataCreateWithBytesNoCopy, but
-            // that's a bit more tricky.
+            env.mem.bytes_at_mut(alloc.cast(), len).copy_from_slice(bytes);
             let ns_data: id = msg_class![env; NSData alloc];
             msg![env; ns_data initWithBytesNoCopy:alloc length:len]
         }
@@ -177,16 +175,14 @@ fn CGDataProviderCopyData(env: &mut Environment, provider: CGDataProviderRef) ->
             let size = CFDataGetLength(env, cf_data);
             CFDataCreate(env, kCFAllocatorDefault, data.cast(), size)
         }
+        CGDataProviderHostObject::Sequential { .. } => nil,
     }
 }
 
 fn CGDataProviderCreateWithURL(env: &mut Environment, url: CFURLRef) -> CGDataProviderRef {
-    assert!(msg![env; url isFileURL]); // TODO
+    assert!(msg![env; url isFileURL]);
     let path: id = msg![env; url path];
-    log_dbg!(
-        "CGDataProviderCreateWithURL url path {}",
-        to_rust_string(env, path)
-    );
+    log_dbg!("CGDataProviderCreateWithURL url path {}", to_rust_string(env, path));
     let data: id = msg_class![env; NSData dataWithContentsOfFile:path];
     CGDataProviderCreateWithCFData(env, data)
 }
@@ -209,68 +205,13 @@ fn CGDataProviderCreateWithFilename(
 ) -> CGDataProviderRef {
     let path_str = env.mem.cstr_at_utf8(filename).unwrap_or("").to_string();
     log_dbg!("CGDataProviderCreateWithFilename: {}", path_str);
-        let Ok(bytes) = env.fs.read(GuestPath::new(&path_str)) else {
-        log!(
-            "HACK: CGDataProviderCreateWithFilename: couldn't read {:?}, returning empty provider to prevent crash",
-            path_str
-        );
-        // Create a 1-byte dummy buffer so the provider isn't empty/null
-        let dummy_bytes = vec![0u8; 1];
-        let len: GuestUSize = 1;
-        let buf = env.mem.alloc(len);
-        env.mem.bytes_at_mut(buf.cast(), len).copy_from_slice(&dummy_bytes);
-
-        return CGDataProviderCreateWithData(
-            env,
-            MutVoidPtr::null(),
-            buf.cast_const().cast(),
-            len,
-            GuestFunction::null_ptr(),
-        );
+    let Ok(bytes) = env.fs.read(GuestPath::new(&path_str)) else {
+        log!("Warning: CGDataProviderCreateWithFilename: couldn't read {:?}", path_str);
+        return nil;
     };
-    
     let len: GuestUSize = bytes.len().try_into().unwrap();
     let buf = env.mem.alloc(len);
-    env.mem
-        .bytes_at_mut(buf.cast(), len)
-        .copy_from_slice(&bytes);
-
-    CGDataProviderCreateWithData(
-        env,
-        MutVoidPtr::null(),
-        buf.cast_const().cast(),
-        len,
-        GuestFunction::null_ptr(), // <- was GuestFunction::from_ptr(...)
-    )
-}
-
-fn CGDataProviderGetInfo(_env: &mut Environment, _provider: CGDataProviderRef) -> MutVoidPtr {
-    // Real API returns the `info` pointer passed at creation time.
-    // We don't expose it publicly; return null as a safe stub.
-    MutVoidPtr::null()
-}
-
-fn CGDataProviderGetSize(env: &mut Environment, provider: CGDataProviderRef) -> u64 {
-    match *env.objc.borrow(provider) {
-        CGDataProviderHostObject::DataWithSize { size, .. } => size as u64,
-        CGDataProviderHostObject::CGImage(cg_image) => {
-            cg_image::borrow_image(&env.objc, cg_image).pixels().len() as u64
-        }
-        CGDataProviderHostObject::CFData(cf_data) => CFDataGetLength(env, cf_data) as u64,
-    }
-}
-
-fn CGDataProviderCreateDirect(
-    env: &mut Environment,
-    _info: MutVoidPtr,
-    size: i64,
-    _callbacks: ConstVoidPtr,
-) -> CGDataProviderRef {
-    log!("HACK: CGDataProviderCreateDirect returning dummy provider of size {}", size);
-    let len = size as GuestUSize;
-    let buf = env.mem.alloc(len);
-    // Zero out the memory so it's clean
-    env.mem.bytes_at_mut(buf.cast(), len).fill(0);
+    env.mem.bytes_at_mut(buf.cast(), len).copy_from_slice(&bytes);
 
     CGDataProviderCreateWithData(
         env,
@@ -281,13 +222,50 @@ fn CGDataProviderCreateDirect(
     )
 }
 
+fn CGDataProviderGetInfo(env: &mut Environment, provider: CGDataProviderRef) -> MutVoidPtr {
+    if provider.is_null() { return MutVoidPtr::null(); }
+    match *env.objc.borrow(provider) {
+        CGDataProviderHostObject::DataWithSize { info, .. } => info,
+        CGDataProviderHostObject::Sequential { info, .. } => info,
+        _ => MutVoidPtr::null(),
+    }
+}
+
+fn CGDataProviderGetSize(env: &mut Environment, provider: CGDataProviderRef) -> u64 {
+    match *env.objc.borrow(provider) {
+        CGDataProviderHostObject::DataWithSize { size, .. } => size as u64,
+        CGDataProviderHostObject::CGImage(cg_image) => {
+            cg_image::borrow_image(&env.objc, cg_image).pixels().len() as u64
+        }
+        CGDataProviderHostObject::CFData(cf_data) => CFDataGetLength(env, cf_data) as u64,
+        CGDataProviderHostObject::Sequential { .. } => 0,
+    }
+}
+
 fn CGDataProviderCreateSequential(
+    env: &mut Environment,
+    info: MutVoidPtr,
+    callbacks: ConstVoidPtr,
+) -> CGDataProviderRef {
+    log_dbg!("CGDataProviderCreateSequential: info={:?}, callbacks={:?}", info, callbacks);
+    let class = env
+        .objc
+        .get_known_class("_touchHLE_CGDataProvider", &mut env.mem);
+    env.objc.alloc_object(
+        class,
+        Box::new(CGDataProviderHostObject::Sequential { info, callbacks }),
+        &mut env.mem,
+    )
+}
+
+fn CGDataProviderCreateDirect(
     _env: &mut Environment,
     _info: MutVoidPtr,
+    _size: i64,
     _callbacks: ConstVoidPtr,
 ) -> CGDataProviderRef {
-    log!("Warning: CGDataProviderCreateSequential is not supported, returning nil");
-    nil 
+    log!("Warning: CGDataProviderCreateDirect is not supported, returning null");
+    nil
 }
 
 pub const FUNCTIONS: FunctionExports = &[
