@@ -146,7 +146,14 @@ fn ensure_view(env: &mut Environment, this: id) -> id {
         return existing;
     }
     let view_alloc: id = msg_class![env; UIView alloc];
-    let view: id = msg![env; view_alloc init];
+    
+    // GIVE THE VIEW A REAL SIZE (iPad size)
+    let rect = crate::objc::CGRect {
+        origin: crate::objc::CGPoint { x: 0.0, y: 0.0 },
+        size: crate::objc::CGSize { width: 1024.0, height: 768.0 },
+    };
+    let view: id = msg![env; view_alloc initWithFrame:rect];
+    
     retain(env, view);
     env.objc
         .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
