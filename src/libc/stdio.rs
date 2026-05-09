@@ -810,10 +810,11 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
                 
-fn srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+fn ___srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+    // Redacting logic to fgetc
     fgetc(env, file_ptr)
 }
-            
+        
 pub const FUNCTIONS: FunctionExports = &[
     // Standard C functions
     export_c_func!(fopen(_, _)),
@@ -837,7 +838,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    export_c_func!(srget as ___srget(_)),
+    export_c_func!(___srget(_)),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
