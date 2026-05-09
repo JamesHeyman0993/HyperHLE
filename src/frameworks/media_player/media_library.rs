@@ -16,11 +16,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)defaultMediaLibrary {
     log!("Applying Spider-Man/Gameloft hack: returning dummy MPMediaLibrary to prevent NULL-PAGE READ.");
     
-    // Use the public method to get the class instead of accessing the private field
-    let class = env.objc.get_class("MPMediaLibrary");
+    // Attempt to get the class using the public .class() method
+    let class = env.objc.class("MPMediaLibrary");
     class.alloc(env)
 }
-    
+        
 @end
 
 };
