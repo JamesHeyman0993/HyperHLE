@@ -14,8 +14,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMediaLibrary: NSObject
 
 + (id)defaultMediaLibrary {
-    log!("TODO: [MPMediaLibrary defaultMediaLibrary] (not implemented yet)");
-    nil
+    log!("Applying Spider-Man/Gameloft hack: returning dummy MPMediaLibrary to prevent NULL-PAGE READ.");
+    
+    // Instead of returning nil, we return a valid allocated instance of this class.
+    // This stops the crash because the game receives a real pointer.
+    let class = env.objc.classes.get("MPMediaLibrary");
+    class.alloc(env)
 }
 
 @end
