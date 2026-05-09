@@ -837,7 +837,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setNeedsLayout { }
-
+    
+- (())layoutIfNeeded {
+    // This stops the infinite loop crash
+}
 - (CGRect)bounds {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer bounds]
