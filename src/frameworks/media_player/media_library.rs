@@ -6,6 +6,7 @@
 //! `MPMediaLibrary`.
 
 use crate::objc::{id, nil, objc_classes, ClassExports};
+use crate::msg; // <--- Add this line to fix the "cannot find macro" error
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -17,13 +18,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("Applying Spider-Man/Gameloft hack: Sending alloc to linked MPMediaLibrary class.");
 
     // 1. Link the class to get a pointer to it
+    // false = not a metaclass
     let class_ptr = env.objc.link_class("MPMediaLibrary", false, &mut env.mem);
 
     // 2. Use the msg! macro to call "alloc" on that class pointer.
-    // This returns a valid object instance (id).
     msg![env; class_ptr alloc]
 }
-        
+
 @end
 
 };
