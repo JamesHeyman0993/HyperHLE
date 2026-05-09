@@ -9,6 +9,7 @@ use crate::{
     dyld::{ConstantExports, HostConstant},
     objc::{id, nil, objc_classes, ClassExports},
 };
+use crate::msg; // <--- Add this
 
 pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
     "MPMusicPlayerControllerNowPlayingItemDidChangeNotification";
@@ -39,19 +40,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMusicPlayerController: NSObject
 
 + (id)iPodMusicPlayer {
-    log_dbg!(
-        "TODO: [(MPMusicPlayerController*){:?} iPodMusicPlayer]",
-        this
-    );
-    nil
+    log!("Gameloft Hack: returning dummy iPodMusicPlayer");
+    let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
+    msg![env; class_ptr alloc]
 }
 
 + (id)applicationMusicPlayer {
-    log_dbg!(
-        "TODO: [(MPMusicPlayerController*){:?} applicationMusicPlayer]",
-        this
-    );
-    nil
+    log!("Gameloft Hack: returning dummy applicationMusicPlayer");
+    let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
+    msg![env; class_ptr alloc]
 }
 
 @end
