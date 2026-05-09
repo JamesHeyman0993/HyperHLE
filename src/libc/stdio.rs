@@ -33,11 +33,14 @@ struct FILEHostObject {
 }
 
 #[allow(clippy::upper_case_acronyms)]
-/// C `FILE` struct. This is an opaque type in C, so the definition here is our
-/// own.
-struct FILE {
-    fd: posix_io::FileDescriptor,
+#[repr(C)]
+/// C `FILE` struct. Padded to 160 bytes to prevent crashes on internal flag offsets (0x7c).
+pub struct FILE {
+    pub fd: posix_io::FileDescriptor,
+    // Add this padding to satisfy the 0x7c (124 byte) offset requirement
+    pub _extra_padding: [u8; 156], 
 }
+
 unsafe impl SafeRead for FILE {}
 
 #[derive(Default)]
