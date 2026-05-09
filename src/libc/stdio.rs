@@ -810,8 +810,8 @@ pub const CONSTANTS: ConstantExports = &[
     ),
 ];
                 
-fn ___srget(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // Redacting logic to fgetc
+fn __srget_rust_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
+    // This is what the game actually needs to fill its buffers
     fgetc(env, file_ptr)
 }
         
@@ -821,7 +821,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(freopen(_, _, _)),
     export_c_func!(fread(_, _, _, _)),
     export_c_func!(fgetc(_)),
-    export_c_func!(getc(_)),
+    export_c_func!(getc(search_)),
     export_c_func!(ungetc(_, _)),
     export_c_func!(fgets(_, _, _)),
     export_c_func!(fputs(_, _)),
@@ -838,7 +838,10 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    export_c_func!(___srget(_)),
+    ("__srget", crate::dyld::HostConstant::Function(|env, args| {
+        let file_ptr = args[0].cast();
+        srget_impl(env, file_ptr).into()
+    })),
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
