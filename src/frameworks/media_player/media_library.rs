@@ -34,19 +34,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (u32)authorizationStatus {
-    // Return Authorized
+    // Return Authorized (3)
     3
 }
 
-// Added these to prevent the game from getting null when it asks for data
+// Gameloft often calls this to see when the library was last updated
 - (id)lastModifiedDate {
-    log!("Gameloft Hack: ignoring lastModifiedDate");
     nil
 }
 
-// Some games check this to see if the library is "ready"
-- (bool)isGeniusAvailable {
-    false
+// This is a common point of failure. The game asks for all songs/playlists.
+// By returning nil here, we hope the game checks for nil before proceeding.
+- (id)collectionsForEntityKind:(u32)kind {
+    log!("Gameloft Hack: collectionsForEntityKind requested, returning nil.");
+    nil
 }
 
 @end
