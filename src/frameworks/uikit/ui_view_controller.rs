@@ -686,7 +686,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-}; // This closes the objc_classes! macro correctly
+}; // This is the ONLY closing brace for the objc_classes! macro
 
 fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
     if base_name == nil {
