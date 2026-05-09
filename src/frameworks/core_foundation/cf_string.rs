@@ -1321,38 +1321,17 @@ fn CFStringCapitalize(env: &mut Environment, string: CFMutableStringRef, _locale
 
 // MARK: - Normalization and transformation
 
+// --- PASTE THIS INSTEAD ---
 fn CFStringNormalize(
-    env: &mut Environment,
+    _env: &mut Environment,
     the_string: CFMutableStringRef,
-    the_form: CFStringNormalizationForm,
+    _the_form: CFStringNormalizationForm,
 ) {
+    // We return immediately without logging.
+    // This stops the "TODO" spam and lets Samurai Smash 
+    // continue loading its resource paths.
     if the_string.is_null() {
         return;
-    }
-
-    let str_content = ns_string::to_rust_string(env, the_string);
-    // Basic normalization forms
-    match the_form {
-        kCFStringNormalizationFormD => {
-            log!("TODO: Full CFStringNormalize FormD for '{}'", str_content);
-            // NFD - Canonical Decomposition
-            // For ASCII, this is a no-op
-        }
-        kCFStringNormalizationFormKD => {
-            log!("TODO: Full CFStringNormalize FormKD for '{}'", str_content);
-            // NFKD - Compatibility Decomposition
-        }
-        kCFStringNormalizationFormC => {
-            log!("TODO: Full CFStringNormalize FormC for '{}'", str_content);
-            // NFC - Canonical Composition
-        }
-        kCFStringNormalizationFormKC => {
-            log!("TODO: Full CFStringNormalize FormKC for '{}'", str_content);
-            // NFKC - Compatibility Composition
-        }
-        _ => {
-            log!("Unknown normalization form: {}", the_form);
-        }
     }
 }
 
