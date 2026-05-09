@@ -11,7 +11,6 @@ use crate::{
 };
 use crate::msg;
 
-/// Notification name used by Gameloft games to listen for library changes.
 pub const MPMediaLibraryDidChangeNotification: &str = "MPMediaLibraryDidChangeNotification";
 
 pub const CONSTANTS: ConstantExports = &[
@@ -28,21 +27,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMediaLibrary: NSObject
 
 + (id)defaultMediaLibrary {
-    log!("Applying Spider-Man/Gameloft hack: Sending alloc AND init to MPMediaLibrary.");
-
+    log!("Gameloft Hack: defaultMediaLibrary (alloc + init)");
     let class_ptr = env.objc.link_class("MPMediaLibrary", false, &mut env.mem);
-
-    // 1. Allocate the object
     let instance = msg![env; class_ptr alloc];
-    
-    // 2. Initialize the object so it is not a null/garbage pointer
     msg![env; instance init]
 }
 
 + (u32)authorizationStatus {
-    log!("Gameloft Hack: reporting MediaLibrary authorizationStatus as Authorized (3)");
-    // 3 corresponds to MPMediaLibraryAuthorizationStatusAuthorized
+    // Return Authorized
     3
+}
+
+// Added these to prevent the game from getting null when it asks for data
+- (id)lastModifiedDate {
+    log!("Gameloft Hack: ignoring lastModifiedDate");
+    nil
+}
+
+// Some games check this to see if the library is "ready"
+- (bool)isGeniusAvailable {
+    false
 }
 
 @end
