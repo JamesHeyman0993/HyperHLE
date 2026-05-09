@@ -56,7 +56,7 @@ impl State {
         mem: &mut Mem,
         file_ptr: MutPtr<FILE>,
     ) -> &mut FILEHostObject {
-        let FILE { fd } = mem.read(file_ptr);
+        let FILE { fd, .. } = mem.read(file_ptr);
         if matches!(fd, STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO)
             && !self.file_streams.contains_key(&file_ptr)
         {
@@ -77,12 +77,6 @@ impl State {
 type fpos_t = off_t;
 
 fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> MutPtr<FILE> {
-    // Some testing on macOS suggests Apple's implementation will just ignore
-    // flags it doesn't know about, and unfortunately real-world apps seem to
-    // rely on this, e.g. using "wt" to mean open for writing in text mode,
-    // even though that's not a real flag. The one thing that is required is for
-    // a known basic mode (r/w/a) to come first.
-
     let mode = env.mem.cstr_at(mode);
     let [basic_mode @ (b'r' | b'w' | b'a'), flags @ ..] = mode else {
         panic!(
@@ -93,7 +87,6 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
     let mut plus = false;
     for &flag in flags {
         match flag {
-            // binary flag does nothing on UNIX
             b'b' => (),
             b'+' => plus = true,
             other => {
@@ -115,15 +108,7 @@ fn fopen(env: &mut Environment, filename: ConstPtr<u8>, mode: ConstPtr<u8>) -> M
     match posix_io::open_direct(env, filename, flags) {
         -1 => Ptr::null(),
         fd => {
-            let res = env.mem.alloc_and_write(FILE { fd });
-            // Без заглушек: игры часто грешат тем, что вызывают free() на
-            // указатель FILE*,
-            // минуя вызов fclose(). В результате память освобождается,
-            // аллокатор выдает
-            // этот же адрес при следующем fopen, но в нашей мапе остаётся
-            // старый "призрак".
-            // Мы просто перезаписываем его новым состоянием, так как память уже
-            // легально наша.
+            let res = env.mem.alloc_and_write(FILE { fd, _extra_padding: [0; 156] });
             State::get_mut(env).file_streams.insert(
                 res,
                 FILEHostObject {
@@ -148,12 +133,10 @@ fn freopen(
         return Ptr::null();
     }
 
-    // 1. Сбрасываем буфер и закрываем старый дескриптор
-    let FILE { fd: old_fd } = env.mem.read(stream);
+    let FILE { fd: old_fd, .. } = env.mem.read(stream);
     let _ = posix_io::fflush(env, old_fd);
     let _ = posix_io::close(env, old_fd);
 
-    // Очищаем состояние в хост-объекте (ошибки и возвращенные символы ungetc)
     let host_obj = env
         .libc_state
         .stdio
@@ -166,7 +149,6 @@ fn freopen(
         return Ptr::null();
     }
 
-    // 2. Парсим режим открытия (точно так же, как в fopen)
     let mode_str = env.mem.cstr_at(mode);
     let [basic_mode @ (b'r' | b'w' | b'a'), flags @ ..] = mode_str else {
         log!(
@@ -179,7 +161,7 @@ fn freopen(
     let mut plus = false;
     for &flag in flags {
         match flag {
-            b'b' => (), // бинарный флаг ничего не делает в UNIX
+            b'b' => (),
             b'+' => plus = true,
             other => {
                 log!("Tolerating unrecognized freopen() mode flag: {:?}", other);
@@ -197,17 +179,13 @@ fn freopen(
         _ => unreachable!(),
     };
 
-    // 3. Открываем новый файл
     let new_fd = posix_io::open_direct(env, filename, open_flags);
 
     if new_fd == -1 {
-        // Ошибка открытия, возвращаем NULL
         return Ptr::null();
     }
 
-    // 4. Связываем новый дескриптор со старым потоком
-    // В памяти гостя перезаписываем структуру FILE
-    env.mem.write(stream, FILE { fd: new_fd });
+    env.mem.write(stream, FILE { fd: new_fd, _extra_padding: [0; 156] });
 
     log_dbg!(
         "freopen() successfully reopened fd {} as new fd {} for stream {:?}",
@@ -226,16 +204,12 @@ fn fread(
     n_items: GuestUSize,
     file_ptr: MutPtr<FILE>,
 ) -> GuestUSize {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     if item_size == 0 {
         return 0;
     }
 
-    // Yes, the item_size/n_items split doesn't mean anything. The C standard
-    // really does expect you to just multiply and divide like this, with no
-    // attempt being made to ensure a whole number are read or written!
     let mut total_size = item_size.checked_mul(n_items).unwrap();
     let FILEHostObject {
         ref mut pushbacks, ..
@@ -264,7 +238,7 @@ fn fread(
     } else {
         0
     };
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     match posix_io::read(env, fd, buffer, total_size) {
         -1 => {
             env.libc_state
@@ -281,10 +255,9 @@ fn fread(
 }
 
 fn fgetc(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     let FILEHostObject {
         ref mut pushbacks, ..
     } = env
@@ -293,7 +266,7 @@ fn fgetc(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
         .get_file_host_obj_mut(&mut env.mem, file_ptr);
     if let Some(pushback) = pushbacks.pop() {
         let new_offset = posix_io::lseek(env, fd, 1, SEEK_CUR);
-        assert!(new_offset > 0); // TODO: handle error
+        assert!(new_offset > 0); 
         return pushback.into();
     }
 
@@ -320,18 +293,16 @@ fn fgetc(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
 }
 
 fn getc(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // `getc` is essentially identical to the `fgetc`
     fgetc(env, file_ptr)
 }
 
 fn ungetc(env: &mut Environment, c: i32, file_ptr: MutPtr<FILE>) -> i32 {
-    assert!(c != EOF); // TODO
-    let FILE { fd } = env.mem.read(file_ptr);
+    assert!(c != EOF);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     let curr_offset = posix_io::lseek(env, fd, 0, SEEK_CUR);
     assert!(curr_offset > 0);
-    // Note: successful seeking clears EOF indicator
     let new_offset = posix_io::lseek(env, fd, -1, SEEK_CUR);
-    assert!(new_offset >= 0); // TODO: handle error
+    assert!(new_offset >= 0);
     let FILEHostObject {
         ref mut pushbacks, ..
     } = env
@@ -368,10 +339,7 @@ fn fgets(
 }
 
 fn fputs(env: &mut Environment, str: ConstPtr<u8>, stream: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    // TODO: this function doesn't set errno or return EOF yet
     let str_len = strlen(env, str);
     fwrite(env, str.cast(), str_len, 1, stream)
         .try_into()
@@ -379,9 +347,7 @@ fn fputs(env: &mut Environment, str: ConstPtr<u8>, stream: MutPtr<FILE>) -> i32 
 }
 
 fn fputc(env: &mut Environment, c: i32, stream: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     let ptr: MutPtr<u8> = env.mem.alloc_and_write(c.try_into().unwrap());
     let res = fwrite(env, ptr.cast_const().cast(), 1, 1, stream)
         .try_into()
@@ -390,9 +356,6 @@ fn fputc(env: &mut Environment, c: i32, stream: MutPtr<FILE>) -> i32 {
     res
 }
 
-// From man page,
-// `The putc() macro acts essentially identically to fputc(),
-// but is a macro that expands in-line.`
 fn putc(env: &mut Environment, c: i32, stream: MutPtr<FILE>) -> i32 {
     fputc(env, c, stream)
 }
@@ -404,18 +367,15 @@ fn fwrite(
     n_items: GuestUSize,
     file_ptr: MutPtr<FILE>,
 ) -> GuestUSize {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     if item_size == 0 || buffer.is_null() {
         return 0;
     }
 
-    let FILE { fd } = env.mem.read(file_ptr);
-
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     let total_size = item_size.checked_mul(n_items).unwrap();
 
-    // TODO: Refactor, use traits instead of this hack
     match fd {
         STDOUT_FILENO => {
             let buffer_slice = env.mem.bytes_at(buffer.cast(), total_size);
@@ -462,11 +422,10 @@ fn fwrite(
 const SEEK_SET: i32 = posix_io::SEEK_SET;
 const SEEK_CUR: i32 = posix_io::SEEK_CUR;
 const SEEK_END: i32 = posix_io::SEEK_END;
-fn fseek(env: &mut Environment, file_ptr: MutPtr<FILE>, offset: i32, whence: i32) -> i32 {
-    // TODO: handle errno properly
-    set_errno(env, 0);
 
-    let FILE { fd } = env.mem.read(file_ptr);
+fn fseek(env: &mut Environment, file_ptr: MutPtr<FILE>, offset: i32, whence: i32) -> i32 {
+    set_errno(env, 0);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
 
     assert!([SEEK_SET, SEEK_CUR, SEEK_END].contains(&whence));
     match posix_io::lseek(env, fd, offset.into(), whence) {
@@ -485,66 +444,38 @@ fn fseek(env: &mut Environment, file_ptr: MutPtr<FILE>, offset: i32, whence: i32
 }
 
 fn ftell(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    let FILE { fd } = env.mem.read(file_ptr);
-
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     match posix_io::lseek(env, fd, 0, posix_io::SEEK_CUR) {
         -1 => -1,
-        // TODO: What's the correct behaviour if the position is beyond 2GiB?
         cur_pos => cur_pos.try_into().unwrap(),
     }
 }
 
 fn rewind(env: &mut Environment, file_ptr: MutPtr<FILE>) {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     env.libc_state
         .stdio
         .get_file_host_obj_mut(&mut env.mem, file_ptr)
         .error = false;
-
-    // Note: this call will clean pushbacks as well
     fseek(env, file_ptr, 0, SEEK_SET);
 }
 
 fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     if file_ptr.is_null() {
-        log!("fclose(NULL) => EOF");
         return EOF;
     }
 
-    // This is needed in order to force lazy instantiation
-    // of stdin-like host object.
     _ = env
         .libc_state
         .stdio
         .get_file_host_obj_mut(&mut env.mem, file_ptr);
 
-    let FILE { fd } = env.mem.read(file_ptr);
-    if matches!(fd, STDIN_FILENO | STDOUT_FILENO | STDERR_FILENO) {
-        log!(
-            "Warning! fclose({:?}) is called for standard descriptor {}.",
-            file_ptr,
-            fd
-        );
-    }
-
-    // Честное поведение C-рантайма: защита от double-close или закрытия
-    // невалидного потока.
-    // Если игра вызывает fclose два раза для одного адреса, не крашим эмулятор
-    // assert-ом,
-    // а легально возвращаем EOF (ошибку), как и делают реальные ОС.
+    let FILE { fd, .. } = env.mem.read(file_ptr);
+    
     if State::get_mut(env).file_streams.remove(&file_ptr).is_none() {
-        log!(
-            "Warning: fclose called on unknown or already closed stream {:?}",
-            file_ptr
-        );
         return EOF;
     }
 
@@ -558,28 +489,18 @@ fn fclose(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
 }
 
 fn ferror(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     let error = env
         .libc_state
         .stdio
         .get_file_host_obj_mut(&mut env.mem, file_ptr)
         .error;
-
-    if error {
-        1
-    } else {
-        0
-    }
+    if error { 1 } else { 0 }
 }
 
 fn fsetpos(env: &mut Environment, file_ptr: MutPtr<FILE>, pos: ConstPtr<fpos_t>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    let FILE { fd } = env.mem.read(file_ptr);
-
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     let res = posix_io::lseek(env, fd, env.mem.read(pos), SEEK_SET);
     if res == -1 {
         -1
@@ -596,11 +517,8 @@ fn fsetpos(env: &mut Environment, file_ptr: MutPtr<FILE>, pos: ConstPtr<fpos_t>)
 }
 
 fn fgetpos(env: &mut Environment, file_ptr: MutPtr<FILE>, pos: MutPtr<fpos_t>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    let FILE { fd } = env.mem.read(file_ptr);
-
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     let res = posix_io::lseek(env, fd, 0, posix_io::SEEK_CUR);
     if res == -1 {
         return -1;
@@ -610,98 +528,66 @@ fn fgetpos(env: &mut Environment, file_ptr: MutPtr<FILE>, pos: MutPtr<fpos_t>) -
 }
 
 fn feof(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     posix_io::eof(env, fd)
 }
 
 fn clearerr(env: &mut Environment, file_ptr: MutPtr<FILE>) {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     env.libc_state
         .stdio
         .get_file_host_obj_mut(&mut env.mem, file_ptr)
         .error = false;
-
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     posix_io::clearerr(env, fd)
 }
 
 fn fflush(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     posix_io::fflush(env, fd)
 }
 
 fn puts(env: &mut Environment, s: ConstPtr<u8>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     let _ = std::io::stdout().write_all(env.mem.cstr_at(s));
     let _ = std::io::stdout().write_all(b"\n");
-    // TODO: I/O error handling
-    // TODO: is this the return value iPhone OS uses?
     0
 }
 
 fn putchar(env: &mut Environment, c: u8) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     let _ = std::io::stdout().write(std::slice::from_ref(&c));
     0
 }
 
 fn remove(env: &mut Environment, path: ConstPtr<u8>) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
     if Ptr::is_null(path) {
-        // TODO: set errno
-        log!("remove({:?}) => -1, attempted to remove null", path);
         return -1;
     }
-
     match env
         .fs
         .remove(GuestPath::new(&env.mem.cstr_at_utf8(path).unwrap()))
     {
-        Ok(()) => {
-            log_dbg!("remove({:?}) => 0", path);
-            0
-        }
-        Err(_) => {
-            // TODO: set errno
-            log!("Warning: remove({:?}) failed, returning -1", path);
-            -1
-        }
+        Ok(()) => 0,
+        Err(_) => -1,
     }
 }
 
 fn tmpfile(env: &mut Environment) -> MutPtr<FILE> {
-    // TODO: handle errno properly
     set_errno(env, 0);
-
-    // Generate a unique path under /tmp using a process-wide counter and the
-    // host PID, making collisions extremely unlikely.
     static TMPFILE_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let count = TMPFILE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp_path = format!("/tmp/touchHLE_tmp_{}_{}\0", std::process::id(), count);
 
-    // Write the path string into guest memory so fopen/remove can use it.
     let path_len = tmp_path.len() as GuestUSize;
     let path_ptr: MutPtr<u8> = env.mem.alloc(path_len).cast();
     env.mem
         .bytes_at_mut(path_ptr.cast(), path_len)
         .copy_from_slice(tmp_path.as_bytes());
 
-    // "w+b": read/write, create, truncate — matches the C standard requirement
-    // for tmpfile().
     let mode = b"w+b\0";
     let mode_ptr: MutPtr<u8> = env.mem.alloc(mode.len() as GuestUSize).cast();
     env.mem
@@ -714,12 +600,9 @@ fn tmpfile(env: &mut Environment) -> MutPtr<FILE> {
     env.mem.free(mode_ptr.cast());
 
     if file_ptr.is_null() {
-        log!("tmpfile() failed to create temporary file");
         return Ptr::null();
     }
 
-    // Unlink the file immediately so it is automatically deleted when the last
-    // file descriptor referencing it is closed (POSIX semantics).
     let path_ptr2: MutPtr<u8> = env.mem.alloc(path_len).cast();
     env.mem
         .bytes_at_mut(path_ptr2.cast(), path_len)
@@ -727,99 +610,64 @@ fn tmpfile(env: &mut Environment) -> MutPtr<FILE> {
     remove(env, path_ptr2.cast_const());
     env.mem.free(path_ptr2.cast());
 
-    log_dbg!("tmpfile() => {:?}", file_ptr);
     file_ptr
 }
 
-fn setbuf(env: &mut Environment, stream: MutPtr<FILE>, buf: ConstPtr<u8>) {
-    // TODO: handle errno properly
+fn setbuf(env: &mut Environment, stream: MutPtr<FILE>, _buf: ConstPtr<u8>) {
     set_errno(env, 0);
-
-    // assert!(buf.is_null());
-    log!(
-        "Warning: ignoring a setbuf() for {:?} with NULL (unbuffered)",
-        stream
-    );
+    log!("Warning: ignoring a setbuf() for {:?}", stream);
 }
 
 fn setvbuf(
     _env: &mut Environment,
-    _stream: MutVoidPtr, // FILE*
-    _buf: MutVoidPtr,    // char*
+    _stream: MutVoidPtr,
+    _buf: MutVoidPtr,
     mode: i32,
     _size: GuestUSize,
 ) -> i32 {
-    // _IONBF = 2, _IOLBF = 1, _IOFBF = 0
-    log_dbg!("setvbuf(mode={}) — ignored, returning 0", mode);
+    log_dbg!("setvbuf(mode={}) — ignored", mode);
     0
 }
 
-// POSIX-specific functions
-
 fn fileno(env: &mut Environment, file_ptr: MutPtr<FILE>) -> posix_io::FileDescriptor {
-    let FILE { fd } = env.mem.read(file_ptr);
+    let FILE { fd, .. } = env.mem.read(file_ptr);
     fd
 }
 
-/// `flockfile()` — acquire ownership of a FILE stream for thread-safe I/O.
-///
-/// Since the emulator is single-threaded, this is a no-op, but it is a proper
-/// implementation: in a single-threaded context the calling thread always has
-/// exclusive access to the FILE.
-fn flockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {
-    log_dbg!("flockfile({:?}) (no-op, single-threaded)", _file_ptr);
-}
+fn flockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {}
+fn funlockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {}
+fn ftrylockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) -> i32 { 0 }
 
-/// `funlockfile()` — release ownership of a FILE stream.
-///
-/// Counterpart to `flockfile()`. Single-threaded no-op.
-fn funlockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) {
-    log_dbg!("funlockfile({:?}) (no-op, single-threaded)", _file_ptr);
-}
-
-/// `ftrylockfile()` — try to acquire ownership of a FILE stream.
-///
-/// Returns 0 on success. In a single-threaded emulator the lock is always
-/// available, so this always succeeds.
-fn ftrylockfile(_env: &mut Environment, _file_ptr: MutPtr<FILE>) -> i32 {
-    log_dbg!("ftrylockfile({:?}) => 0 (no-op, single-threaded)", _file_ptr);
-    0 // success
-}
-                
 pub const CONSTANTS: ConstantExports = &[
     (
         "___stdinp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDIN_FILENO });
-            // Note: Host object would be created lazily
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDIN_FILENO, _extra_padding: [0; 156] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
     (
         "___stdoutp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDOUT_FILENO });
-            // Note: Host object would be created lazily
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDOUT_FILENO, _extra_padding: [0; 156] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
     (
         "___stderrp",
         HostConstant::Custom(|env| -> ConstVoidPtr {
-            let ptr = env.mem.alloc_and_write(FILE { fd: STDERR_FILENO });
-            // Note: Host object would be created lazily
+            let ptr = env.mem.alloc_and_write(FILE { fd: STDERR_FILENO, _extra_padding: [0; 156] });
             env.mem.alloc_and_write(ptr).cast().cast_const()
         }),
     ),
 ];
-                
+
 fn handle_srget_impl(env: &mut Environment, file_ptr: MutPtr<FILE>) -> i32 {
-    log_dbg!("SIMPSONS_FIX: ___srget (refill buffer) called for {:?}", file_ptr);
+    log_dbg!("SIMPSONS_FIX: ___srget called for {:?}", file_ptr);
     fgetc(env, file_ptr)
 }
 
 pub const FUNCTIONS: FunctionExports = &[
-    // Standard C functions
     export_c_func!(fopen(_, _)),
     export_c_func!(freopen(_, _, _)),
     export_c_func!(fread(_, _, _, _)),
@@ -841,21 +689,15 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fflush(_)),
     export_c_func!(fclose(_)),
     export_c_func!(ferror(_)),
-    
-    // --- THE FIX: MANUAL ALIASING ---
-    // This maps the exact string "___srget" to our function.
-    // We use the macro to generate the logic, but override the name.
     ("___srget", export_c_func!(handle_srget_impl(_)).1),
     ("__srget", export_c_func!(handle_srget_impl(_)).1),
     ("_srget", export_c_func!(handle_srget_impl(_)).1),
-
     export_c_func!(puts(_)),
     export_c_func!(putchar(_)),
     export_c_func!(remove(_)),
     export_c_func!(tmpfile()),
     export_c_func!(setbuf(_, _)),
     export_c_func!(setvbuf(_, _, _, _)),
-    // POSIX-specific functions
     export_c_func!(fileno(_)),
     export_c_func!(flockfile(_)),
     export_c_func!(funlockfile(_)),
