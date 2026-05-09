@@ -112,11 +112,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // --- START HACK ---
     if request != nil {
-        // Get the URL as a raw 'id' instead of using 'if let Some'
+        // Safe way to get the URL from the request
         let url: id = msg![env; request URL];
         
         if url != nil {
-            let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, url);
+            // Get the absoluteString to check the filename
+            let absolute_url: id = msg![env; url absoluteString];
+            let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
             
             if url_str.contains("localfeed.xml") {
                 log!("HACK: Detected localfeed.xml request. Faking success to unblock menu.");
@@ -126,15 +128,17 @@ pub const CLASSES: ClassExports = objc_classes! {
                 }
 
                 if !error_ptr.is_null() {
-                    env.mem.write(error_ptr, nil);
+                    env.mem.write(error_ptr, nil); // Important: No error!
                 }
 
+                // Return an empty data object and EXIT immediately
                 return msg_class![env; NSData data];
             }
         }
     }
     // --- END HACK ---
 
+    // Default behavior for everything else (which currently fails)
     if request == nil {
         log!(
             "NSURLConnection sendSynchronousRequest: nil request — \
@@ -152,11 +156,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         env.mem.write(error_ptr, error);
     }
 
-    let empty_data: id = msg_class![env; NSData data];
-    empty_data
+    msg_class![env; NSData data]
                        }
-    
-    
+     
 // MARK: - Asynchronous API
 
 + (id)connectionWithRequest:(id)request
