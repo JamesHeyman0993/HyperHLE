@@ -104,6 +104,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     - (NSRange)range {
         NSRange { location: 0, length: 0 }
     }
+
+    // This fix handles the game's request for specific capture groups
+    - (NSRange)rangeAtIndex:(NSUInteger)_index {
+        NSRange { location: 0, length: 0 }
+    }
     @end
 };
 
