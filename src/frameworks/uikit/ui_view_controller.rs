@@ -629,6 +629,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
 @implementation UITabBarController: UIViewController
 
 - (())setViewControllers:(id)controllers {
@@ -685,7 +686,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-}; // <--- THIS CLOSES THE CLASSES MACRO
+}; // This closes the objc_classes! macro correctly
 
 fn check_and_resolve_nib(env: &mut Environment, bundle: id, base_name: id) -> id {
     if base_name == nil {
@@ -736,3 +737,4 @@ fn resolve_nib_name_from_class(env: &mut Environment, bundle: id, class_name: id
 
     nil
 }
+                               
