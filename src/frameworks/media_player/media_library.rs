@@ -16,12 +16,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (id)defaultMediaLibrary {
     log!("Applying Spider-Man/Gameloft hack: returning dummy MPMediaLibrary to prevent NULL-PAGE READ.");
     
-    // Instead of returning nil, we return a valid allocated instance of this class.
-    // This stops the crash because the game receives a real pointer.
-    let class = env.objc.classes.get("MPMediaLibrary");
+    // Use the public method to get the class instead of accessing the private field
+    let class = env.objc.get_class("MPMediaLibrary");
     class.alloc(env)
 }
-
+    
 @end
 
 };
