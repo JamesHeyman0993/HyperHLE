@@ -40,17 +40,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMusicPlayerController: NSObject
 
 + (id)iPodMusicPlayer {
-    log!("Gameloft Hack: returning dummy iPodMusicPlayer");
+    log!("Gameloft Hack: returning dummy iPodMusicPlayer (alloc + init)");
     let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
-    msg![env; class_ptr alloc]
+    
+    // 1. Allocate memory for the object
+    let instance = msg![env; class_ptr alloc];
+    
+    // 2. Initialize the object so it's safe to use
+    msg![env; instance init]
 }
 
 + (id)applicationMusicPlayer {
-    log!("Gameloft Hack: returning dummy applicationMusicPlayer");
+    log!("Gameloft Hack: returning dummy applicationMusicPlayer (alloc + init)");
     let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
-    msg![env; class_ptr alloc]
+    
+    let instance = msg![env; class_ptr alloc];
+    msg![env; instance init]
 }
 
 @end
-
+    
 };
