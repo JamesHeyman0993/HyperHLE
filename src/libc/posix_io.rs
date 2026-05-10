@@ -773,18 +773,16 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
 
     let path_str = env.mem.cstr_at_utf8(path_ptr).unwrap_or_default();
     
-    // POSIX: chdir("") must fail with ENOENT. 
+    // --- MODIFIED SECTION ---
     if path_str.is_empty() {
-        use crate::libc::errno::ENOENT;
-        set_errno(env, ENOENT);
-        log!("Warning: chdir(\"\") rejected, returning -1 (ENOENT)");
-        return -1;
+        // Instead of returning -1 (ENOENT), we return 0 (Success).
+        // This keeps the game engine inside the current sandbox.
+        log!("HACK: chdir(\"\") detected. Returning 0 to prevent engine initialization failure.");
+        return 0;
     }
+    // ------------------------
 
     // --- GAMELOFT HACK START ---
-    // N.O.V.A. 2 and other Gameloft games try to chdir into their own sandbox.
-    // We lie and say it worked, because touchHLE's filesystem already 
-    // handles path redirection to the app bundle.
     if path_str.contains("/var/mobile/Applications/") {
         log!("Gameloft Hack: Faking successful chdir for sandbox path: {}", path_str);
         return 0; 
@@ -794,20 +792,12 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
     let path = GuestPath::new(&path_str);
     match env.fs.change_working_directory(path) {
         Ok(new) => {
-            log_dbg!(
-                "chdir({:?}) => 0, new working directory: {:?}",
-                path_ptr,
-                new
-            );
+            log_dbg!("chdir({:?}) => 0, new working directory: {:?}", path_ptr, new);
             0
         }
         Err(()) => {
-            log!(
-                "Warning: chdir({:?}) failed, could not change working \
-                 directory to {:?}, returning -1",
-                path_ptr,
-                path
-            );
+            // Keep the error here for actual invalid paths
+            log!("Warning: chdir({:?}) failed, returning -1", path_ptr);
             -1
         }
     }
