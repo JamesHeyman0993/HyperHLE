@@ -33,17 +33,18 @@ fn NSClassFromString(env: &mut Environment, string: id) -> Class {
     let class_name = ns_string::to_rust_string(env, string);
 
     // Modified to be safer: if the class isn't found, return nil so the 
-    // guest app can handle the absence gracefully instead of crashing/looping.
+    // guest app can handle the absence gracefully.
     match env.objc.get_class(&class_name) {
         Some(class) => class,
         None => {
-            log::warn!("NSClassFromString: Class '{}' not found, returning nil", class_name);
+            // Replaced log::warn with println for simplicity to avoid log crate issues
+            println!("NSClassFromString: Class '{}' not found, returning nil", class_name);
             nil
         }
     }
 }
 
-/// Internal helper to handle property logic for both standard and copy variants.
+/// Internal helper to handle property logic.
 fn perform_set_property(
     env: &mut Environment,
     _self: id,
@@ -62,8 +63,8 @@ fn perform_set_property(
     }
 
     // Write the new object pointer to the instance variable
-    if let Err(e) = env.mem.write_u32(ptr, new_value) {
-        log::error!("Failed to write property at offset {}: {:?}", offset, e);
+    if let Err(_) = env.mem.write_u32(ptr, new_value) {
+        println!("Failed to write property at offset {}", offset);
     }
 
     // Release the old value
@@ -86,7 +87,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSSelectorFromString(_)),
     export_c_func!(NSClassFromString(_)),
     export_c_func!(NSStringFromClass(_)),
-    // Properly exported functions for the bridge
-    export_c_func!(_objc_setProperty_nonatomic_copy(env, _self, _cmd, new_value, offset)),
-    export_c_func!(objc_setProperty(env, _self, _cmd, new_value, offset)),
+    // Corrected macro syntax: use TYPES, not variable names
+    export_c_func!(_objc_setProperty_nonatomic_copy(_, id, SEL, id, u32)),
+    export_c_func!(objc_setProperty(_, id, SEL, id, u32)),
 ];
