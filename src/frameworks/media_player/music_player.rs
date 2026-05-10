@@ -8,7 +8,6 @@
 use crate::{
     dyld::{ConstantExports, HostConstant},
     objc::{id, nil, objc_classes, ClassExports},
-    frameworks::foundation::NSInteger, // Import from foundation instead
 };
 
 pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
@@ -40,49 +39,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMusicPlayerController: NSObject
 
 + (id)iPodMusicPlayer {
-    log!("Gameloft Hack: returning dummy iPodMusicPlayer (alloc + init)");
-    let class_ptr = env.objc.get_known_class("MPMusicPlayerController", &mut env.mem);
-    
-    // Allocate and Initialize
-    let instance: id = crate::objc::msg![env; class_ptr alloc];
-    crate::objc::msg![env; instance init]
+    log_dbg!(
+        "TODO: [(MPMusicPlayerController*){:?} iPodMusicPlayer]",
+        this
+    );
+    nil
 }
 
 + (id)applicationMusicPlayer {
-    log!("Gameloft Hack: returning dummy applicationMusicPlayer (alloc + init)");
-    let class_ptr = env.objc.get_known_class("MPMusicPlayerController", &mut env.mem);
-    
-    let instance: id = crate::objc::msg![env; class_ptr alloc];
-    crate::objc::msg![env; instance init]
-}
-
-// --- NEW STUBS TO PREVENT CRASH ---
-
-- (())beginGeneratingPlaybackNotifications {
-    log!("Stubbed beginGeneratingPlaybackNotifications");
-}
-
-- (())endGeneratingPlaybackNotifications {
-    log!("Stubbed endGeneratingPlaybackNotifications");
-}
-
-- (NSInteger)playbackState {
-    // Return 0 (MPMusicPlaybackStateStopped)
-    0
-}
-
-- (())setQueueWithQuery:(id)_query {
-    log!("Stubbed setQueueWithQuery:");
-}
-
-- (())play {
-    log!("Stubbed MPMusicPlayerController play");
-}
-
-- (())stop {
-    log!("Stubbed MPMusicPlayerController stop");
+    log_dbg!(
+        "TODO: [(MPMusicPlayerController*){:?} applicationMusicPlayer]",
+        this
+    );
+    nil
 }
 
 @end
-    
+
 };
