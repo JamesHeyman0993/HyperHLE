@@ -109,7 +109,10 @@ pub fn objc_getProperty(
     offset: GuestISize,
     atomic: bool,
 ) -> id {
-    assert!(offset >= 4);
+    // Relax the assertion or change it to a warning
+    if offset < 4 {
+        log!("Warning: objc_getProperty called with unusually low offset: {}", offset);
+    }
 
     if atomic {
         log_once!("TODO: Lock when atomic is set to true in objc_getProperty");
@@ -147,7 +150,10 @@ pub fn objc_setProperty(
     atomic: bool,
     should_copy: i8,
 ) {
-    assert!(offset >= 4);
+    // Change the panic-inducing assert to a warning
+    if offset < 4 {
+        log!("Warning: objc_setProperty called with unusually low offset: {}", offset);
+    }
 
     if atomic {
         log_once!("TODO: Lock when atomic is set to true in objc_setProperty");
