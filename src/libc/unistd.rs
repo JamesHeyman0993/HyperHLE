@@ -271,17 +271,20 @@ fn readlink(
     buf: MutPtr<u8>,
     buf_size: GuestISize,
 ) -> GuestISize {
-    log!(
-        "TODO: readlink({:?} '{}', {:?}, {}) -> -1",
-        path,
-        env.mem.cstr_at_utf8(path).unwrap(),
-        buf,
-        buf_size,
-    );
-    // Current implementation of guest's file system doesn't
-    // support symbolic links, so the call should unconditionally fail.
-    set_errno(env, EINVAL);
-    -1
+    let path_str = env.mem.cstr_at_utf8(path).unwrap_or("");
+    log!("readlink: simulating link for '{}'", path_str);
+
+    // We'll just echo the path back to the game. 
+    // This tricks the game into thinking the path resolved successfully.
+    let path_bytes = path_str.as_bytes();
+    let len = std::cmp::min(path_bytes.len(), buf_size as usize);
+
+    // Use bytes_at_mut to safely write to guest memory
+    env.mem
+        .bytes_at_mut(buf, len as u32)
+        .copy_from_slice(&path_bytes[..len]);
+
+    len as GuestISize
 }
 
 fn getdtablesize(_env: &mut Environment) -> i32 {
