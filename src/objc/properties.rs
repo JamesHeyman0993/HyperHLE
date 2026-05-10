@@ -4,15 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Handling of Objective-C properties.
-//!
-//! Note that these are not the same as instance variables (ivars), though
-//! they're closely related, so maybe this file will end up being used for those
-//! too.
-//!
-//! Resources:
-//! - `objc_setProperty` and friends are not documented, so [reading the source code](https://opensource.apple.com/source/objc4/objc4-551.1/runtime/Accessors.subproj/objc-accessors.mm.auto.html) is useful.
-//!
-//! See also: [crate::frameworks::foundation::ns_object].
 
 use super::{id, msg, nil, release, retain, Class, ClassHostObject, ObjC, SEL};
 use crate::mem::{
@@ -21,20 +12,13 @@ use crate::mem::{
 };
 use crate::Environment;
 
-/// The layout of a property list in an app binary.
-///
-/// The name, field names and field layout are based on what Ghidra outputs.
 #[repr(C, packed)]
 pub(super) struct ivar_list_t {
     entsize: GuestUSize,
     count: GuestUSize,
-    // entries follow the struct
 }
 unsafe impl SafeRead for ivar_list_t {}
 
-/// The layout of a property in an app binary.
-///
-/// The name, field names and field layout are based on what Ghidra outputs.
 #[repr(C, packed)]
 struct ivar_t {
     offset: ConstPtr<GuestUSize>,
@@ -55,7 +39,6 @@ impl ClassHostObject {
         for i in 0..count {
             let ivar_ptr: ConstPtr<ivar_t> = Ptr::from_bits(ivars_base_ptr.to_bits() + i * entsize);
 
-            // TODO: support type strings
             let ivar_t {
                 offset,
                 name,
@@ -70,9 +53,6 @@ impl ClassHostObject {
 }
 
 impl ObjC {
-    /// Checks if the object's class has an ivar in its class chain with the
-    /// provided name and returns the pointer to the object's ivar, if any,
-    /// or None if the object's class doesn't have an ivar with that name.
     pub fn object_lookup_ivar(
         &self,
         mem: &Mem,
@@ -119,8 +99,8 @@ impl ObjC {
     }
 }
 
-/// Undocumented function (see link above) apparently used by auto-generated
-/// methods for properties to get an ivar.
+// --- PROPERTY ACCESSORS ---
+
 pub(super) fn objc_getProperty(
     env: &mut Environment,
     this: id,
@@ -128,12 +108,6 @@ pub(super) fn objc_getProperty(
     offset: GuestISize,
     atomic: bool,
 ) -> id {
-    // We currently aren't touching the ivar layouts contained in the binary, so
-    // we are assuming they are already correctly set by the compiler. Since we
-    // aren't using ivars at all in our host classes, we shouldn't have any
-    // issues with host classes' ivars clobbering guest classes' ivars, but
-    // what if the compiler doesn't set the ivar layout at all? This is a simple
-    // safeguard: any real ivar offset will be after the isa pointer.
     assert!(offset >= 4);
 
     if atomic {
@@ -144,9 +118,26 @@ pub(super) fn objc_getProperty(
     env.mem.read(ivar)
 }
 
-/// Undocumented function (see link above) apparently used by auto-generated
-/// methods for properties to set an ivar and handle reference counting, copying
-/// and locking.
+/// Helper for atomic property getters.
+pub(super) fn objc_getProperty_atomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+) -> id {
+    objc_getProperty(env, this, _cmd, offset, true)
+}
+
+/// Helper for non-atomic property getters.
+pub(super) fn objc_getProperty_nonatomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+) -> id {
+    objc_getProperty(env, this, _cmd, offset, false)
+}
+
 pub(super) fn objc_setProperty(
     env: &mut Environment,
     this: id,
@@ -156,12 +147,6 @@ pub(super) fn objc_setProperty(
     atomic: bool,
     should_copy: i8,
 ) {
-    // We currently aren't touching the ivar layouts contained in the binary, so
-    // we are assuming they are already correctly set by the compiler. Since we
-    // aren't using ivars at all in our host classes, we shouldn't have any
-    // issues with host classes' ivars clobbering guest classes' ivars, but
-    // what if the compiler doesn't set the ivar layout at all? This is a simple
-    // safeguard: any real ivar offset will be after the isa pointer.
     assert!(offset >= 4);
 
     if atomic {
@@ -177,8 +162,6 @@ pub(super) fn objc_setProperty(
             0 => retain(env, value),
             1 => msg![env; value copyWithZone:void_null],
             2 => msg![env; value mutableCopyWithZone:void_null],
-            // Apple's source code implies that any non-zero value that isn't 2
-            // should mean "copy", but that seems weird, let's be conservative.
             _ => panic!("Unknown \"should copy\" value: {should_copy}"),
         }
     } else {
@@ -191,8 +174,30 @@ pub(super) fn objc_setProperty(
     }
 }
 
-// note: https://opensource.apple.com/source/objc4/objc4-723/runtime/objc-accessors.mm.auto.html
-//       says that hasStrong is unused.
+/// Helper for atomic property setters.
+pub(super) fn objc_setProperty_atomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+    value: id,
+    should_copy: i8,
+) {
+    objc_setProperty(env, this, _cmd, offset, value, true, should_copy);
+}
+
+/// Helper for non-atomic property setters.
+pub(super) fn objc_setProperty_nonatomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+    value: id,
+    should_copy: i8,
+) {
+    objc_setProperty(env, this, _cmd, offset, value, false, should_copy);
+}
+
 pub(super) fn objc_copyStruct(
     env: &mut Environment,
     dest: MutVoidPtr,
@@ -201,17 +206,9 @@ pub(super) fn objc_copyStruct(
     _atomic: bool,
     _hasStrong: bool,
 ) {
-    // It's safe to ignore atomic as we never switch thread unless we call back
-    // into guest code and we're not doing that here, just calling memmove.
-    // TODO: implement atomic support
     env.mem.memmove(dest, src, size);
 }
 
-/// Logs a placeholder message for an unimplemented ObjC setter
-///
-/// This macro must be used inside [crate::_objc_method],
-/// as it relies on constants for the current class and selector
-/// set by it and [crate::objc::objc_classes]
 #[macro_export]
 macro_rules! todo_objc_setter {
     ($this:ident, $($arg:tt)+) => {
