@@ -5,6 +5,19 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Objective-C runtime.
+//!
+//! Apple's [Programming with Objective-C](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ProgrammingWithObjectiveC/Introduction/Introduction.html)
+//! is a useful introduction to the language from a user's perspective.
+//! There are further resources in the child modules of this module, but they
+//! are more implementation-specific.
+//!
+//! The strategy for this emulator will be to provide our own implementations of
+//! an Objective-C runtime and libraries for it (Foundation etc). These
+//! implementations will be "host code": Rust code forming part of the emulator,
+//! not emulated code. The runtime will need to be able to handle classes that
+//! originate from the guest app, classes defined by the host, and sometimes
+//! classes that are both (considering Objective-C's support for inheritance,
+//! categories and dynamic class editing).
 
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant, HostDylib};
 use crate::MutexId;
@@ -24,7 +37,7 @@ pub use classes::{
     objc_autoreleasePoolPop, objc_autoreleasePoolPush, objc_autoreleaseReturnValue,
     objc_begin_catch, objc_classes, objc_end_catch, objc_exception_throw, objc_getClass,
     objc_getMetaClass, objc_release, objc_retain, objc_retainAutoreleaseReturnValue,
-    objc_retainAutoreleasedReturnValue, object_getClass,
+    objc_retainAutoreleasedReturnValue, objc_setProperty_nonatomic, object_getClass,
     object_getClassName, Class, ClassExports, ClassTemplate,
 };
 pub use messages::{
@@ -35,11 +48,7 @@ pub use methods::{HostIMP, IMP};
 pub use objects::{
     id, impl_HostObject_with_superclass, nil, AnyHostObject, HostObject, TrivialHostObject,
 };
-pub use properties::{
-    objc_getProperty, objc_getProperty_atomic, objc_getProperty_nonatomic,
-    objc_setProperty, objc_setProperty_atomic, objc_setProperty_nonatomic,
-    todo_objc_setter,
-};
+pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
 use crate::mem::ConstVoidPtr;
@@ -52,7 +61,7 @@ use messages::{
 };
 use methods::method_list_t;
 use objects::{objc_object, HostObjectEntry};
-use properties::{ivar_list_t, objc_copyStruct};
+use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
 use selectors::sel_registerName;
 use synchronization::{objc_sync_enter, objc_sync_exit};
 
@@ -62,14 +71,39 @@ pub(crate) fn objc_msgSend(env: &mut Environment, receiver: id, selector: SEL) {
     messages::objc_msgSend(env, receiver, selector)
 }
 
+/// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
+/// `allocWithZone:` and similar methods. Its value is always ignored.
+///
+/// [fossil type]: https://en.wiktionary.org/wiki/fossil_word
 pub type NSZonePtr = crate::mem::MutVoidPtr;
 
+/// Main type holding Objective-C runtime state.
 pub struct ObjC {
+    /// Known selectors (interned method name strings).
     selectors: HashMap<String, SEL>,
+
+    /// Mapping of known (guest) object pointers to their host objects.
+    ///
+    /// If an object isn't in this map, we will consider it not to exist.
     objects: HashMap<id, HostObjectEntry>,
+
+    /// Known classes.
+    ///
+    /// Look at the `isa` to get the metaclass for a class.
     classes: HashMap<String, Class>,
+
+    /// Mutexes used in @synchronized blocks (objc_sync_enter/exit).
     sync_mutexes: HashMap<id, MutexId>,
+
+    /// Temporary storage for optional type information when sending a message.
+    /// Type information isn't part of the `objc_msgSend` ABI, so an alternative
+    /// channel is needed.
     message_type_info: Option<(std::any::TypeId, &'static str)>,
+
+    /// Set of classes that have already had `+initialize` sent to them
+    /// (or were determined not to need it). Used to implement Apple's lazy
+    /// `+initialize` dispatch contract:
+    /// <https://developer.apple.com/documentation/objectivec/nsobject/1418639-initialize>
     pub(super) initialized_classes: HashSet<Class>,
 }
 
@@ -85,6 +119,7 @@ impl ObjC {
         }
     }
 
+    /// Returns the name of a selector, panicking if it is unknown.
     pub fn get_selector_name(&self, sel: SEL) -> &str {
         self.selectors
             .iter()
@@ -103,10 +138,17 @@ pub const DYLIB: HostDylib = HostDylib {
 };
 
 const CONSTANTS: ConstantExports = &[
+    // We don't use these in our Objective-C runtime, but exporting useless
+    // symbols for these silences the warning about the unhandled relocation,
+    // and avoids a linker error for the integration tests.
     ("__objc_empty_vtable", HostConstant::NullPtr),
     ("__objc_empty_cache", HostConstant::NullPtr),
     ("_OBJC_EHTYPE_$_NSException", HostConstant::NullPtr),
     ("_OBJC_EHTYPE_id", HostConstant::NullPtr),
+    // `NSObject`'s only ivar (`isa`) lives at offset 0 in the object layout
+    // on 32-bit iOS, so resolving the ivar-offset symbol to a 4-byte zero
+    // gives any binary that does `obj + _OBJC_IVAR_$_NSObject.isa` the
+    // correct address (i.e. the object base).
     ("_OBJC_IVAR_$_NSObject.isa", HostConstant::NullPtr),
     ("_kCFTypeArrayCallBacks", HostConstant::NullPtr),
     (
@@ -128,7 +170,14 @@ const CONSTANTS: ConstantExports = &[
     ("_NSKeyValueChangeNewKey", HostConstant::NSString("new")),
 ];
 
+/// Block support is iOS 4+, but it seems like Block Runtime Helpers
+/// could still be called on even if minimal iOS version is set to 3.x?
+///
+/// ref. <https://clang.llvm.org/docs/Block-ABI-Apple.html#runtime-helper-functions>
 fn _Block_object_dispose(_env: &mut Environment, object: ConstVoidPtr, flags: i32) {
+    // `BLOCK_FIELD_IS_BYREF` flag defines an on stack structure holding
+    // the __block variable. It is _probably_ safe to ignore.
+    // TODO: properly implement for block support
     assert!(flags == 8); // BLOCK_FIELD_IS_BYREF
     log!(
         "Warning: Ignoring _Block_object_dispose({:?}, BLOCK_FIELD_IS_BYREF)",
@@ -141,19 +190,8 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend_stret(_, _, _)),
     export_c_func!(objc_msgSendSuper2_stret(_, _)),
     export_c_func!(objc_msgSendSuper2(_, _)),
-    
-    // Property Getters (4 total arguments: env, this, cmd, offset)
-    // Macro uses (env + 3 underscores)
     export_c_func!(objc_getProperty(_, _, _, _)),
-    export_c_func!(objc_getProperty_atomic(_, _, _)),
-    export_c_func!(objc_getProperty_nonatomic(_, _, _)),
-    
-    // Property Setters (6 total arguments: env, this, cmd, offset, value, should_copy)
-    // Macro uses (env + 5 underscores)
     export_c_func!(objc_setProperty(_, _, _, _, _, _)),
-    export_c_func!(objc_setProperty_atomic(_, _, _, _, _)),
-    export_c_func!(objc_setProperty_nonatomic(_, _, _, _, _)),
-    
     export_c_func!(objc_copyStruct(_, _, _, _, _)),
     export_c_func!(objc_sync_enter(_)),
     export_c_func!(objc_sync_exit(_)),
@@ -169,6 +207,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_autoreleasePoolPop(_)),
     export_c_func!(objc_retain(_)),
     export_c_func!(objc_release(_)),
+    export_c_func!(objc_setProperty_nonatomic(_)),
     export_c_func!(objc_exception_throw(_)),
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch(_)),
