@@ -7,9 +7,8 @@
 
 use crate::{
     dyld::{ConstantExports, HostConstant},
-    objc::{id, nil, objc_classes, ClassExports},
+    objc::{id, nil, objc_classes, ClassExports, NSInteger},
 };
-use crate::msg; // <--- Add this
 
 pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
     "MPMusicPlayerControllerNowPlayingItemDidChangeNotification";
@@ -41,21 +40,46 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)iPodMusicPlayer {
     log!("Gameloft Hack: returning dummy iPodMusicPlayer (alloc + init)");
-    let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
+    let class_ptr = env.objc.get_known_class("MPMusicPlayerController", &mut env.mem);
     
-    // 1. Allocate memory for the object
-    let instance = msg![env; class_ptr alloc];
-    
-    // 2. Initialize the object so it's safe to use
-    msg![env; instance init]
+    // Allocate and Initialize
+    let instance: id = crate::objc::msg![env; class_ptr alloc];
+    crate::objc::msg![env; instance init]
 }
 
 + (id)applicationMusicPlayer {
     log!("Gameloft Hack: returning dummy applicationMusicPlayer (alloc + init)");
-    let class_ptr = env.objc.link_class("MPMusicPlayerController", false, &mut env.mem);
+    let class_ptr = env.objc.get_known_class("MPMusicPlayerController", &mut env.mem);
     
-    let instance = msg![env; class_ptr alloc];
-    msg![env; instance init]
+    let instance: id = crate::objc::msg![env; class_ptr alloc];
+    crate::objc::msg![env; instance init]
+}
+
+// --- NEW STUBS TO PREVENT CRASH ---
+
+- (())beginGeneratingPlaybackNotifications {
+    log!("Stubbed beginGeneratingPlaybackNotifications");
+}
+
+- (())endGeneratingPlaybackNotifications {
+    log!("Stubbed endGeneratingPlaybackNotifications");
+}
+
+- (NSInteger)playbackState {
+    // Return 0 (MPMusicPlaybackStateStopped)
+    0
+}
+
+- (())setQueueWithQuery:(id)_query {
+    log!("Stubbed setQueueWithQuery:");
+}
+
+- (())play {
+    log!("Stubbed MPMusicPlayerController play");
+}
+
+- (())stop {
+    log!("Stubbed MPMusicPlayerController stop");
 }
 
 @end
