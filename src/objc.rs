@@ -24,7 +24,7 @@ pub use classes::{
     objc_autoreleasePoolPop, objc_autoreleasePoolPush, objc_autoreleaseReturnValue,
     objc_begin_catch, objc_classes, objc_end_catch, objc_exception_throw, objc_getClass,
     objc_getMetaClass, objc_release, objc_retain, objc_retainAutoreleaseReturnValue,
-    objc_retainAutoreleasedReturnValue, objc_setProperty_nonatomic, object_getClass,
+    objc_retainAutoreleasedReturnValue, object_getClass,
     object_getClassName, Class, ClassExports, ClassTemplate,
 };
 pub use messages::{
@@ -36,7 +36,8 @@ pub use objects::{
     id, impl_HostObject_with_superclass, nil, AnyHostObject, HostObject, TrivialHostObject,
 };
 pub use properties::{
-    objc_getProperty_atomic, objc_getProperty_nonatomic, objc_setProperty_atomic,
+    objc_getProperty, objc_getProperty_atomic, objc_getProperty_nonatomic,
+    objc_setProperty, objc_setProperty_atomic, objc_setProperty_nonatomic,
     todo_objc_setter,
 };
 pub use selectors::{selector, SEL};
@@ -51,9 +52,7 @@ use messages::{
 };
 use methods::method_list_t;
 use objects::{objc_object, HostObjectEntry};
-use properties::{
-    ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty,
-};
+use properties::{ivar_list_t, objc_copyStruct};
 use selectors::sel_registerName;
 use synchronization::{objc_sync_enter, objc_sync_exit};
 
