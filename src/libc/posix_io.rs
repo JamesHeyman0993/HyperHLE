@@ -773,15 +773,13 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
 
     let path_str = env.mem.cstr_at_utf8(path_ptr).unwrap_or_default();
     
-    // --- MODIFIED SECTION ---
-    if path_str.is_empty() {
-        // Instead of returning -1 (ENOENT), we return 0 (Success).
-        // This keeps the game engine inside the current sandbox.
-        log!("HACK: chdir(\"\") detected. Returning 0 to prevent engine initialization failure.");
+        // --- MODIFIED SECTION ---
+    if path_str.is_empty() || path_str == "." {
+        log_dbg!("chdir(\"{}\") detected. Returning 0.", path_str);
         return 0;
     }
     // ------------------------
-
+    
     // --- GAMELOFT HACK START ---
     if path_str.contains("/var/mobile/Applications/") {
         log!("Gameloft Hack: Faking successful chdir for sandbox path: {}", path_str);
