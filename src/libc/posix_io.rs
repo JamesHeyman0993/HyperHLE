@@ -772,30 +772,32 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
     set_errno(env, 0);
 
     let path_str = env.mem.cstr_at_utf8(path_ptr).unwrap_or_default();
-    
-        // --- MODIFIED SECTION ---
-    if path_str.is_empty() || path_str == "." {
-        log_dbg!("chdir(\"{}\") detected. Returning 0.", path_str);
-        return 0;
+    // POSIX: chdir("") must fail with ENOENT. Treating it as success
+    // (which previously silently chdir'd to "/") confuses some apps that
+    // rely on errno propagation — most notably Farm Frenzy.
+    if path_str.is_empty() {
+        use crate::libc::errno::ENOENT;
+        set_errno(env, ENOENT);
+        log!("Warning: chdir(\"\") rejected, returning -1 (ENOENT)");
+        return -1;
     }
-    // ------------------------
-    
-    // --- GAMELOFT HACK START ---
-    if path_str.contains("/var/mobile/Applications/") {
-        log!("Gameloft Hack: Faking successful chdir for sandbox path: {}", path_str);
-        return 0; 
-    }
-    // --- GAMELOFT HACK END ---
-
     let path = GuestPath::new(&path_str);
     match env.fs.change_working_directory(path) {
         Ok(new) => {
-            log_dbg!("chdir({:?}) => 0, new working directory: {:?}", path_ptr, new);
+            log_dbg!(
+                "chdir({:?}) => 0, new working directory: {:?}",
+                path_ptr,
+                new
+            );
             0
         }
         Err(()) => {
-            // Keep the error here for actual invalid paths
-            log!("Warning: chdir({:?}) failed, returning -1", path_ptr);
+            log!(
+                "Warning: chdir({:?}) failed, could not change working \
+                 directory to {:?}, returning -1",
+                path_ptr,
+                path
+            );
             -1
         }
     }
