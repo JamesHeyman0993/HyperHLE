@@ -220,17 +220,21 @@ pub const CLASSES: ClassExports = objc_classes! {
         selected_class = env.objc.get_known_class("NSObject", &mut env.mem);
     }
 
-    let object: id = msg![env; selected_class alloc];
+        let object: id = msg![env; selected_class alloc];
 
-    // CRITICAL FIX: 
-    // If it's a custom class, it MUST be initialized.
-    // If it supports initWithCoder, use it. Otherwise, use init.
-    let object: id = if msg![env; object respondsToSelector:env.objc.lookup_selector("initWithCoder:").unwrap()] {
-        msg![env; object initWithCoder:coder]
+    // 1. Look up the selector first (outside the macro)
+    let init_with_coder_sel = env.objc.lookup_selector("initWithCoder:").unwrap();
+
+    // 2. Check if the object responds to it
+    let responds: bool = msg![env; object respondsToSelector: init_with_coder_sel];
+
+    // 3. Initialize accordingly
+    let object: id = if responds {
+        msg![env; object initWithCoder: coder]
     } else {
         msg![env; object init]
     };
-
+    
     release(env, this);
     object
 }
