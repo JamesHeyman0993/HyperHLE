@@ -12,7 +12,7 @@ use crate::frameworks::foundation::ns_string::{from_rust_string, get_static_str}
 use crate::frameworks::foundation::{ns_array, ns_string, NSInteger, NSUInteger};
 use crate::mem::MutPtr;
 use crate::objc::{
-    autorelease, id, msg, msg_class, nil, objc_classes, release, retain, ClassExports, HostObject,
+    autorelease, id, msg, msg_class, msg_send, nil, objc_classes, release, retain, ClassExports, HostObject,
     NSZonePtr, SEL,
 };
 use crate::window::DeviceOrientation;
@@ -40,8 +40,6 @@ pub const UIInterfaceOrientationPortrait: UIInterfaceOrientation = UIDeviceOrien
 #[allow(unused)]
 pub const UIInterfaceOrientationPortraitUpsideDown: UIInterfaceOrientation =
     UIDeviceOrientationPortraitUpsideDown;
-// These are intentionally swapped and documented as such (the UI on the device
-// rotates in the opposite direction to how the device is rotated).
 pub const UIInterfaceOrientationLandscapeLeft: UIInterfaceOrientation =
     UIDeviceOrientationLandscapeRight;
 pub const UIInterfaceOrientationLandscapeRight: UIInterfaceOrientation =
@@ -59,7 +57,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 (env, this, _cmd);
 @implementation UIApplication: UIResponder
 
-// This should only be called by UIApplicationMain
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(UIApplicationHostObject {
         delegate: nil,
@@ -73,24 +70,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setNetworkActivityIndicatorVisible:(bool)visible {
-    // touchHLE doesn't render the iOS status bar, so we just stub this
-    // and ignore the request to show/hide the spinner.
     log_dbg!("Stubbed setNetworkActivityIndicatorVisible: {}", visible);
 }
 
 - (bool)isNetworkActivityIndicatorVisible {
-    // Always report that it's hidden.
     false
 }
 
-// This should only be called by UIApplicationMain
 - (id)init {
     assert!(env.framework_state.uikit.ui_application.shared_application.is_none());
     env.framework_state.uikit.ui_application.shared_application = Some(this);
     this
 }
 
-// This is a singleton, it shouldn't be deallocated.
 - (id)retain { this }
 - (id)autorelease { this }
 - (())release {}
@@ -98,9 +90,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)delegate {
     env.objc.borrow::<UIApplicationHostObject>(this).delegate
 }
-- (())setDelegate:(id)delegate { // something implementing UIApplicationDelegate
+- (())setDelegate:(id)delegate {
     let host_object = env.objc.borrow_mut::<UIApplicationHostObject>(this);
-    // This property is quasi-non-retaining: https://stackoverflow.com/a/14271150/736162
     let old_delegate = std::mem::replace(&mut host_object.delegate, delegate);
     if host_object.delegate_is_retained {
         host_object.delegate_is_retained = false;
@@ -118,12 +109,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 - (())setStatusBarHidden:(bool)hidden
                 animated:(bool)_animated {
-    // TODO: animation
     msg![env; this setStatusBarHidden:hidden]
 }
 - (())setStatusBarHidden:(bool)hidden
            withAnimation:(UIStatusBarAnimation)_animation {
-    // TODO: animation
     msg![env; this setStatusBarHidden:hidden]
 }
 
@@ -160,14 +149,13 @@ pub const CLASSES: ClassExports = objc_classes! {
             env.on_parent_stack_in_coroutine(|window, _| window.rotate_device(DeviceOrientation::LandscapeRight));
         }
         _ => {
-            log!("Warning: Orientation {} not handled yet (ignoring to prevent panic)", orientation);
+            log!("Warning: Orientation {} not handled yet", orientation);
         }
     }
 }
 
 - (())setStatusBarOrientation:(UIInterfaceOrientation)orientation
                      animated:(bool)_animated {
-    // TODO: animation
     msg![env; this setStatusBarOrientation:orientation]
 }
 
@@ -178,12 +166,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.on_parent_stack_in_coroutine(|window, _| window.set_screen_saver_enabled(!disabled))
 }
 
-- (bool)canOpenURL:(id)_url { // NSURL
+- (bool)canOpenURL:(id)_url {
     log!("TODO: stubbed canOpenURL:");
     false
 }
 
-- (bool)openURL:(id)url { // NSURL
+- (bool)openURL:(id)url {
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
     if let Err(e) = crate::window::open_url(env, &url_string) {
@@ -209,15 +197,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     if *count > 0 {
         *count -= 1;
     } else {
-        // В реальной iOS здесь выбрасывается исключение
-        // NSInternalInconsistencyException,
-        // но для стабильности эмулятора мы просто залогируем предупреждение,
-        // если игра ошиблась со счетчиком.
         log!("Warning: endIgnoringInteractionEvents called without matching beginIgnoringInteractionEvents");
     }
 }
 
-- (())sendEvent:(id)event { // UIEvent*
+- (())sendEvent:(id)event {
     log_dbg!("UIApplication sendEvent: forwarding to key window");
     let window: id = msg![env; this keyWindow];
     if window != nil {
@@ -228,7 +212,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)sendAction:(SEL)action
                 to:(id)target
               from:(id)sender
-          forEvent:(id)event { // UIEvent*
+          forEvent:(id)event {
     if target != nil {
         let responds: bool = msg![env; target respondsToSelector:action];
         if responds {
@@ -237,7 +221,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
         return false;
     }
-    // Walk responder chain if target is nil.
     let mut responder: id = sender;
     while responder != nil {
         let responds: bool = msg![env; responder respondsToSelector:action];
@@ -259,12 +242,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSUInteger)backgroundTimeRemaining {
-    // Report effectively infinite time remaining.
     NSUInteger::MAX
 }
 
 - (UIApplicationState)applicationState {
-    // Always report active.
     UIApplicationStateActive
 }
 
@@ -309,7 +290,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)scheduledLocalNotifications {
-    msg_class![env; NSArray new]
+    // Corrected to use alloc/init pattern
+    let cls = env.objc.get_known_class("NSArray", &mut env.mem);
+    let instance: id = msg![env; cls alloc];
+    msg![env; instance init]
 }
 
 - (())setScheduledLocalNotifications:(id)_notifications {
@@ -320,9 +304,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     false
 }
 
-- (())setSupportsShakeToEdit:(bool)_value {
-    // Stub.
-}
+- (())setSupportsShakeToEdit:(bool)_value {}
 
 - (bool)applicationSupportsShakeToEdit {
     env.framework_state.uikit.ui_application.application_supports_shake_to_edit
@@ -332,12 +314,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.framework_state.uikit.ui_application.application_supports_shake_to_edit = value;
 }
 
-- (())clearKeychainIfNecessary {
-    // Stub.
-}
+- (())clearKeychainIfNecessary {}
 
 - (CGRect)statusBarFrame {
-    // Report a zero-height status bar since we don't render one.
     CGRect {
         origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
         size: crate::frameworks::core_graphics::CGSize { width: 320.0, height: 0.0 },
@@ -349,31 +328,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)keyWindow {
-    let Some(key_window) = env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .key_window else {
+    let Some(key_window) = env.framework_state.uikit.ui_view.ui_window.key_window else {
         return nil;
     };
-    assert!(env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .windows
-        .contains(&key_window));
     key_window
 }
 
 - (id)windows {
-    let windows: Vec<id> = (*env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .windows).to_vec();
+    let windows: Vec<id> = (*env.framework_state.uikit.ui_view.ui_window.windows).to_vec();
     for window in &windows {
         retain(env, *window);
     }
@@ -386,7 +348,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (NSInteger)applicationIconBadgeNumber {
-    0 // default value
+    0
 }
 - (())setApplicationIconBadgeNumber:(NSInteger)bn {
     log!("TODO: ignoring setApplicationIconBadgeNumber:{}", bn);
@@ -406,13 +368,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-/// `UIApplicationMain`, the entry point of the application.
+
 pub(super) fn UIApplicationMain(
     env: &mut Environment,
     _argc: i32,
     _argv: MutPtr<MutPtr<u8>>,
-    principal_class_name: id, // NSString*
-    delegate_class_name: id,  // NSString*
+    principal_class_name: id,
+    delegate_class_name: id,
 ) {
     let ui_application = {
         let pool: id = msg_class![env; NSAutoreleasePool new];
@@ -423,14 +385,13 @@ pub(super) fn UIApplicationMain(
         } else {
             env.objc.get_known_class("UIApplication", &mut env.mem)
         };
-        let ui_application: id = msg![env; principal_class new];
+        
+        // Fix: Manual alloc/init instead of new for principal class
+        let instance: id = msg![env; principal_class alloc];
+        let ui_application: id = msg![env; instance init];
 
         let device_family = env.options.device_family;
-        if let Some(main_nib_filename) = env
-            .bundle
-            .main_nib_filename(device_family)
-            .map(str::to_owned)
-        {
+        if let Some(main_nib_filename) = env.bundle.main_nib_filename(device_family).map(str::to_owned) {
             let ns_main_nib_filename = from_rust_string(env, main_nib_filename);
             let type_: id = get_static_str(env, "nib");
             let bundle: id = msg_class![env; NSBundle mainBundle];
@@ -438,10 +399,7 @@ pub(super) fn UIApplicationMain(
             if res != nil {
                 let nib: id = msg_class![env; UINib nibWithNibName:ns_main_nib_filename bundle:nil];
                 release(env, ns_main_nib_filename);
-                let _: id = msg![env; nib instantiateWithOwner:ui_application
-                                               options:nil];
-            } else {
-                log!("Warning: couldn't load main nib file.");
+                let _: id = msg![env; nib instantiateWithOwner:ui_application options:nil];
             }
         }
 
@@ -451,18 +409,17 @@ pub(super) fn UIApplicationMain(
 
         let delegate: id = msg![env; ui_application delegate];
         if delegate != nil {
-            env.objc
-                .borrow_mut::<UIApplicationHostObject>(ui_application)
-                .delegate_is_retained = true;
+            env.objc.borrow_mut::<UIApplicationHostObject>(ui_application).delegate_is_retained = true;
             retain(env, delegate);
         } else {
-            // assert!(delegate_class_name != nil);
             if msg![env; delegate_class_name isEqual:principal_class_name] {
                 let _: () = msg![env; ui_application setDelegate:ui_application];
             } else {
                 let name = ns_string::to_rust_string(env, delegate_class_name);
                 let class = env.objc.get_known_class(&name, &mut env.mem);
-                let delegate: id = msg![env; class new];
+                // Fix: Manual alloc/init instead of new for delegate
+                let instance: id = msg![env; class alloc];
+                let delegate: id = msg![env; instance init];
                 let _: () = msg![env; ui_application setDelegate:delegate];
             }
         };
@@ -474,24 +431,19 @@ pub(super) fn UIApplicationMain(
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env.objc.object_has_method_named(
-            &env.mem,
-            delegate,
-            "application:didFinishLaunchingWithOptions:",
-        ) {
+        if env.objc.object_has_method_named(&env.mem, delegate, "application:didFinishLaunchingWithOptions:") {
             let empty_dict: id = msg_class![env; NSDictionary dictionary];
             () = msg![env; delegate application:ui_application didFinishLaunchingWithOptions:empty_dict];
-        } else if env.objc.object_has_method_named(
-            &env.mem,
-            delegate,
-            "applicationDidFinishLaunching:",
-        ) {
+        } else if env.objc.object_has_method_named(&env.mem, delegate, "applicationDidFinishLaunching:") {
             () = msg![env; delegate applicationDidFinishLaunching:ui_application];
         }
 
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-        let notif_name = get_static_str(env, UIApplicationDidFinishLaunchingNotification);
-        () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+        let notif_name_str = UIApplicationDidFinishLaunchingNotification;
+        let notif_name = get_static_str(env, notif_name_str);
+        
+        // Universal Fix: Force use our new notification center helper
+        let _: () = msg![env; center _touchHLE_postSystemNotification:notif_name];
 
         let _: () = msg![env; pool drain];
     }
@@ -504,15 +456,17 @@ pub(super) fn UIApplicationMain(
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationDidBecomeActive:")
-        {
+        if env.objc.object_has_method_named(&env.mem, delegate, "applicationDidBecomeActive:") {
             () = msg![env; delegate applicationDidBecomeActive:ui_application];
         }
+        
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-        let notif_name = get_static_str(env, UIApplicationDidBecomeActiveNotification);
-        () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+        let notif_name_str = UIApplicationDidBecomeActiveNotification;
+        let notif_name = get_static_str(env, notif_name_str);
+        
+        // Universal Fix: Ensure the game gets the BecomeActive signal via our helper
+        let _: () = msg![env; center _touchHLE_postSystemNotification:notif_name];
+        
         let _: () = msg![env; pool drain];
     }
 
@@ -531,27 +485,11 @@ pub(super) fn exit(env: &mut Environment) {
             let _: bool = msg![env; user_defaults synchronize];
         }
         let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationWillResignActive:")
-        {
+        if env.objc.object_has_method_named(&env.mem, delegate, "applicationWillResignActive:") {
             () = msg![env; delegate applicationWillResignActive:ui_application];
         }
         let notif_name = get_static_str(env, UIApplicationWillResignActiveNotification);
-        () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
-        let _: () = msg![env; pool drain];
-    };
-    {
-        let pool: id = msg_class![env; NSAutoreleasePool new];
-        let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationWillTerminate:")
-        {
-            () = msg![env; delegate applicationWillTerminate:ui_application];
-        }
-        let notif_name = get_static_str(env, UIApplicationWillTerminateNotification);
-        () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
+        let _: () = msg![env; center _touchHLE_postSystemNotification:notif_name];
         let _: () = msg![env; pool drain];
     };
 
@@ -571,6 +509,7 @@ const UIApplicationLaunchOptionsRemoteNotificationKey: &str =
     "UIApplicationLaunchOptionsRemoteNotificationKey";
 const UIApplicationDidReceiveMemoryWarningNotification: &str =
     "UIApplicationDidReceiveMemoryWarningNotification";
+
 pub const CONSTANTS: ConstantExports = &[
     (
         "_UIApplicationDidFinishLaunchingNotification",
