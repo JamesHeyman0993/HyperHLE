@@ -168,7 +168,10 @@ pub fn objc_setProperty(
             0 => retain(env, value),
             1 => msg![env; value copyWithZone:void_null],
             2 => msg![env; value mutableCopyWithZone:void_null],
-            _ => panic!("Unknown \"should copy\" value: {should_copy}"),
+            _ => {
+                log!("Warning: Unexpected should_copy value ({}). Falling back to retain.", should_copy);
+                retain(env, value)
+            }
         }
     } else {
         nil
