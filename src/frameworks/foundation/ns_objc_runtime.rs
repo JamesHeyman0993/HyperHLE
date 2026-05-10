@@ -29,21 +29,28 @@ fn NSClassFromString(env: &mut Environment, string: id) -> Class {
     }
     let name = ns_string::to_rust_string(env, string);
 
-    // FIX: Use get_class and return nil if not found.
-    // This prevents the "get_known_class" panic loop.
     match env.objc.get_class(&name) {
         Some(class) => class,
         None => nil,
     }
 }
 
-/// Helper for property setters used by many game engines.
+/// The actual logic for setting properties
 fn objc_setProperty(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
     let ptr = _self + offset;
-    // Write the value to memory. If it fails, we just log it.
     if let Err(_) = env.mem.write(ptr, val) {
         log::error!("objc_setProperty failed at offset {}", offset);
     }
+}
+
+/// Wrapper for the nonatomic copy version
+fn _objc_setProperty_nonatomic_copy(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
+    objc_setProperty(env, _self, _cmd, val, offset);
+}
+
+/// Wrapper for the atomic version
+fn objc_setProperty_atomic(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
+    objc_setProperty(env, _self, _cmd, val, offset);
 }
 
 pub const FUNCTIONS: FunctionExports = &[
@@ -51,8 +58,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSSelectorFromString(_)),
     export_c_func!(NSClassFromString(_)),
     export_c_func!(NSStringFromClass(_)),
-    // These link the game's internal variables to the emulator's memory
     export_c_func!(objc_setProperty(id, SEL, id, u32)),
-    export_c_func!(_objc_setProperty_nonatomic_copy(id, SEL, id, u32) -> objc_setProperty),
-    export_c_func!(objc_setProperty_atomic(id, SEL, id, u32) -> objc_setProperty),
+    export_c_func!(_objc_setProperty_nonatomic_copy(id, SEL, id, u32)),
+    export_c_func!(objc_setProperty_atomic(id, SEL, id, u32)),
 ];
