@@ -101,6 +101,7 @@ impl ObjC {
 
 // --- PROPERTY ACCESSORS ---
 
+/// Core implementation for getting properties.
 pub fn objc_getProperty(
     env: &mut Environment,
     this: id,
@@ -136,6 +137,7 @@ pub fn objc_getProperty_nonatomic(
     objc_getProperty(env, this, _cmd, offset, false)
 }
 
+/// Core implementation for setting properties.
 pub fn objc_setProperty(
     env: &mut Environment,
     this: id,
