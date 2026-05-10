@@ -142,15 +142,17 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSendSuper2_stret(_, _)),
     export_c_func!(objc_msgSendSuper2(_, _)),
     
-    // Property Getters (4 arguments: env, this, cmd, offset)
+    // Property Getters (4 total arguments: env, this, cmd, offset)
+    // Macro uses (env + 3 underscores)
     export_c_func!(objc_getProperty(_, _, _, _)),
-    export_c_func!(objc_getProperty_atomic(_, _, _, _)),
-    export_c_func!(objc_getProperty_nonatomic(_, _, _, _)),
+    export_c_func!(objc_getProperty_atomic(_, _, _)),
+    export_c_func!(objc_getProperty_nonatomic(_, _, _)),
     
-    // Property Setters (6 arguments: env, this, cmd, offset, value, atomic/copy)
+    // Property Setters (6 total arguments: env, this, cmd, offset, value, should_copy)
+    // Macro uses (env + 5 underscores)
     export_c_func!(objc_setProperty(_, _, _, _, _, _)),
-    export_c_func!(objc_setProperty_atomic(_, _, _, _, _, _)),
-    export_c_func!(objc_setProperty_nonatomic(_, _, _, _, _, _)),
+    export_c_func!(objc_setProperty_atomic(_, _, _, _, _)),
+    export_c_func!(objc_setProperty_nonatomic(_, _, _, _, _)),
     
     export_c_func!(objc_copyStruct(_, _, _, _, _)),
     export_c_func!(objc_sync_enter(_)),
