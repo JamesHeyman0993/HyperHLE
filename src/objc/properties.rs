@@ -118,14 +118,47 @@ pub(super) fn objc_getProperty(
     env.mem.read(ivar)
 }
 
-/// Helper for atomic property getters.
-pub(super) fn objc_getProperty_atomic(
+// Change these from pub(super) to pub
+pub fn objc_getProperty_atomic(
     env: &mut Environment,
     this: id,
     _cmd: SEL,
     offset: GuestISize,
 ) -> id {
     objc_getProperty(env, this, _cmd, offset, true)
+}
+
+pub fn objc_getProperty_nonatomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+) -> id {
+    objc_getProperty(env, this, _cmd, offset, false)
+}
+
+pub fn objc_setProperty_atomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+    value: id,
+    should_copy: i8,
+) {
+    objc_setProperty(env, this, _cmd, offset, value, true, should_copy);
+}
+
+// NOTE: Make sure your objc_setProperty_nonatomic in this file 
+// also looks like this and is marked 'pub'
+pub fn objc_setProperty_nonatomic(
+    env: &mut Environment,
+    this: id,
+    _cmd: SEL,
+    offset: GuestISize,
+    value: id,
+    should_copy: i8,
+) {
+    objc_setProperty(env, this, _cmd, offset, value, false, should_copy);
 }
 
 /// Helper for non-atomic property getters.
