@@ -46,16 +46,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)defaultCenter {
-    if let Some(c) = env.framework_state.foundation.ns_notification_center.default_center {
-        c
-    } else {
-        // Fix: Use alloc/init instead of new to ensure metaclass compatibility
-        let cls = env.objc.get_known_class("NSNotificationCenter", &mut env.mem);
-        let instance: id = msg![env; cls alloc];
-        let new: id = msg![env; instance init];
-        
-        env.framework_state.foundation.ns_notification_center.default_center = Some(new);
-        new
+    // Fixed: Simplified logic to avoid irrefutable pattern warning
+    match env.framework_state.foundation.ns_notification_center.default_center {
+        Some(c) => c,
+        None => {
+            let cls = env.objc.get_known_class("NSNotificationCenter", &mut env.mem);
+            let instance: id = msg![env; cls alloc];
+            let new: id = msg![env; instance init];
+            
+            env.framework_state.foundation.ns_notification_center.default_center = Some(new);
+            new
+        }
     }
 }
 
@@ -131,7 +132,6 @@ pub const CLASSES: ClassExports = objc_classes! {
             remove_observers_internal(observers, &mut removed_observers, observer, object);
         }
     } else {
-        // If name is nil, remove this observer from ALL notification buckets
         for observers in host_obj.observers.values_mut() {
             remove_observers_internal(observers, &mut removed_observers, observer, object);
         }
@@ -149,25 +149,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     log_dbg!("Posting notification: {:?} from {:?}", name_str, notification_poster);
 
-    // We need to collect matching observers to avoid borrow checker issues 
-    // while iterating and potentially modifying the map.
     let mut targets = Vec::new();
     {
         let host_obj = env.objc.borrow::<NSNotificationCenterHostObject>(this);
         
-        // 1. Get observers specifically for this name
         if let Some(observers) = host_obj.observers.get(&name_str) {
             targets.extend(observers.clone());
         }
         
-        // 2. Get observers listening to "ALL" notifications
         if let Some(all_observers) = host_obj.observers.get("__TOUCHHLE_ALL_NOTIFICATIONS__") {
             targets.extend(all_observers.clone());
         }
     }
 
     for Observer { observer, selector, object } in targets {
-        // Filter by poster object if specified
         if object != nil && notification_poster != object {
             continue;
         }
@@ -195,7 +190,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // Universal Fix: Helper for the emulator to fake system events
-- (())_touchHLE_postSystemNotification:(id)name_rust_str {
+// Fixed: Using String instead of id to match from_rust_string expectations
+- (())_touchHLE_postSystemNotification:(String)name_rust_str {
     let name_nss = ns_string::from_rust_string(env, name_rust_str);
     let _: () = msg![env; this postNotificationName:name_nss object:nil];
 }
