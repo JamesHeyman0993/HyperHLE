@@ -31,17 +31,18 @@ unsafe impl SafeRead for ifaddrs {}
 
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
-    // 1. Create a fake name string "en0" in guest memory
-    let fake_name = env.mem.push_cstr("en0");
+    // 1. Manually create the "en0" string in guest memory
+    // We convert the string to bytes and add a null terminator (0)
+    let name_bytes = b"en0\0";
+    let fake_name_ptr = env.mem.alloc_and_write(*name_bytes);
     
     // 2. Set flags: IFF_UP (0x1) | IFF_RUNNING (0x40) | IFF_BROADCAST (0x2)
-    // This tells the game the connection is active and working.
     let active_flags: u32 = 0x1 | 0x40 | 0x02;
 
-    // 3. Allocate and write a fake ifaddrs struct
+    // 3. Allocate and write the fake ifaddrs struct
     let fake_if = env.mem.alloc_and_write(ifaddrs {
-        ifa_next: MutPtr::null(), // Only one interface in our list
-        ifa_name: fake_name.cast_const(),
+        ifa_next: MutPtr::null(),
+        ifa_name: fake_name_ptr.cast_const(),
         ifa_flags: active_flags,
         ifa_addr: 0,
         ifa_netmask: 0,
@@ -49,13 +50,13 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         ifa_data: 0,
     });
 
-    // 4. Point the game to our fake interface instead of NULL
+    // 4. Point the game to our fake interface
     if !ifap.is_null() {
         env.mem.write(ifap, fake_if);
     }
 
     log!("getifaddrs(): Reporting ACTIVE fake en0 interface to Archetype.");
-    0 // Success
+    0 
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
