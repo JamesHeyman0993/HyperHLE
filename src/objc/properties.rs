@@ -101,7 +101,7 @@ impl ObjC {
 
 // --- PROPERTY ACCESSORS ---
 
-pub(super) fn objc_getProperty(
+pub fn objc_getProperty(
     env: &mut Environment,
     this: id,
     _cmd: SEL,
@@ -118,7 +118,6 @@ pub(super) fn objc_getProperty(
     env.mem.read(ivar)
 }
 
-// Change these from pub(super) to pub
 pub fn objc_getProperty_atomic(
     env: &mut Environment,
     this: id,
@@ -137,41 +136,7 @@ pub fn objc_getProperty_nonatomic(
     objc_getProperty(env, this, _cmd, offset, false)
 }
 
-pub fn objc_setProperty_atomic(
-    env: &mut Environment,
-    this: id,
-    _cmd: SEL,
-    offset: GuestISize,
-    value: id,
-    should_copy: i8,
-) {
-    objc_setProperty(env, this, _cmd, offset, value, true, should_copy);
-}
-
-// NOTE: Make sure your objc_setProperty_nonatomic in this file 
-// also looks like this and is marked 'pub'
-pub fn objc_setProperty_nonatomic(
-    env: &mut Environment,
-    this: id,
-    _cmd: SEL,
-    offset: GuestISize,
-    value: id,
-    should_copy: i8,
-) {
-    objc_setProperty(env, this, _cmd, offset, value, false, should_copy);
-}
-
-/// Helper for non-atomic property getters.
-pub(super) fn objc_getProperty_nonatomic(
-    env: &mut Environment,
-    this: id,
-    _cmd: SEL,
-    offset: GuestISize,
-) -> id {
-    objc_getProperty(env, this, _cmd, offset, false)
-}
-
-pub(super) fn objc_setProperty(
+pub fn objc_setProperty(
     env: &mut Environment,
     this: id,
     _cmd: SEL,
@@ -207,8 +172,7 @@ pub(super) fn objc_setProperty(
     }
 }
 
-/// Helper for atomic property setters.
-pub(super) fn objc_setProperty_atomic(
+pub fn objc_setProperty_atomic(
     env: &mut Environment,
     this: id,
     _cmd: SEL,
@@ -219,8 +183,7 @@ pub(super) fn objc_setProperty_atomic(
     objc_setProperty(env, this, _cmd, offset, value, true, should_copy);
 }
 
-/// Helper for non-atomic property setters.
-pub(super) fn objc_setProperty_nonatomic(
+pub fn objc_setProperty_nonatomic(
     env: &mut Environment,
     this: id,
     _cmd: SEL,
@@ -231,7 +194,7 @@ pub(super) fn objc_setProperty_nonatomic(
     objc_setProperty(env, this, _cmd, offset, value, false, should_copy);
 }
 
-pub(super) fn objc_copyStruct(
+pub fn objc_copyStruct(
     env: &mut Environment,
     dest: MutVoidPtr,
     src: ConstVoidPtr,
