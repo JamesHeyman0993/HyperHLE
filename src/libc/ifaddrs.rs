@@ -31,10 +31,16 @@ unsafe impl SafeRead for ifaddrs {}
 
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
-    // 1. Manually create the "en0" string in guest memory
-    // We convert the string to bytes and add a null terminator (0)
+    // 1. Allocate space for the string "en0\0" (4 bytes)
+    // We use a dummy byte to start the allocation
     let name_bytes = b"en0\0";
-    let fake_name_ptr = env.mem.alloc_and_write(*name_bytes);
+    let fake_name_ptr = env.mem.alloc_and_write(name_bytes[0]); // Allocates 1 byte and writes 'e'
+    
+    // Write the rest of the bytes manually to the memory location
+    // (Assuming your Mem has a basic write or write_bytes method)
+    for (i, &byte) in name_bytes.iter().enumerate() {
+        env.mem.write(fake_name_ptr.offset(i as isize), byte);
+    }
     
     // 2. Set flags: IFF_UP (0x1) | IFF_RUNNING (0x40) | IFF_BROADCAST (0x2)
     let active_flags: u32 = 0x1 | 0x40 | 0x02;
@@ -42,6 +48,7 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
     // 3. Allocate and write the fake ifaddrs struct
     let fake_if = env.mem.alloc_and_write(ifaddrs {
         ifa_next: MutPtr::null(),
+        // Use .cast() to turn Ptr<u8> into the expected ConstPtr<u8>
         ifa_name: fake_name_ptr.cast_const(),
         ifa_flags: active_flags,
         ifa_addr: 0,
