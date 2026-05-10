@@ -46,4 +46,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSSelectorFromString(_)),
     export_c_func!(NSClassFromString(_)),
     export_c_func!(NSStringFromClass(_)),
+    export_c_func!(objc_setProperty_atomic(id, SEL, id, u32) -> objc_setProperty), 
 ];
