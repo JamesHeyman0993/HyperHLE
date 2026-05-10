@@ -13,10 +13,32 @@ use crate::msg;
 
 pub const MPMediaLibraryDidChangeNotification: &str = "MPMediaLibraryDidChangeNotification";
 
+// Additional constants for Gameloft compatibility
+pub const MPMediaItemPropertyTitle: &str = "title";
+pub const MPMediaItemPropertyArtist: &str = "artist";
+pub const MPMediaItemPropertyAlbumTitle: &str = "albumTitle";
+pub const MPMediaPlaylistPropertyName: &str = "name";
+
 pub const CONSTANTS: ConstantExports = &[
     (
         "_MPMediaLibraryDidChangeNotification",
         HostConstant::NSString(MPMediaLibraryDidChangeNotification),
+    ),
+    (
+        "_MPMediaItemPropertyTitle",
+        HostConstant::NSString(MPMediaItemPropertyTitle),
+    ),
+    (
+        "_MPMediaItemPropertyArtist",
+        HostConstant::NSString(MPMediaItemPropertyArtist),
+    ),
+    (
+        "_MPMediaItemPropertyAlbumTitle",
+        HostConstant::NSString(MPMediaItemPropertyAlbumTitle),
+    ),
+    (
+        "_MPMediaPlaylistPropertyName",
+        HostConstant::NSString(MPMediaPlaylistPropertyName),
     ),
 ];
 
@@ -28,25 +50,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)defaultMediaLibrary {
     log!("Gameloft Hack: defaultMediaLibrary (alloc + init)");
-    let class_ptr = env.objc.link_class("MPMediaLibrary", false, &mut env.mem);
-    let instance = msg![env; class_ptr alloc];
+    let class_ptr = env.objc.get_known_class("MPMediaLibrary", &mut env.mem);
+    let instance: id = msg![env; class_ptr alloc];
     msg![env; instance init]
 }
 
 + (u32)authorizationStatus {
-    // Return Authorized (3)
+    // Return MPMediaLibraryAuthorizationStatusAuthorized = 3
     3
 }
 
 // Gameloft often calls this to see when the library was last updated
 - (id)lastModifiedDate {
+    // Returning nil is usually safe, or we could return [NSDate date]
     nil
 }
 
 // This is a common point of failure. The game asks for all songs/playlists.
-// By returning nil here, we hope the game checks for nil before proceeding.
 - (id)collectionsForEntityKind:(u32)kind {
-    log!("Gameloft Hack: collectionsForEntityKind requested, returning nil.");
+    log!("Gameloft Hack: collectionsForEntityKind requested (kind: {}), returning nil.", kind);
     nil
 }
 
