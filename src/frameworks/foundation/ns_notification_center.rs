@@ -17,7 +17,7 @@ use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct State {
-    default_center: Option<id>,
+    pub default_center: Option<id>,
 }
 
 #[derive(Clone)]
@@ -49,7 +49,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(c) = env.framework_state.foundation.ns_notification_center.default_center {
         c
     } else {
-        let new: id = msg![env; this new];
+        // Fix: Use alloc/init instead of new to ensure metaclass compatibility
+        let cls = env.objc.get_known_class("NSNotificationCenter", &mut env.mem);
+        let instance: id = msg![env; cls alloc];
+        let new: id = msg![env; instance init];
+        
         env.framework_state.foundation.ns_notification_center.default_center = Some(new);
         new
     }
@@ -68,48 +72,31 @@ pub const CLASSES: ClassExports = objc_classes! {
          selector:(SEL)selector
              name:(NSNotificationName)name
            object:(id)object {
-    if name == nil &&
+    
+    // Game-specific hack for Cut the Rope
+    if name != nil &&
         env.bundle.bundle_identifier().starts_with("com.chillingo.cuttherope") &&
         selector == env.objc.lookup_selector("fetchUpdateNotification:").unwrap() {
-        // As we nullified Flurry SDK, we also need to no-op
-        // related notifications
-        log!("Applying game-specific hack for Cut the Rope: ignoring addObserver:selector:name:object: for fetchUpdateNotification:");
+        log!("Applying game-specific hack for Cut the Rope: ignoring addObserver");
         return;
     }
-    // TODO: handle case where name is nil
-    // Usually a static string, so no real copy will happen
-    let name = ns_string::to_rust_string(env, name);
+
+    // Fix: Handle case where name is nil (Observer wants ALL notifications)
+    let name_key = if name == nil {
+        Cow::Borrowed("__TOUCHHLE_ALL_NOTIFICATIONS__")
+    } else {
+        ns_string::to_rust_string(env, name)
+    };
 
     log_dbg!(
         "[(NSNotificationCenter*){:?} addObserver:{:?} selector:{:?} name:{:?} object:{:?}",
-        this,
-        observer,
-        selector,
-        name,
-        object,
+        this, observer, selector, name_key, object,
     );
-
-    // When adding an observer, only the object is retained so it doesn't get
-    // deallocated before the notification is delivered. Some apps, such as
-    // Dungeon Hunter 2, rely on this being the case.
-    // The observer is not retained to avoid retain cycles.
-    // https://stackoverflow.com/a/36582937
-    // While not explicitly stated by the documentation, there's a paragraph
-    // that hints at this behavior:
-    // "If your app targets iOS 9.0 and later or macOS 10.11 and later, you do
-    // not need to unregister an observer that you created with this function.
-    // If you forget or are unable to remove an observer, the system cleans up
-    // the next time it would have posted to it."
-    // https://developer.apple.com/documentation/foundation/notificationcenter/addobserver(_:selector:name:object:)?language=objc
-    // Implying that prior to these versions, it's unsafe to not remove an
-    // observer. It's been observed that some apps expect and rely on this
-    // behavior, such as Marmalade SDK games that use the Movie Player
-    // (Pandemonium and COD Zombies, for example).
 
     retain(env, object);
 
     let host_obj = env.objc.borrow_mut::<NSNotificationCenterHostObject>(this);
-    host_obj.observers.entry(name).or_default().push(Observer {
+    host_obj.observers.entry(name_key).or_default().push(Observer {
         observer,
         selector,
         object,
@@ -123,38 +110,32 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())removeObserver:(id)observer
                 name:(NSNotificationName)name
               object:(id)object {
-    assert!(observer != nil); // TODO
+    assert!(observer != nil);
 
-    let name = if name == nil {
+    let name_opt = if name == nil {
         None
     } else {
-        // Usually a static string, so no real copy will happen
         Some(ns_string::to_rust_string(env, name))
     };
 
     log_dbg!(
         "[(NSNotificationCenter*){:?} removeObserver:{:?} name:{:?} object:{:?}",
-        this,
-        observer,
-        name,
-        object,
+        this, observer, name_opt, object,
     );
 
-    // TODO: is this the correct behaviour, can an observer be registered
-    // several times?
     let mut removed_observers = Vec::new();
-
     let host_obj = env.objc.borrow_mut::<NSNotificationCenterHostObject>(this);
-    if let Some(ref name) = name {
-        let Some(observers) = host_obj.observers.get_mut(name) else {
-            return;
-        };
-        remove_observers_internal(observers, &mut removed_observers, observer, object);
+    
+    if let Some(ref name_str) = name_opt {
+        if let Some(observers) = host_obj.observers.get_mut(name_str) {
+            remove_observers_internal(observers, &mut removed_observers, observer, object);
+        }
     } else {
+        // If name is nil, remove this observer from ALL notification buckets
         for observers in host_obj.observers.values_mut() {
             remove_observers_internal(observers, &mut removed_observers, observer, object);
         }
-    };
+    }
 
     for removed_observer in removed_observers {
         release(env, removed_observer.object);
@@ -162,71 +143,67 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())postNotification:(id)notification {
-    log_dbg!(
-        "[(NSNotificationCenter*){:?} postNotification:{:?}]",
-        this,
-        notification,
-    );
-
-    let name: id = msg![env; notification name];
-    // Usually a static string, so no real copy will happen
-    let name = ns_string::to_rust_string(env, name);
-
+    let name_id: id = msg![env; notification name];
+    let name_str = ns_string::to_rust_string(env, name_id);
     let notification_poster: id = msg![env; notification object];
 
-    log_dbg!("Notification is a {:?} posted by {:?}", name, notification_poster);
+    log_dbg!("Posting notification: {:?} from {:?}", name_str, notification_poster);
 
-    let host_obj = env.objc.borrow_mut::<NSNotificationCenterHostObject>(this);
-    let Some(observers) = host_obj.observers.get(&name).cloned() else {
-        return;
-    };
-    for Observer { observer, selector, object } in observers {
-        // The object argument is a filter for which notification sources the
-        // observer is interested in.
+    // We need to collect matching observers to avoid borrow checker issues 
+    // while iterating and potentially modifying the map.
+    let mut targets = Vec::new();
+    {
+        let host_obj = env.objc.borrow::<NSNotificationCenterHostObject>(this);
+        
+        // 1. Get observers specifically for this name
+        if let Some(observers) = host_obj.observers.get(&name_str) {
+            targets.extend(observers.clone());
+        }
+        
+        // 2. Get observers listening to "ALL" notifications
+        if let Some(all_observers) = host_obj.observers.get("__TOUCHHLE_ALL_NOTIFICATIONS__") {
+            targets.extend(all_observers.clone());
+        }
+    }
+
+    for Observer { observer, selector, object } in targets {
+        // Filter by poster object if specified
         if object != nil && notification_poster != object {
             continue;
         }
 
-        log_dbg!(
-            "Notification {:?} observed, sending {:?} message to {:?}",
-            notification,
-            selector.as_str(&env.mem),
-            observer
-        );
-
-        // In some cases, observer could be removed during the
-        // processing of the notification, effectively releasing it.
-        // (This is happening with Spore Origins)
-        // We need to retain it for correctness.
         retain(env, observer);
-        // Signature should be `- (void)notification:(NSNotification *)notif`.
         let _: () = msg_send(env, (observer, selector, notification));
         release(env, observer);
     }
 }
+
 - (())postNotificationName:(NSNotificationName)name
                     object:(id)object {
-    msg![env; this postNotificationName:name
-                                 object:object
-                               userInfo:nil]
+    msg![env; this postNotificationName:name object:object userInfo:nil]
 }
+
 - (())postNotificationName:(NSNotificationName)name
                     object:(id)object
-                  userInfo:(id)user_info { // NSDictionary*
-    let notification: id = msg_class![env; NSNotification alloc];
-    let notification: id = msg![env; notification initWithName:name
-                                                        object:object
-                                                      userInfo:user_info];
+                  userInfo:(id)user_info {
+    let notification_cls = env.objc.get_known_class("NSNotification", &mut env.mem);
+    let instance: id = msg![env; notification_cls alloc];
+    let notification: id = msg![env; instance initWithName:name object:object userInfo:user_info];
+    
     let _: () = msg![env; this postNotification:notification];
     release(env, notification);
+}
+
+// Universal Fix: Helper for the emulator to fake system events
+- (())_touchHLE_postSystemNotification:(id)name_rust_str {
+    let name_nss = ns_string::from_rust_string(env, name_rust_str);
+    let _: () = msg![env; this postNotificationName:name_nss object:nil];
 }
 
 @end
 
 };
 
-/// A helper function to populate `removed_observers` with observers
-/// removed from `observers` based on `observer` and `object` criteria.
 fn remove_observers_internal(
     observers: &mut Vec<Observer>,
     removed_observers: &mut Vec<Observer>,
