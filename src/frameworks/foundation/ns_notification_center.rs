@@ -46,7 +46,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)defaultCenter {
-    // Fixed: Simplified logic to avoid irrefutable pattern warning
+    // Fixed: Using match to avoid "irrefutable if let" warning
     match env.framework_state.foundation.ns_notification_center.default_center {
         Some(c) => c,
         None => {
@@ -132,6 +132,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             remove_observers_internal(observers, &mut removed_observers, observer, object);
         }
     } else {
+        // If name is nil, remove this observer from ALL notification buckets
         for observers in host_obj.observers.values_mut() {
             remove_observers_internal(observers, &mut removed_observers, observer, object);
         }
@@ -153,10 +154,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     {
         let host_obj = env.objc.borrow::<NSNotificationCenterHostObject>(this);
         
+        // 1. Specific name observers
         if let Some(observers) = host_obj.observers.get(&name_str) {
             targets.extend(observers.clone());
         }
         
+        // 2. "Catch-all" observers
         if let Some(all_observers) = host_obj.observers.get("__TOUCHHLE_ALL_NOTIFICATIONS__") {
             targets.extend(all_observers.clone());
         }
@@ -190,9 +193,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // Universal Fix: Helper for the emulator to fake system events
-// Fixed: Using String instead of id to match from_rust_string expectations
-- (())_touchHLE_postSystemNotification:(String)name_rust_str {
-    let name_nss = ns_string::from_rust_string(env, name_rust_str);
+// Fixed: Using id (NSString) instead of String to satisfy GuestArg trait
+- (())_touchHLE_postSystemNotification:(id)name_nss {
     let _: () = msg![env; this postNotificationName:name_nss object:nil];
 }
 
