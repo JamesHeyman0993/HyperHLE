@@ -271,18 +271,20 @@ fn readlink(
     buf: MutPtr<u8>,
     buf_size: GuestISize,
 ) -> GuestISize {
-    let path_str = env.mem.cstr_at_utf8(path).unwrap_or("");
+    // We use .to_owned() to create a copy of the string.
+    // This releases the borrow on env.mem immediately.
+    let path_str = env.mem.cstr_at_utf8(path).map(|s| s.to_owned()).unwrap_or_default();
+    
     log!("readlink: simulating link for '{}'", path_str);
 
-    // We'll just echo the path back to the game. 
-    // This tricks the game into thinking the path resolved successfully.
     let path_bytes = path_str.as_bytes();
     let len = std::cmp::min(path_bytes.len(), buf_size as usize);
 
-    // Use bytes_at_mut to safely write to guest memory
-    env.mem
-        .bytes_at_mut(buf, len as u32)
-        .copy_from_slice(&path_bytes[..len]);
+    if len > 0 {
+        env.mem
+            .bytes_at_mut(buf, len as u32)
+            .copy_from_slice(&path_bytes[..len]);
+    }
 
     len as GuestISize
 }
