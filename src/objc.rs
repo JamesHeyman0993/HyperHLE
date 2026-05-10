@@ -142,12 +142,17 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend_stret(_, _, _)),
     export_c_func!(objc_msgSendSuper2_stret(_, _)),
     export_c_func!(objc_msgSendSuper2(_, _)),
+    
+    // Property Getters (4 arguments: env, this, cmd, offset)
     export_c_func!(objc_getProperty(_, _, _, _)),
     export_c_func!(objc_getProperty_atomic(_, _, _, _)),
     export_c_func!(objc_getProperty_nonatomic(_, _, _, _)),
+    
+    // Property Setters (6 arguments: env, this, cmd, offset, value, atomic/copy)
     export_c_func!(objc_setProperty(_, _, _, _, _, _)),
     export_c_func!(objc_setProperty_atomic(_, _, _, _, _, _)),
     export_c_func!(objc_setProperty_nonatomic(_, _, _, _, _, _)),
+    
     export_c_func!(objc_copyStruct(_, _, _, _, _)),
     export_c_func!(objc_sync_enter(_)),
     export_c_func!(objc_sync_exit(_)),
