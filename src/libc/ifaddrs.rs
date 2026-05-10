@@ -31,15 +31,31 @@ unsafe impl SafeRead for ifaddrs {}
 
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
-    // Write NULL into *ifap.
+    // 1. Create a fake name string "en0" in guest memory
+    let fake_name = env.mem.push_cstr("en0");
+    
+    // 2. Set flags: IFF_UP (0x1) | IFF_RUNNING (0x40) | IFF_BROADCAST (0x2)
+    // This tells the game the connection is active and working.
+    let active_flags: u32 = 0x1 | 0x40 | 0x02;
+
+    // 3. Allocate and write a fake ifaddrs struct
+    let fake_if = env.mem.alloc_and_write(ifaddrs {
+        ifa_next: MutPtr::null(), // Only one interface in our list
+        ifa_name: fake_name.cast_const(),
+        ifa_flags: active_flags,
+        ifa_addr: 0,
+        ifa_netmask: 0,
+        ifa_broadaddr: 0,
+        ifa_data: 0,
+    });
+
+    // 4. Point the game to our fake interface instead of NULL
     if !ifap.is_null() {
-        env.mem.write(ifap, MutPtr::null());
+        env.mem.write(ifap, fake_if);
     }
 
-    // FIX: We now return 0 (Success) instead of -1 (Error).
-    // This tricks the game into thinking the network system is initialized.
-    log!("getifaddrs(): Reporting success with empty interface list to bypass network checks.");
-    0 
+    log!("getifaddrs(): Reporting ACTIVE fake en0 interface to Archetype.");
+    0 // Success
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
