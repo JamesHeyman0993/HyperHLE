@@ -7,7 +7,8 @@
 
 use crate::{
     dyld::{ConstantExports, HostConstant},
-    objc::{id, nil, objc_classes, ClassExports, NSInteger},
+    objc::{id, nil, objc_classes, ClassExports},
+    frameworks::foundation::NSInteger, // Import from foundation instead
 };
 
 pub const MPMusicPlayerControllerNowPlayingItemDidChangeNotification: &str =
