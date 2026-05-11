@@ -1067,7 +1067,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let bounds: CGRect = msg![env; this bounds];
     let size: CGSize = bounds.size;
     let new_size: CGSize = msg![env; this sizeThatFits:size];
-    () = msg![env; this setBounds:(CGRect { origin: CGPoint::default(), size: new_size })];
+    let _: () = msg![env; this setBounds:(CGRect { origin: CGPoint::default(), size: new_size })];
 }
 
 @end
