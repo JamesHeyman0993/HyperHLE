@@ -291,19 +291,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
     if animations != nil {
-        // Read the function pointer at offset 12 (3 * 4 bytes)
-        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>().offset(3));
+        // 1. Cast to Ptr<u32, _> so that each unit of pointer arithmetic is 4 bytes
+        // 2. Add 3 to move 12 bytes forward (3 * 4 = 12)
+        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>() + 3u32);
+        
         if invoke_addr != 0 {
-            // Create a SEL by wrapping the pointer in the SEL() tuple constructor
-            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
+            // 3. Create a ConstPtr from the raw bits
+            let ptr = crate::mem::ConstPtr::from_bits(invoke_addr);
+            // 4. Wrap it in the SEL tuple struct as defined in your selectors.rs
+            let invoke_sel = SEL(ptr);
             let _: () = msg_send_no_type_checking(env, (animations, invoke_sel));
         }
     }
 
     if completion != nil {
-        let invoke_addr: u32 = env.mem.read(completion.cast::<u32>().offset(3));
+        let invoke_addr: u32 = env.mem.read(completion.cast::<u32>() + 3u32);
         if invoke_addr != 0 {
-            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let ptr = crate::mem::ConstPtr::from_bits(invoke_addr);
+            let invoke_sel = SEL(ptr);
+            // Blocks expect (block_ptr, finished_bool)
             let _: () = msg_send_no_type_checking(env, (completion, invoke_sel, true));
         }
     }
@@ -311,22 +317,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>().offset(3));
+        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>() + 3u32);
         if invoke_addr != 0 {
-            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let ptr = crate::mem::ConstPtr::from_bits(invoke_addr);
+            let invoke_sel = SEL(ptr);
             let _: () = msg_send_no_type_checking(env, (animations, invoke_sel));
         }
     }
 
     if completion != nil {
-        let invoke_addr: u32 = env.mem.read(completion.cast::<u32>().offset(3));
+        let invoke_addr: u32 = env.mem.read(completion.cast::<u32>() + 3u32);
         if invoke_addr != 0 {
-            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let ptr = crate::mem::ConstPtr::from_bits(invoke_addr);
+            let invoke_sel = SEL(ptr);
             let _: () = msg_send_no_type_checking(env, (completion, invoke_sel, true));
         }
     }
 }
-                           
+                               
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
