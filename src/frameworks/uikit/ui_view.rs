@@ -251,7 +251,33 @@ pub const CLASSES: ClassExports = objc_classes! {
         if block.animation_id != nil { release(env, block.animation_id); }
         return;
     }
+    
++ (())animateWithDuration:(f64)duration animations:(id)animations completion:(id)completion {
+    log!("HACK: UIView animateWithDuration:animations:completion: (iOS 4+ API) called.");
 
+    // 1. Run the animations block immediately to set final button positions/alpha
+    if animations != nil {
+        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
+    }
+
+    // 2. Run the completion block immediately so the game state moves forward
+    if completion != nil {
+        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
+    }
+}
+
++ (())animateWithDuration:(f64)duration delay:(f64)delay options:(u32)_options animations:(id)animations completion:(id)completion {
+    log!("HACK: UIView animateWithDuration:delay:options:animations:completion: called.");
+
+    if animations != nil {
+        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
+    }
+
+    if completion != nil {
+        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
+    }
+}
+    
     let did_stop_selector = block.did_stop_selector.unwrap();
     let sel_name = did_stop_selector.as_str(&env.mem).to_string();
     let sel_str: id = from_rust_string(env, sel_name);
