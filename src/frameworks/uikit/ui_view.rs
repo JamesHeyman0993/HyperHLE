@@ -290,28 +290,27 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
-    // 1. Run the animation block immediately
     if animations != nil {
-        let _: () = msg![env; animations (())];
+        let _: () = msg_send_no_type_checking(env, (animations,));
     }
 
-    // 2. Run the completion block immediately
     if completion != nil {
-        // We pass 'true' to tell the game the animation "finished" successfully
-        let _: () = msg![env; completion ((), true)];
+        // Blocks take the block itself as the first hidden argument, 
+        // followed by the actual parameters (finished: true).
+        let _: () = msg_send_no_type_checking(env, (completion, true));
     }
 }
 
 + (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let _: () = msg![env; animations (())];
+        let _: () = msg_send_no_type_checking(env, (animations,));
     }
 
     if completion != nil {
-        let _: () = msg![env; completion ((), true)];
+        let _: () = msg_send_no_type_checking(env, (completion, true));
     }
 }
-          
+             
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
