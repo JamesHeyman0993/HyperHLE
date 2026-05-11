@@ -291,32 +291,38 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let block_ptr = animations.as_ptr() as *const crate::mem::ConstVoidPtr;
-        unsafe {
-            // Objective-C Blocks have the function pointer at offset 3 (32-bit)
-            let invoke: extern "C" fn(id) = std::mem::transmute(*(block_ptr.add(3)));
-            invoke(animations);
+        // Read the function pointer at offset 12 (32-bit ABI for blocks)
+        let invoke_addr: u32 = env.mem.read(animations.to_vaddr() + 12u32);
+        if invoke_addr != 0 {
+            let _: () = msg_send_no_type_checking(env, (animations, invoke_addr));
         }
     }
 
     if completion != nil {
-        let block_ptr = completion.as_ptr() as *const crate::mem::ConstVoidPtr;
-        unsafe {
-            let invoke: extern "C" fn(id, bool) = std::mem::transmute(*(block_ptr.add(3)));
-            invoke(completion, true);
+        let invoke_addr: u32 = env.mem.read(completion.to_vaddr() + 12u32);
+        if invoke_addr != 0 {
+            // Pass 'true' (1u8 or true) for the 'finished' parameter
+            let _: () = msg_send_no_type_checking(env, (completion, invoke_addr, true));
         }
     }
 }
 
 + (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let block_ptr = animations.as_ptr() as *const crate::mem::ConstVoidPtr;
-        unsafe {
-            let invoke: extern "C" fn(id) = std::mem::transmute(*(block_ptr.add(3)));
-            invoke(animations);
+        let invoke_addr: u32 = env.mem.read(animations.to_vaddr() + 12u32);
+        if invoke_addr != 0 {
+            let _: () = msg_send_no_type_checking(env, (animations, invoke_addr));
         }
     }
 
+    if completion != nil {
+        let invoke_addr: u32 = env.mem.read(completion.to_vaddr() + 12u32);
+        if invoke_addr != 0 {
+            let _: () = msg_send_no_type_checking(env, (completion, invoke_addr, true));
+        }
+    }
+}
+    
     if completion != nil {
         let block_ptr = completion.as_ptr() as *const crate::mem::ConstVoidPtr;
         unsafe {
