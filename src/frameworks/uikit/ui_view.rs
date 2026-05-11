@@ -322,16 +322,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 }
-    
-    if completion != nil {
-        let block_ptr = completion.as_ptr() as *const crate::mem::ConstVoidPtr;
-        unsafe {
-            let invoke: extern "C" fn(id, bool) = std::mem::transmute(*(block_ptr.add(3)));
-            invoke(completion, true);
-        }
-    }
-}
-                
+                  
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
