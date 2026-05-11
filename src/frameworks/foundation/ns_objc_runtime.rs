@@ -41,9 +41,32 @@ fn NSClassFromString(env: &mut Environment, string: id) -> Class {
     env.objc.get_known_class(&string, &mut env.mem)
 }
 
+// --- ENGINE GLUE FIXES ---
+// These functions allow the game engine to link its script variables to memory.
+// This is required for the "Start" button and other UI logic to function.
+
+fn objc_setProperty(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
+    let ptr = _self + offset;
+    let _ = env.mem.write(ptr, val);
+}
+
+fn _objc_setProperty_nonatomic_copy(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
+    objc_setProperty(env, _self, _cmd, val, offset);
+}
+
+fn objc_setProperty_atomic(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
+    objc_setProperty(env, _self, _cmd, val, offset);
+}
+
+// -------------------------
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSStringFromSelector(_)),
     export_c_func!(NSSelectorFromString(_)),
     export_c_func!(NSClassFromString(_)),
     export_c_func!(NSStringFromClass(_)),
+    // Missing Property Setter exports:
+    export_c_func!(objc_setProperty(id, SEL, id, u32)),
+    export_c_func!(_objc_setProperty_nonatomic_copy(id, SEL, id, u32)),
+    export_c_func!(objc_setProperty_atomic(id, SEL, id, u32)),
 ];
