@@ -291,26 +291,41 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let _: () = msg_send_no_type_checking(env, (animations,));
+        let block_ptr = animations.as_ptr() as *const crate::mem::ConstVoidPtr;
+        unsafe {
+            // Objective-C Blocks have the function pointer at offset 3 (32-bit)
+            let invoke: extern "C" fn(id) = std::mem::transmute(*(block_ptr.add(3)));
+            invoke(animations);
+        }
     }
 
     if completion != nil {
-        // Blocks take the block itself as the first hidden argument, 
-        // followed by the actual parameters (finished: true).
-        let _: () = msg_send_no_type_checking(env, (completion, true));
+        let block_ptr = completion.as_ptr() as *const crate::mem::ConstVoidPtr;
+        unsafe {
+            let invoke: extern "C" fn(id, bool) = std::mem::transmute(*(block_ptr.add(3)));
+            invoke(completion, true);
+        }
     }
 }
 
 + (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
     if animations != nil {
-        let _: () = msg_send_no_type_checking(env, (animations,));
+        let block_ptr = animations.as_ptr() as *const crate::mem::ConstVoidPtr;
+        unsafe {
+            let invoke: extern "C" fn(id) = std::mem::transmute(*(block_ptr.add(3)));
+            invoke(animations);
+        }
     }
 
     if completion != nil {
-        let _: () = msg_send_no_type_checking(env, (completion, true));
+        let block_ptr = completion.as_ptr() as *const crate::mem::ConstVoidPtr;
+        unsafe {
+            let invoke: extern "C" fn(id, bool) = std::mem::transmute(*(block_ptr.add(3)));
+            invoke(completion, true);
+        }
     }
 }
-             
+                
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
