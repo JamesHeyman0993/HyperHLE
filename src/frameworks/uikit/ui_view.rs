@@ -246,38 +246,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
-    // --- You were missing the rest of commitAnimations here ---
-    // (I'm assuming you have the rest of the original timer logic below this)
-}
-
-// NOW the new methods go OUTSIDE the braces:
-
-+ (())animateWithDuration:(f64)duration animations:(id)animations completion:(id)completion {
-    log!("HACK: UIView animateWithDuration:animations:completion: called.");
-    if animations != nil {
-        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
-    }
-    if completion != nil {
-        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
-    }
-}
-
-+ (())animateWithDuration:(f64)duration delay:(f64)delay options:(u32)_options animations:(id)animations completion:(id)completion {
-    log!("HACK: UIView animateWithDuration:delay:options:animations:completion: called.");
-    if animations != nil {
-        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
-    }
-    if completion != nil {
-        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
-    }
-}
-     
     let did_stop_selector = block.did_stop_selector.unwrap();
     let sel_name = did_stop_selector.as_str(&env.mem).to_string();
     let sel_str: id = from_rust_string(env, sel_name);
 
-    // Pack the raw context pointer in an NSNumber so it can survive a trip
-    // through `userInfo`.
     let context_bits = block.context.to_bits();
     let context_num: id = msg_class![env; NSNumber numberWithUnsignedInt:context_bits];
 
@@ -286,8 +258,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_anim_id: id = get_static_str(env, "_touchHLE_uiview_anim_id");
     let key_context: id = get_static_str(env, "_touchHLE_uiview_anim_context");
 
-    // NSDictionary cannot store nil values; substitute NSNull for a missing
-    // animationID.
     let anim_id_obj: id = if block.animation_id == nil {
         msg_class![env; NSNull null]
     } else {
@@ -315,12 +285,28 @@ pub const CLASSES: ClassExports = objc_classes! {
                                       repeats:false
     ];
 
-    // The dictionary retains `delegate` and `animation_id`, so release the
-    // retains we held in our state struct.
     release(env, block.delegate);
     if block.animation_id != nil { release(env, block.animation_id); }
 }
 
++ (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
+    if animations != nil {
+        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
+    }
+    if completion != nil {
+        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
+    }
+}
+
++ (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
+    if animations != nil {
+        crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
+    }
+    if completion != nil {
+        crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
+    }
+}
+    
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
