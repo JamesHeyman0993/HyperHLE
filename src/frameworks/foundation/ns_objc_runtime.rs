@@ -46,8 +46,12 @@ fn NSClassFromString(env: &mut Environment, string: id) -> Class {
 // This is required for the "Start" button and other UI logic to function.
 
 fn objc_setProperty(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
-    let ptr = _self + offset;
-    let _ = env.mem.write(ptr, val);
+    let dest_ptr = _self + offset;
+    // We use write_ptr because we are writing an 'id' (a pointer) 
+    // into a specific memory address.
+    if let Err(e) = env.mem.write_ptr(dest_ptr, val) {
+        log::error!("objc_setProperty failed to write to offset {}: {:?}", offset, e);
+    }
 }
 
 fn _objc_setProperty_nonatomic_copy(env: &mut Environment, _self: id, _cmd: SEL, val: id, offset: u32) {
