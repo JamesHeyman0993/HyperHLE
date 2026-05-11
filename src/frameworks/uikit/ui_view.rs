@@ -229,9 +229,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let block = std::mem::take(&mut env.framework_state.uikit.ui_view.animation_block);
     if !block.in_block { return; }
 
-    // Fire `setAnimationWillStartSelector:` synchronously. This is good enough
-    // for the apps that touchHLE supports; iOS would normally fire it at the
-    // start of the next display frame.
     if block.delegate != nil {
         if let Some(sel) = block.will_start_selector {
             let _: () = msg_send_no_type_checking(
@@ -241,9 +238,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    // Schedule the `setAnimationDidStopSelector:` callback. Even when the
-    // delegate is nil we still need to release the retained animation_id, so
-    // the early-return paths below take care of that.
     let total_delay = (block.delay + block.duration).max(0.0);
 
     if block.delegate == nil || block.did_stop_selector.is_none() {
@@ -251,16 +245,18 @@ pub const CLASSES: ClassExports = objc_classes! {
         if block.animation_id != nil { release(env, block.animation_id); }
         return;
     }
-    
-+ (())animateWithDuration:(f64)duration animations:(id)animations completion:(id)completion {
-    log!("HACK: UIView animateWithDuration:animations:completion: (iOS 4+ API) called.");
 
-    // 1. Run the animations block immediately to set final button positions/alpha
+    // --- You were missing the rest of commitAnimations here ---
+    // (I'm assuming you have the rest of the original timer logic below this)
+}
+
+// NOW the new methods go OUTSIDE the braces:
+
++ (())animateWithDuration:(f64)duration animations:(id)animations completion:(id)completion {
+    log!("HACK: UIView animateWithDuration:animations:completion: called.");
     if animations != nil {
         crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
     }
-
-    // 2. Run the completion block immediately so the game state moves forward
     if completion != nil {
         crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
     }
@@ -268,16 +264,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)duration delay:(f64)delay options:(u32)_options animations:(id)animations completion:(id)completion {
     log!("HACK: UIView animateWithDuration:delay:options:animations:completion: called.");
-
     if animations != nil {
         crate::objc::blocks::call_block::<fn(id)>(env, animations, (nil,));
     }
-
     if completion != nil {
         crate::objc::blocks::call_block::<fn(id, bool)>(env, completion, (nil, true));
     }
 }
-    
+     
     let did_stop_selector = block.did_stop_selector.unwrap();
     let sel_name = did_stop_selector.as_str(&env.mem).to_string();
     let sel_str: id = from_rust_string(env, sel_name);
