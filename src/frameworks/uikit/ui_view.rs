@@ -291,11 +291,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
     if animations != nil {
-        // Use cast and offset to create a Ptr<u32, _> for the memory reader
-        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>().offset(3)); // 3 * 4 bytes = 12
+        // Read the function pointer at offset 12 (3 * 4 bytes)
+        let invoke_addr: u32 = env.mem.read(animations.cast::<u32>().offset(3));
         if invoke_addr != 0 {
-            // Convert the raw address into a SEL via ConstPtr
-            let invoke_sel = SEL::from_ptr(crate::mem::ConstPtr::from_bits(invoke_addr));
+            // Create a SEL by wrapping the pointer in the SEL() tuple constructor
+            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
             let _: () = msg_send_no_type_checking(env, (animations, invoke_sel));
         }
     }
@@ -303,7 +303,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if completion != nil {
         let invoke_addr: u32 = env.mem.read(completion.cast::<u32>().offset(3));
         if invoke_addr != 0 {
-            let invoke_sel = SEL::from_ptr(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
             let _: () = msg_send_no_type_checking(env, (completion, invoke_sel, true));
         }
     }
@@ -313,7 +313,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if animations != nil {
         let invoke_addr: u32 = env.mem.read(animations.cast::<u32>().offset(3));
         if invoke_addr != 0 {
-            let invoke_sel = SEL::from_ptr(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
             let _: () = msg_send_no_type_checking(env, (animations, invoke_sel));
         }
     }
@@ -321,12 +321,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     if completion != nil {
         let invoke_addr: u32 = env.mem.read(completion.cast::<u32>().offset(3));
         if invoke_addr != 0 {
-            let invoke_sel = SEL::from_ptr(crate::mem::ConstPtr::from_bits(invoke_addr));
+            let invoke_sel = SEL(crate::mem::ConstPtr::from_bits(invoke_addr));
             let _: () = msg_send_no_type_checking(env, (completion, invoke_sel, true));
         }
     }
 }
-                        
+                           
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
