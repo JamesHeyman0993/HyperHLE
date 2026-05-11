@@ -291,22 +291,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
     if animations != nil {
-        crate::objc::call_block::<fn(id)>(env, animations, (nil,));
+        crate::objc::execute_block::<fn(id)>(env, animations, (nil,));
     }
     if completion != nil {
-        crate::objc::call_block::<fn(id, bool)>(env, completion, (nil, true));
+        crate::objc::execute_block::<fn(id, bool)>(env, completion, (nil, true));
     }
 }
 
 + (())animateWithDuration:(f64)_duration delay:(f64)_delay options:(u32)_options animations:(id)animations completion:(id)completion {
     if animations != nil {
-        crate::objc::call_block::<fn(id)>(env, animations, (nil,));
+        crate::objc::execute_block::<fn(id)>(env, animations, (nil,));
     }
     if completion != nil {
-        crate::objc::call_block::<fn(id, bool)>(env, completion, (nil, true));
+        crate::objc::execute_block::<fn(id, bool)>(env, completion, (nil, true));
     }
 }
-      
+       
 + (())_touchHLE_animationDidStopFireMethod:(id)which_timer {
     let dict: id = msg![env; which_timer userInfo];
     let key_delegate: id = get_static_str(env, "_touchHLE_uiview_anim_delegate");
