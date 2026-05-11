@@ -172,39 +172,14 @@ fn objc_msgSend_inner(
 
     let message_type_info = env.objc.message_type_info.take();
 
-        if receiver == nil {
+    if receiver == nil {
         // https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ObjectiveC/Chapters/ocObjectsClasses.html#//apple_ref/doc/uid/TP30001163-CH11-SW7
         log_dbg!("[nil {}]", selector.as_str(&env.mem));
         env.cpu.regs_mut()[0..2].fill(0);
         return;
     }
 
-    // --- UNIVERSAL 'new' WORKAROUND ---
-    // If a class/metaclass doesn't have the "new" method, manually do [[alloc] init]
-    let sel_name = selector.as_str(&env.mem);
-    if sel_name == "new" {
-        let class_to_check = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
-        if !env.objc.class_has_method(class_to_check, selector) {
-            log!("Workaround: Class {:?} lacks 'new', performing manual alloc/init", class_to_check);
-            
-            let alloc_sel = env.objc.lookup_selector("alloc").unwrap();
-            let init_sel = env.objc.lookup_selector("init").unwrap();
-            
-            // Perform the alloc and init sequence
-            let instance: id = msg_send(env, (receiver, alloc_sel));
-            let initialized: id = msg_send(env, (instance, init_sel));
-            
-            // Set the guest return registers (r0 = object address)
-            let regs = env.cpu.regs_mut();
-            regs[0] = initialized.to_bits();
-            regs[1] = 0; 
-            return;
-        }
-    }
-    // --- END WORKAROUND ---
-
     let orig_class = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
-    
     // Мягкий выход, если isa равен nil
     if orig_class == nil {
         log!(
