@@ -263,10 +263,28 @@ impl State {
     }
 
     pub fn update_started_and_finished_animations(self, env: &mut Environment) {
+        // `animationDidStart:` and `animationDidStop:finished:` are optional
+        // CAAnimationDelegate methods. Many apps either don't set a delegate
+        // at all or set one that only implements one of the two. We must
+        // register the selectors so msg! doesn't panic with "Unknown
+        // selector" when nothing in the binary referenced them, and then
+        // gate the actual send on `respondsToSelector:` so we mirror the
+        // Cocoa behavior of silently no-op'ing when the delegate doesn't
+        // implement the method.
+        let did_start_sel = env
+            .objc
+            .register_host_selector("animationDidStart:".to_string(), &mut env.mem);
+        let did_stop_sel = env
+            .objc
+            .register_host_selector("animationDidStop:finished:".to_string(), &mut env.mem);
+
         for animation in self.started_animations {
             let delegate = msg![env; animation delegate];
             if delegate != nil {
-                () = msg![env; delegate animationDidStart: animation];
+                let responds: bool = msg![env; delegate respondsToSelector: did_start_sel];
+                if responds {
+                    () = msg![env; delegate animationDidStart: animation];
+                }
             }
         }
 
@@ -276,7 +294,10 @@ impl State {
         for (layer, animation, finished, removed_on_completion, key) in self.finished_animations {
             let delegate = msg![env; animation delegate];
             if delegate != nil {
-                () = msg![env; delegate animationDidStop: animation finished: finished];
+                let responds: bool = msg![env; delegate respondsToSelector: did_stop_sel];
+                if responds {
+                    () = msg![env; delegate animationDidStop: animation finished: finished];
+                }
             }
 
             if removed_on_completion {
