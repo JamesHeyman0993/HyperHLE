@@ -202,45 +202,45 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     log!("[DEBUG NIB] UIClassSwapper loading class: {} (original: {})", name, orig);
 
-    // 1. Try to find the specific class requested (e.g., WinterGamesAppDelegate)
-    let mut selected_class = env.objc.get_known_class(&name, &mut env.mem);
-    
-    // 2. Fallback to the original system class (e.g., UIViewController)
-    if selected_class == nil {
-        selected_class = env.objc.get_known_class(&orig, &mut env.mem);
-    }
+    // Блок для определения подменного класса без ворнингов на лишний `mut`
+    let selected_class = {
+        let mut c = env.objc.get_known_class(&name, &mut env.mem);
+        if c == nil {
+            log!("[DEBUG NIB] Warning: Custom class {} not found. Falling back to original: {}", name, orig);
+            c = env.objc.get_known_class(&orig, &mut env.mem);
+        }
 
-    // 3. Last resort: UIView or NSObject
-    if selected_class == nil {
-        log!("[DEBUG NIB] Warning: Substituting {} with generic UIView", name);
-        selected_class = env.objc.get_known_class("UIView", &mut env.mem);
-    }
+        let problematic_views = ["FBLoginButton"];
+        if c == nil || problematic_views.iter().any(|&prob| name == prob) {
+            log!("[DEBUG NIB] Warning: Substituting {} with generic UIView", name);
+            c = env.objc.get_known_class("UIView", &mut env.mem);
+        }
 
-    if selected_class == nil {
-        selected_class = env.objc.get_known_class("NSObject", &mut env.mem);
-    }
-
-        let object: id = msg![env; selected_class alloc];
-
-    // 1. Look up the selector first (outside the macro)
-    let init_with_coder_sel = env.objc.lookup_selector("initWithCoder:").unwrap();
-
-    // 2. Check if the object responds to it
-    let responds: bool = msg![env; object respondsToSelector: init_with_coder_sel];
-
-    // 3. Initialize accordingly
-    let object: id = if responds {
-        msg![env; object initWithCoder: coder]
-    } else {
-        msg![env; object init]
+        if c == nil {
+            log!("[DEBUG NIB] CRITICAL: Fallback class not found! Falling back to NSObject.");
+            c = env.objc.get_known_class("NSObject", &mut env.mem);
+        }
+        c
     };
-    
+
+    let object: id = msg![env; selected_class alloc];
+
+    // ВАЖНО: Всегда используем initWithCoder:, кроме тех случаев, когда это
+    // чисто кастомный плейсхолдер Interface Builder
+    // Инициализация системных UIViewController через 'init' оставляет их
+    // сломанными и ведет к NULL-PAGE READ.
+    let object: id = if orig == "UICustomObject" {
+        msg![env; object init]
+    } else {
+        msg![env; object initWithCoder:coder]
+    };
+
     release(env, this);
     object
 }
 
 @end
-    
+
 @implementation UIRuntimeConnection: NSObject
 
 + (id)alloc {
