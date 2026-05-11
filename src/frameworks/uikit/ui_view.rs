@@ -290,10 +290,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (())animateWithDuration:(f64)_duration animations:(id)animations completion:(id)completion {
+    // 1. Run the animation block immediately
     if animations != nil {
         let _: () = msg![env; animations (())];
     }
+
+    // 2. Run the completion block immediately
     if completion != nil {
+        // We pass 'true' to tell the game the animation "finished" successfully
         let _: () = msg![env; completion ((), true)];
     }
 }
@@ -302,6 +306,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if animations != nil {
         let _: () = msg![env; animations (())];
     }
+
     if completion != nil {
         let _: () = msg![env; completion ((), true)];
     }
