@@ -73,6 +73,15 @@ pub const ADDRESS_BOOK_UI: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::address_book_ui::FUNCTIONS],
 };
 
+// CoreData (Added for Green Lantern/Thor support)
+pub const CORE_DATA: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/CoreData.framework/CoreData",
+    aliases: &[],
+    class_exports: &[frameworks::core_data::CLASSES],
+    constant_exports: &[],
+    function_exports: &[],
+};
+
 /// The single list of host dylibs that the linker (and Objective-C runtime)
 /// searches through.
 pub const DYLIB_LIST: &[&super::HostDylib] = &[
@@ -110,6 +119,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &MAP_KIT,
     &MESSAGE_UI,
     &ADDRESS_BOOK_UI,
+    &CORE_DATA,
 ];
 
 #[cfg(test)]
