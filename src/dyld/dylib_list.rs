@@ -102,6 +102,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::store_kit::DYLIB,
     &frameworks::system_configuration::DYLIB,
     &frameworks::uikit::DYLIB, // This now includes your fixed UIKit constants
+    &frameworks::user_voice::DYLIB, 
     &frameworks::libicucore::DYLIB,
     &frameworks::libsqlite3::DYLIB,
     &frameworks::libxml2::DYLIB,
