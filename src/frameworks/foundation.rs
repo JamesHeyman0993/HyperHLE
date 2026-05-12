@@ -103,11 +103,8 @@ pub fn NSGetSizeAndAlignment(
 }
 
 fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8>, u32, u32) {
-    // Пропускаем модификаторы типа (const, in, out, inout, bycopy, byref,
-    // oneway)
     loop {
         let c = env.mem.read(ptr) as char;
-
         match c {
             'r' | 'n' | 'N' | 'o' | 'O' | 'R' | 'V' => {
                 ptr = ptr + 1;
@@ -117,84 +114,60 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
     }
 
     let c = env.mem.read(ptr) as char;
-
     ptr = ptr + 1;
 
     match c {
-        // Базовые типы
         'c' | 'C' | 'B' => (ptr, 1, 1),
         's' | 'S' => (ptr, 2, 2),
         'i' | 'I' | 'l' | 'L' | 'f' | 'W' => (ptr, 4, 4),
         'q' | 'Q' | 'd' => (ptr, 8, 8),
-        'v' => (ptr, 0, 1), // void
-
-        // Указатели, объекты (id), классы (Class), селекторы (SEL), неизвестные
-        // указатели (?)
+        'v' => (ptr, 0, 1),
         '*' | '@' | '#' | ':' | '?' => (ptr, 4, 4),
-
-        // Указатель на другой тип: размер всегда 4, но нужно "проглотить" тип,
-        // на который он указывает
         '^' => {
             let (next_ptr, _, _) = parse_objc_type(env, ptr);
-
             (next_ptr, 4, 4)
         }
-
-        // Массивы: [len+type]
         '[' => {
             let mut len = 0;
-
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 if c.is_ascii_digit() {
                     len = len * 10 + c.to_digit(10).unwrap();
-
                     ptr = ptr + 1;
                 } else {
                     break;
                 }
             }
             let (mut next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
-
             if env.mem.read(next_ptr) as char == ']' {
                 next_ptr = next_ptr + 1;
             }
             (next_ptr, len * elem_size, elem_align)
         }
-
-        // Структуры: {name=types}
         '{' => {
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 ptr = ptr + 1;
                 if c == '=' || c == '}' {
                     if c == '}' {
                         return (ptr, 0, 1);
-                    } // Opaque
+                    }
                     break;
                 }
             }
             let mut total_size = 0;
-
             let mut max_align = 1;
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 if c == '}' {
                     ptr = ptr + 1;
-
                     break;
                 }
                 if c == '\0' {
                     break;
                 }
-
-                // Пропускаем имена полей (например: "x"f)
                 if c == '"' {
                     ptr = ptr + 1;
-
                     loop {
                         let nc = env.mem.read(ptr) as char;
                         ptr = ptr + 1;
@@ -204,12 +177,9 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
                     }
                 } else {
                     let (next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
-
                     ptr = next_ptr;
-
                     if elem_align > 0 {
                         let rem = total_size % elem_align;
-
                         if rem != 0 {
                             total_size += elem_align - rem;
                         }
@@ -222,19 +192,15 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
             }
             if max_align > 0 {
                 let rem = total_size % max_align;
-
                 if rem != 0 {
                     total_size += max_align - rem;
                 }
             }
             (ptr, total_size, max_align)
         }
-
-        // Объединения: (name=types)
         '(' => {
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 ptr = ptr + 1;
                 if c == '=' || c == ')' {
                     if c == ')' {
@@ -244,20 +210,16 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
                 }
             }
             let mut max_size = 0;
-
             let mut max_align = 1;
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 if c == ')' {
                     ptr = ptr + 1;
-
                     break;
                 }
                 if c == '\0' {
                     break;
                 }
-
                 if c == '"' {
                     ptr = ptr + 1;
                     loop {
@@ -269,7 +231,6 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
                     }
                 } else {
                     let (next_ptr, elem_size, elem_align) = parse_objc_type(env, ptr);
-
                     ptr = next_ptr;
                     if elem_size > max_size {
                         max_size = elem_size;
@@ -281,36 +242,24 @@ fn parse_objc_type(env: &mut Environment, mut ptr: ConstPtr<u8>) -> (ConstPtr<u8
             }
             (ptr, max_size, max_align)
         }
-
-        // Битовые поля: bNUM
         'b' => {
             let mut bits = 0;
-
             loop {
                 let c = env.mem.read(ptr) as char;
-
                 if c.is_ascii_digit() {
                     bits = bits * 10 + c.to_digit(10).unwrap();
-
                     ptr = ptr + 1;
                 } else {
                     break;
                 }
             }
             let bytes = (bits + 7) / 8;
-
             (ptr, bytes, 1)
         }
-
         _ => (ptr, 0, 1),
     }
 }
 
-/// `NSFoundationVersionNumber` is a global `double` exported by Foundation
-/// that apps use as a runtime OS-version probe (`if (NSFoundationVersionNumber
-/// >= NSFoundationVersionNumber_iPhoneOS_4_0)`). We expose touchHLE's
-/// nominal "iOS 4.0" identity (build 8A293, see `libc/sys/utsname`) — the
-/// constant `751.32` is the documented Foundation version for iOS 4.0.
 fn ns_foundation_version_number(env: &mut Environment) -> ConstVoidPtr {
     let ptr: MutPtr<u64> = env.mem.alloc(8).cast();
     env.mem.write(ptr, 751.32f64.to_bits());
@@ -318,12 +267,24 @@ fn ns_foundation_version_number(env: &mut Environment) -> ConstVoidPtr {
 }
 
 pub const STUB_CONSTANTS: ConstantExports = &[
-    // _NSLocalizedFailureReasonErrorKey and _NSURLErrorDomain are exported
-    // from foundation::ns_error::CONSTANTS; not duplicated here.
     (
         "_NSFoundationVersionNumber",
         HostConstant::Custom(ns_foundation_version_number),
     ),
+    // Ghost Toasters Calendars
+    ("_NSBuddhistCalendar", HostConstant::NSString("NSBuddhistCalendar")),
+    ("_NSChineseCalendar", HostConstant::NSString("NSChineseCalendar")),
+    ("_NSHebrewCalendar", HostConstant::NSString("NSHebrewCalendar")),
+    ("_NSISO8601Calendar", HostConstant::NSString("NSISO8601Calendar")),
+    ("_NSIndianCalendar", HostConstant::NSString("NSIndianCalendar")),
+    ("_NSIslamicCalendar", HostConstant::NSString("NSIslamicCalendar")),
+    ("_NSIslamicCivilCalendar", HostConstant::NSString("NSIslamicCivilCalendar")),
+    ("_NSJapaneseCalendar", HostConstant::NSString("NSJapaneseCalendar")),
+    ("_NSPersianCalendar", HostConstant::NSString("NSPersianCalendar")),
+    ("_NSRepublicOfChinaCalendar", HostConstant::NSString("NSRepublicOfChinaCalendar")),
+    // KVO / Notification Keys
+    ("_NSKeyValueChangeNewKey", HostConstant::NSString("NSKeyValueChangeNewKey")),
+    ("_NSKeyValueChangeOldKey", HostConstant::NSString("NSKeyValueChangeOldKey")),
 ];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
@@ -430,10 +391,7 @@ pub struct State {
 }
 
 pub type NSInteger = i32;
-
 pub type NSUInteger = u32;
-
-// this should be equal to NSIntegerMax
 pub const NSNotFound: i32 = 0x7fffffff;
 
 #[derive(Debug)]
@@ -447,7 +405,6 @@ crate::abi::impl_GuestRet_for_large_struct!(NSRange);
 
 impl crate::abi::GuestArg for NSRange {
     const REG_COUNT: usize = 2;
-
     fn from_regs(regs: &[u32]) -> Self {
         NSRange {
             location: crate::abi::GuestArg::from_regs(&regs[0..1]),
@@ -456,42 +413,30 @@ impl crate::abi::GuestArg for NSRange {
     }
     fn to_regs(self, regs: &mut [u32]) {
         self.location.to_regs(&mut regs[0..1]);
-
         self.length.to_regs(&mut regs[1..2]);
     }
 }
 
 fn NSStringFromRange(env: &mut Environment, range: NSRange) -> id {
     let loc = range.location;
-
     let len = range.length;
     let string = format!("{{{loc}, {len}}}");
     ns_string::from_rust_string(env, string)
 }
 
 pub type NSComparisonResult = NSInteger;
-
 pub const NSOrderedAscending: NSComparisonResult = -1;
 pub const NSOrderedSame: NSComparisonResult = 0;
 pub const NSOrderedDescending: NSComparisonResult = 1;
-
-/// Number of seconds.
 pub type NSTimeInterval = f64;
 
-/// UTF-16 code unit.
 #[allow(non_camel_case_types)]
 pub type unichar = u16;
 
-/// Utility to help with implementing the `hash` method, which various classes
-/// in Foundation have to do.
 fn hash_helper<T: std::hash::Hash>(hashable: &T) -> NSUInteger {
     use std::hash::Hasher;
-
-    // Rust documentation says DefaultHasher::new() should always return the
-    // same instance, so this should give consistent hashes.
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     hashable.hash(&mut hasher);
-
     let hash_u64: u64 = hasher.finish();
     (hash_u64 as u32) ^ ((hash_u64 >> 32) as u32)
 }
@@ -501,3 +446,4 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSGetSizeAndAlignment(_, _, _)),
     export_c_func!(CFStringGetCharactersPtr(_)),
 ];
+                        
