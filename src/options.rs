@@ -56,6 +56,9 @@ pub struct Options {
     pub print_fps: bool,
     pub fps_limit: Option<f64>,
     pub force_composition: bool,
+    /// Force a GLES 1.1 context even if the app requests GLES 2.0.
+    /// Useful for bypassing crashes in games like Thor: Son of Asgard.
+    pub force_gles1: bool,
     /// Force EAGL `initWithAPI:` to create an OpenGL ES 2.0 context even when
     /// the app requested an OpenGL ES 1.1 context.
     ///
@@ -132,6 +135,7 @@ impl Default for Options {
             print_fps: false,
             fps_limit: Some(60.0), // Original iPhone is 60Hz and uses v-sync,
             force_composition: false,
+            force_gles1: false,
             prefer_gles2_context: false,
             network_access: false,
             popup_errors: true,
@@ -286,6 +290,8 @@ impl Options {
             }
         } else if arg == "--force-composition" {
             self.force_composition = true;
+        } else if arg == "--force-gles1" {
+            self.force_gles1 = true;
         } else if arg == "--prefer-gles2-context" {
             self.prefer_gles2_context = true;
         } else if arg == "--allow-network-access" {
