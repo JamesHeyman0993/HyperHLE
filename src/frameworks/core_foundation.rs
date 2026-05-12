@@ -4,17 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! The Core Foundation framework.
-//!
-//! In Apple's implementation, this is a layer independent of, or below,
-//! Foundation, and there is "Toll-Free Bridging" that lets some Foundation
-//! types be used as if they were the corresponding Core Foundation types and
-//! vice-versa. But in this implementation we will cheat and implement things
-//! backwards (Core Foundation on top of Foundation) where we can get away with
-//! it.
-//!
-//! Useful resources:
-//! - Apple's [Core Foundation Design Concepts](https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFDesignConcepts/CFDesignConcepts.html)
-//! - Apple's [Memory Management Programming Guide for Core Foundation](https://developer.apple.com/library/archive/documentation/CoreFoundation/Conceptual/CFMemoryMgmt/CFMemoryMgmt.html)
 
 pub mod cf_allocator;
 pub mod cf_array;
@@ -35,11 +24,19 @@ pub mod cf_url;
 pub mod cf_uuid;
 pub mod time;
 
+use crate::dyld::{ConstantExports, HostConstant}; // Added for constants support
+
+pub const CONSTANTS: ConstantExports = &[
+    ("_kCFNull", HostConstant::NullPtr),
+    ("_kCFNumberNaN", HostConstant::NullPtr),
+    ("_kCFCoreFoundationVersionNumber", HostConstant::NullPtr),
+];
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
     aliases: &[],
     class_exports: &[
-        cf_run_loop_timer::CLASSES, // Special internal classes.
+        cf_run_loop_timer::CLASSES,
         cf_host::CLASSES,
         cf_stream::CLASSES,
         cf_uuid::CLASSES,
@@ -55,6 +52,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         cf_stream::CONSTANTS,
         cf_url::CONSTANTS,
         time::CONSTANTS,
+        CONSTANTS, // Added our new Ghost Toasters fixes here
     ],
     function_exports: &[
         FUNCTIONS,
@@ -121,12 +119,7 @@ impl GuestArg for CFRange {
 }
 
 fn CFShow(env: &mut Environment, obj: CFTypeRef) {
-    // TODO: support opaque types
-    // TODO: use description callbacks if defined
     let description: id = msg![env; obj description];
-    // The output should be printed to stderr without any prefix,
-    // but CFShow() is meant to be used for debugging purposes,
-    // so just logging with CF module prefix should be fine too.
     log!("{}", to_rust_string(env, description));
 }
 
