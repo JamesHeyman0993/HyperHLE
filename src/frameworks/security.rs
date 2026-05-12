@@ -867,6 +867,9 @@ pub const CONSTANTS: ConstantExports = &[
         "_kSecPublicKeyAttrs",
         HostConstant::NSString("kSecPublicKeyAttrs"),
     ),
+    // GHOST TOASTERS FIXES BELOW:
+    ("_kSecAttrKeyClass", HostConstant::NSString("kSecAttrKeyClass")),
+    ("_kSecAttrKeyClassPublic", HostConstant::NSString("kSecAttrKeyClassPublic")),
 ];
 
 // =========================================================================
