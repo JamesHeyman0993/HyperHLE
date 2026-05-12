@@ -12,11 +12,11 @@ use crate::dyld::{ConstantExports, HostConstant};
 // Satisfy the macro's need for a 'void' type
 type void = ();
 
-// Define constants manually using Unimplemented
+// Define constants using Unique
 pub const CONSTANTS: ConstantExports = &[
-    ("_NSSQLiteStoreType", HostConstant::Unimplemented("_NSSQLiteStoreType")),
-    ("_NSInferMappingModelAutomaticallyOption", HostConstant::Unimplemented("_NSInferMappingModelAutomaticallyOption")),
-    ("_NSMigratePersistentStoresAutomaticallyOption", HostConstant::Unimplemented("_NSMigratePersistentStoresAutomaticallyOption")),
+    ("_NSSQLiteStoreType", HostConstant::Unique),
+    ("_NSInferMappingModelAutomaticallyOption", HostConstant::Unique),
+    ("_NSMigratePersistentStoresAutomaticallyOption", HostConstant::Unique),
 ];
 
 pub const CLASSES: ClassExports = objc_classes! {
