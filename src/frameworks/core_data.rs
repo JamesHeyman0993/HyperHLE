@@ -16,8 +16,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     - (void)setPersistentStoreCoordinator:(id)_coordinator {}
     - (id)persistentStoreCoordinator { crate::objc::nil }
     - (id)persistentStore { crate::objc::nil }
-    - (bool)save:(id*)_error { true }
-
+    - (bool)save:(id)_error { true }
+    
     @implementation NSManagedObjectModel : NSObject
     - (id)init { this }
     - (id)initWithContentsOfURL:(id)_url { this }
