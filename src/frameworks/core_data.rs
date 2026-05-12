@@ -8,6 +8,9 @@
 use crate::objc::{objc_classes, ClassExports, id};
 use crate::frameworks::foundation::NSUInteger;
 
+// Satisfy the macro's need for a 'void' type
+type void = ();
+
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
 
