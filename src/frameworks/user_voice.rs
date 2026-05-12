@@ -8,6 +8,10 @@
 
 use crate::objc::{objc_classes, ClassExports};
 
+/// Per-process state for the UserVoice framework.
+#[derive(Default)]
+pub struct State {}
+
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
 
