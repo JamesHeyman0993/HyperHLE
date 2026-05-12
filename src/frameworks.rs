@@ -57,6 +57,7 @@ pub mod store_kit;
 pub mod system_configuration;
 pub mod tw_tweet_compose_view_controller;
 pub mod uikit;
+pub mod user_voice; // Added UserVoice module
 
 /// Container for state of various child modules
 #[derive(Default)]
@@ -71,6 +72,7 @@ pub struct State {
     openal: openal::State,
     opengles: opengles::State,
     uikit: uikit::State,
+    pub user_voice: user_voice::State, // Added UserVoice state
 }
 
 /// Container for thread local state of various child modules
