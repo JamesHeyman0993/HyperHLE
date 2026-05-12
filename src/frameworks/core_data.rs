@@ -5,7 +5,8 @@
  */
 //! CoreData framework stubs.
 
-use crate::objc::{objc_classes, ClassExports};
+use crate::objc::{objc_classes, ClassExports, id, void, bool};
+use crate::frameworks::foundation::NSUInteger;
 
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
