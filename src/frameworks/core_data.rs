@@ -7,16 +7,16 @@
 
 use crate::objc::{objc_classes, ClassExports, id};
 use crate::frameworks::foundation::NSUInteger;
-use crate::dyld::{ConstantExports, HostConstant}; // Import directly from dyld
+use crate::dyld::{ConstantExports, HostConstant}; 
 
 // Satisfy the macro's need for a 'void' type
 type void = ();
 
-// Define constants manually since the macro wasn't found
+// Define constants manually using Unimplemented
 pub const CONSTANTS: ConstantExports = &[
-    ("_NSSQLiteStoreType", HostConstant::External("_NSSQLiteStoreType")),
-    ("_NSInferMappingModelAutomaticallyOption", HostConstant::External("_NSInferMappingModelAutomaticallyOption")),
-    ("_NSMigratePersistentStoresAutomaticallyOption", HostConstant::External("_NSMigratePersistentStoresAutomaticallyOption")),
+    ("_NSSQLiteStoreType", HostConstant::Unimplemented("_NSSQLiteStoreType")),
+    ("_NSInferMappingModelAutomaticallyOption", HostConstant::Unimplemented("_NSInferMappingModelAutomaticallyOption")),
+    ("_NSMigratePersistentStoresAutomaticallyOption", HostConstant::Unimplemented("_NSMigratePersistentStoresAutomaticallyOption")),
 ];
 
 pub const CLASSES: ClassExports = objc_classes! {
