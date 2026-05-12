@@ -12,7 +12,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation NSManagedObjectContext : NSObject
     - (id)init { this }
-    - (id)initWithConcurrencyType:(unsigned int)_type { this }
+    - (id)initWithConcurrencyType:(NSUInteger)_type { this }
     - (void)setPersistentStoreCoordinator:(id)_coordinator {}
     - (id)persistentStoreCoordinator { crate::objc::nil }
     - (id)persistentStore { crate::objc::nil }
