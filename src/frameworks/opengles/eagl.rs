@@ -185,22 +185,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Log what the game actually wants
     log!("EAGL initWithAPI: {} requested", api);
 
-    // FORCE REDIRECTION: If the game wants 2, we give it 1.
-    // This prevents the GLES2 null-pointer crash at 0x20.
-    let forced_api = if api == kEAGLRenderingAPIOpenGLES2 {
-        log!("HACK: Downgrading Thor from GLES2 to GLES1 to prevent crash.");
+        // 1. Determine if we should apply the hack based on user options
+    // (Ensure you add 'force_gles1' or similar to your Options struct)
+    let effective_api = if api == kEAGLRenderingAPIOpenGLES2 && env.options.force_gles1 {
+        log!("HACK: Downgrading GLES2 to GLES1 via user option.");
         kEAGLRenderingAPIOpenGLES1
     } else {
-        api
+        // Use the helper function already in your file for standard upgrades/checks
+        effective_eagl_api(api, env.options.prefer_gles2_context)
     };
 
-    if forced_api != kEAGLRenderingAPIOpenGLES1 && forced_api != kEAGLRenderingAPIOpenGLES2 {
+    if effective_api != kEAGLRenderingAPIOpenGLES1 && effective_api != kEAGLRenderingAPIOpenGLES2 {
         return nil;
     }
 
-    // We skip 'effective_eagl_api' and go straight to GLES1
-    let mut gles_ins = create_gles1_ctx(env);
-
+    // 2. Select the correct context creator based on the result
+    let mut gles_ins = if effective_api == kEAGLRenderingAPIOpenGLES2 {
+        create_gles2_ctx(env)
+    } else {
+        create_gles1_ctx(env)
+    };
+    
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
         let gles_ctx = gles_ins.make_current(window);
