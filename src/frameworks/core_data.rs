@@ -5,17 +5,19 @@
  */
 //! CoreData framework stubs.
 
-use crate::objc::{objc_classes, objc_constants, ClassExports, ConstantExports, id};
+use crate::objc::{objc_classes, ClassExports, id};
 use crate::frameworks::foundation::NSUInteger;
+use crate::dyld::{ConstantExports, HostConstant}; // Import directly from dyld
 
 // Satisfy the macro's need for a 'void' type
 type void = ();
 
-pub const CONSTANTS: ConstantExports = objc_constants! {
-    _NSSQLiteStoreType,
-    _NSInferMappingModelAutomaticallyOption,
-    _NSMigratePersistentStoresAutomaticallyOption,
-};
+// Define constants manually since the macro wasn't found
+pub const CONSTANTS: ConstantExports = &[
+    ("_NSSQLiteStoreType", HostConstant::External("_NSSQLiteStoreType")),
+    ("_NSInferMappingModelAutomaticallyOption", HostConstant::External("_NSInferMappingModelAutomaticallyOption")),
+    ("_NSMigratePersistentStoresAutomaticallyOption", HostConstant::External("_NSMigratePersistentStoresAutomaticallyOption")),
+];
 
 pub const CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
