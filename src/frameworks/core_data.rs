@@ -12,7 +12,6 @@ use crate::dyld::{ConstantExports, HostConstant};
 // Satisfy the macro's need for a 'void' type
 type void = ();
 
-// Use NSString for these constants so they are valid objects in memory
 pub const CONSTANTS: ConstantExports = &[
     ("_NSSQLiteStoreType", HostConstant::NSString("NSSQLiteStoreType")),
     ("_NSInferMappingModelAutomaticallyOption", HostConstant::NSString("NSInferMappingModelAutomaticallyOption")),
@@ -50,7 +49,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 
     @implementation NSEntityDescription : NSObject
-    + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { crate::objc::nil }
+    // Changed: Returning 'this' instead of 'nil' to prevent the NULL-PAGE crash
+    + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { this }
     - (id)name { crate::objc::nil }
+    - (void)setProperties:(id)_properties {}
+    @end
+
+    // New: Added to satisfy the "unimplemented" warning in your logs
+    @implementation NSAttributeDescription : NSObject
+    - (id)init { this }
+    - (void)setName:(id)_name {}
+    - (void)setAttributeType:(NSUInteger)_type {}
+    - (void)setOptional:(bool)_optional {}
     @end
 };
