@@ -213,9 +213,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles_ins);
-    env.objc.borrow_mut::<EAGLContextHostObject>(this).api = forced_api;
+    // Change "forced_api" to "effective_api" to match the variable at the top
+    env.objc.borrow_mut::<EAGLContextHostObject>(this).api = effective_api;
 
     this
+    
 }
     
 - (EAGLRenderingAPI)API {
