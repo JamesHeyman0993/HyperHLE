@@ -6,7 +6,6 @@
 //! Separate module just for the dylib list, so it gets its own git history.
 
 use crate::frameworks;
-use crate::frameworks::libsqlite3;
 use crate::libc;
 use crate::objc;
 
@@ -28,7 +27,7 @@ pub const CF_NETWORK: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::cf_network::FUNCTIONS],
 };
 
-// MobileCoreServices (stub — no UTType implementation yet)
+// MobileCoreServices
 pub const MOBILE_CORE_SERVICES: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/MobileCoreServices.framework/MobileCoreServices",
     aliases: &[],
@@ -37,7 +36,7 @@ pub const MOBILE_CORE_SERVICES: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::mobile_core_services::FUNCTIONS],
 };
 
-// CoreMedia (stub — function exports are currently registered with CoreVideo)
+// CoreMedia
 pub const CORE_MEDIA: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
     aliases: &[],
@@ -46,7 +45,7 @@ pub const CORE_MEDIA: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::core_media::FUNCTIONS],
 };
 
-// MapKit (stub — no real map rendering yet, just satisfies the dependency)
+// MapKit
 pub const MAP_KIT: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/MapKit.framework/MapKit",
     aliases: &[],
@@ -55,7 +54,7 @@ pub const MAP_KIT: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::map_kit::FUNCTIONS],
 };
 
-// MessageUI (stub — no real compose-sheet implementation yet)
+// MessageUI
 pub const MESSAGE_UI: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/MessageUI.framework/MessageUI",
     aliases: &[],
@@ -64,7 +63,7 @@ pub const MESSAGE_UI: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::message_ui::FUNCTIONS],
 };
 
-// AddressBookUI (stub — no real contacts-picker implementation yet)
+// AddressBookUI
 pub const ADDRESS_BOOK_UI: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/AddressBookUI.framework/AddressBookUI",
     aliases: &[],
@@ -73,7 +72,7 @@ pub const ADDRESS_BOOK_UI: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::address_book_ui::FUNCTIONS],
 };
 
-// CoreData (Updated with constants to prevent Ghost Toasters crash)
+// CoreData
 pub const CORE_DATA: super::HostDylib = super::HostDylib {
     path: "/System/Library/Frameworks/CoreData.framework/CoreData",
     aliases: &[],
@@ -82,12 +81,11 @@ pub const CORE_DATA: super::HostDylib = super::HostDylib {
     function_exports: &[],
 };
 
-/// The single list of host dylibs that the linker (and Objective-C runtime)
-/// searches through.
+/// The single list of host dylibs that the linker searches through.
 pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &libc::DYLIB,
     &objc::DYLIB,
-    &crate::environment::app_picker::DYLIB, // Not a real library; special internal classes.
+    &crate::environment::app_picker::DYLIB, 
     &frameworks::audio_toolbox::DYLIB,
     &frameworks::avfoundation::DYLIB,
     &frameworks::core_animation::DYLIB,
@@ -103,7 +101,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::security::DYLIB,
     &frameworks::store_kit::DYLIB,
     &frameworks::system_configuration::DYLIB,
-    &frameworks::uikit::DYLIB,
+    &frameworks::uikit::DYLIB, // This now includes your fixed UIKit constants
     &frameworks::libicucore::DYLIB,
     &frameworks::libsqlite3::DYLIB,
     &frameworks::libxml2::DYLIB,
@@ -121,5 +119,3 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &ADDRESS_BOOK_UI,
     &CORE_DATA,
 ];
-
-// ... rest of the file (tests) remains exactly the same ...
