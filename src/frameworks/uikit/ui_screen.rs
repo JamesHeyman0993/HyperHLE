@@ -7,11 +7,19 @@
 
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::objc::{id, msg, msg_class, nil, objc_classes, ClassExports, TrivialHostObject, SEL};
+use crate::dyld::{ConstantExports, HostConstant}; // Added imports
 
 #[derive(Default)]
 pub struct State {
     main_screen: Option<id>,
 }
+
+// Added to fix _UIScreenDidConnectNotification crash
+pub const CONSTANTS: ConstantExports = &[
+    ("_UIScreenDidConnectNotification", HostConstant::NSString("UIScreenDidConnectNotification")),
+    ("_UIScreenDidDisconnectNotification", HostConstant::NSString("UIScreenDidDisconnectNotification")),
+    ("_UIScreenModeDidChangeNotification", HostConstant::NSString("UIScreenModeDidChangeNotification")),
+];
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -61,7 +69,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGRect)nativeBounds {
-    // Same as bounds at scale 1 — we don't model the physical pixel grid.
     msg![env; this bounds]
 }
 
@@ -82,7 +89,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGFloat)nativeScale {
-    // Physical pixels == points for our purposes.
     1.0
 }
 
@@ -112,8 +118,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         width:  width  as CGFloat,
         height: height as CGFloat,
     };
-
-    // Call your new helper function directly
     crate::frameworks::uikit::ui_screen_mode::from_size(env, size, 1.0)
 }
 
@@ -126,8 +130,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGFloat)overscanCompensationInsets {
-    // UIEdgeInsetsZero as four floats would need a custom return type.
-    // Return 0.0 as a stand-in; the real return type is UIEdgeInsets.
     0.0
 }
 
@@ -144,7 +146,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Coordinate conversion helpers
 
 - (CGRect)convertRect:(CGRect)rect toScreen:(id)_other_screen {
-    // Single-screen device — coordinates are always the same.
     rect
 }
 
@@ -159,6 +160,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (CGPoint)convertPoint:(CGPoint)point fromScreen:(id)_other_screen {
     point
 }
+
 // MARK: - Display Link
 
 - (id)displayLinkWithTarget:(id)target selector:(SEL)selector {
