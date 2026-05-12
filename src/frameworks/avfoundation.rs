@@ -11,18 +11,20 @@ pub mod av_audio_session;
 pub mod av_capture;
 
 use crate::objc::id;
+use crate::dyld::HostConstant; // Added import
 use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct State {
     pub av_audio_session: av_audio_session::State,
     pub av_capture: av_capture::State,
-    /// Side-table for `AVCaptureVideoPreviewLayer` instances. The base
-    /// `CALayerHostObject` is allocated by `+[CALayer allocWithZone:]`, so
-    /// subclass-specific state (the AVCaptureSession the layer is bound to,
-    /// the videoGravity string, etc.) lives here keyed by layer `id`.
     pub av_capture_preview_extras: HashMap<id, av_capture::AVCapturePreviewLayerExtra>,
 }
+
+pub const CONSTANTS: crate::dyld::ConstantExports = &[
+    ("_kCMTimeZero", HostConstant::NSString("kCMTimeZero")),
+    ("_AVPlayerItemDidPlayToEndTimeNotification", HostConstant::NSString("AVPlayerItemDidPlayToEndTimeNotification")),
+];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
@@ -32,6 +34,10 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         av_audio_session::CLASSES,
         av_capture::CLASSES,
     ],
-    constant_exports: &[av_audio_session::CONSTANTS, av_capture::CONSTANTS],
+    constant_exports: &[
+        av_audio_session::CONSTANTS, 
+        av_capture::CONSTANTS,
+        CONSTANTS, // Added our new constants here
+    ],
     function_exports: &[],
 };
