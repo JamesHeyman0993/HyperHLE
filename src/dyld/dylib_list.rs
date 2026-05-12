@@ -119,4 +119,5 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &MESSAGE_UI,
     &ADDRESS_BOOK_UI,
     &CORE_DATA,
+    &frameworks::core_telephony::DYLIB,
 ];
