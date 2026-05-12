@@ -53,11 +53,6 @@ fn ui_background_task_invalid(env: &mut Environment) -> ConstVoidPtr {
 }
 
 // UIWindowLevel is a CGFloat (= f32 on 32-bit iOS).
-// Standard values from UIWindow.h:
-//   UIWindowLevelNormal    =    0.0
-//   UIWindowLevelStatusBar = 1000.0
-//   UIWindowLevelAlert     = 2000.0
-
 fn ui_window_level_normal(env: &mut Environment) -> ConstVoidPtr {
     let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
     env.mem.write(ptr, 0.0f32.to_bits());
@@ -106,10 +101,19 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         HostConstant::NSString("UIImagePickerControllerReferenceURL"),
     ),
     (
-        "_UIScreenDidConnectNotification",
-        HostConstant::NSString("UIScreenDidConnectNotification"),
+        "_UIScreenDidDisconnectNotification",
+        HostConstant::NSString("UIScreenDidDisconnectNotification"),
     ),
-    // UIWindowLevel constants (CGFloat / f32 on 32-bit iOS)
+    // Ghost Toasters Fixes
+    (
+        "_UITrackingRunLoopMode",
+        HostConstant::NSString("UITrackingRunLoopMode"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsLocalNotificationKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsLocalNotificationKey"),
+    ),
+    // UIWindowLevel constants
     (
         "_UIWindowLevelNormal",
         HostConstant::Custom(ui_window_level_normal),
@@ -193,7 +197,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_local_notification::CONSTANTS,
         ui_view::ui_control::ui_text_field::CONSTANTS,
         ui_view::ui_window::CONSTANTS,
-        CONSTANTS,
+        CONSTANTS, // This includes the new Ghost Toasters constants
     ],
     function_exports: &[
         ui_application::FUNCTIONS,
@@ -206,30 +210,25 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
 
 #[derive(Default)]
 pub struct State {
-    ui_accelerometer: ui_accelerometer::State,
-    ui_application: ui_application::State,
-    ui_color: ui_color::State,
-    ui_device: ui_device::State,
-    ui_font: ui_font::State,
-    ui_geometry: ui_geometry::State,
-    ui_graphics: ui_graphics::State,
-    ui_image: ui_image::State,
-    ui_screen: ui_screen::State,
-    ui_touch: ui_touch::State,
+    pub ui_accelerometer: ui_accelerometer::State,
+    pub ui_application: ui_application::State,
+    pub ui_color: ui_color::State,
+    pub ui_device: ui_device::State,
+    pub ui_font: ui_font::State,
+    pub ui_geometry: ui_geometry::State,
+    pub ui_graphics: ui_graphics::State,
+    pub ui_image: ui_image::State,
+    pub ui_screen: ui_screen::State,
+    pub ui_touch: ui_touch::State,
     pub ui_view: ui_view::State,
-    ui_responder: ui_responder::State,
+    pub ui_responder: ui_responder::State,
 }
 
-/// For use by `NSRunLoop`: handles any events that have queued up.
-///
-/// Returns the next time this function must be called, if any, e.g. the next
-/// time an accelerometer input is due.
 pub fn handle_events(env: &mut Environment) -> Option<Instant> {
     use crate::window::Event;
     use crate::window::TextInputEvent;
 
     loop {
-        // NSRunLoop will never call this function in headless mode.
         let Some(event) = env.window_mut().pop_event() else {
             break;
         };
@@ -243,21 +242,6 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 ui_touch::handle_event(env, event)
             }
             Event::AppWillResignActive => {
-                // Getting this event means touchHLE is becoming inactive, e.g.
-                // due to switching apps. The obvious way to handle this would
-                // be to just send `applicationWillResignActive:` to the
-                // UIApplicationDelegate. However:
-                // - touchHLE's event loop can't handle an inactive app well
-                //   right now. For example, audio isn't paused.
-                // - touchHLE's event loop can't handle the subsequent
-                //   termination of an app right now: it doesn't manage to send
-                //   the `applicationWillTerminate:` message in time. This can
-                //   mean loss of data!
-                // Therefore, for the moment we will simulate the early iOS
-                // behavior where switching app usually resulted in termination.
-                // We can usually handle this in time, so there won't be data
-                // loss, nor problems with background resource usage or audio.
-                // TODO: Handle this better.
                 log!("Handling app-will-resign-active event: exiting.");
                 ui_application::exit(env);
             }
