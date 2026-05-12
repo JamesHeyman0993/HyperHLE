@@ -4,10 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! The UIKit framework.
-//!
-//! For the time being the focus of this project is on running games, which are
-//! likely to use UIKit in very simple and limited ways, so this implementation
-//! will probably take a lot of shortcuts.
 
 use crate::{msg, Environment};
 use std::time::Instant;
@@ -46,13 +42,11 @@ pub mod ui_view;
 pub mod ui_view_controller;
 
 fn ui_background_task_invalid(env: &mut Environment) -> ConstVoidPtr {
-    // UIBackgroundTaskInvalid == NSUIntegerMax == 0xFFFF_FFFF
     let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
     env.mem.write(ptr, 0xFFFF_FFFFu32);
     ptr.cast().cast_const()
 }
 
-// UIWindowLevel is a CGFloat (= f32 on 32-bit iOS).
 fn ui_window_level_normal(env: &mut Environment) -> ConstVoidPtr {
     let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
     env.mem.write(ptr, 0.0f32.to_bits());
@@ -100,11 +94,15 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIImagePickerControllerReferenceURL",
         HostConstant::NSString("UIImagePickerControllerReferenceURL"),
     ),
+    // Ghost Toasters Fixes
+    (
+        "_UIScreenDidConnectNotification",
+        HostConstant::NSString("UIScreenDidConnectNotification"),
+    ),
     (
         "_UIScreenDidDisconnectNotification",
         HostConstant::NSString("UIScreenDidDisconnectNotification"),
     ),
-    // Ghost Toasters Fixes
     (
         "_UITrackingRunLoopMode",
         HostConstant::NSString("UITrackingRunLoopMode"),
@@ -195,9 +193,10 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_geometry::CONSTANTS,
         ui_keyboard::CONSTANTS,
         ui_local_notification::CONSTANTS,
+        ui_screen::CONSTANTS, // ADDED: Ensures UIScreen fix is loaded
         ui_view::ui_control::ui_text_field::CONSTANTS,
         ui_view::ui_window::CONSTANTS,
-        CONSTANTS, // This includes the new Ghost Toasters constants
+        CONSTANTS,
     ],
     function_exports: &[
         ui_application::FUNCTIONS,
