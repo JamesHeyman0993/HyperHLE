@@ -240,9 +240,15 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
             }
-            Event::AppWillResignActive => {
-    log!("Handling app-will-resign-active event: ignoring.");
-            }
+                        Event::AppWillResignActive => {
+                log!("Handling app-will-resign-active event: forcing active state.");
+                let app = msg_class![env; UIApplication sharedApplication];
+                if app != nil {
+                    // Force the app state to 0 (UIApplicationStateActive)
+                    () = msg![env; app _setApplicationState:0]; 
+                }
+                        }
+            
             Event::AppWillTerminate => {
     log!("Handling app-will-terminate event: ignoring.");
             }
