@@ -711,23 +711,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     reverse_object_enumerator_inner(env, this)
 }
 
-// NSFastEnumeration implementation
+// NSFastEnumeration implementation for NSMutableArray
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
 
     unsafe {
-        // 1. Use the bridge to read the state from guest memory
+        // 1. Read the current state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // 2. Set mutations_ptr to point back to the state's own guest address.
-        // state.to_bits() gets the u32 address (VAddr).
-        // Ptr::from_bits(bits) creates the Ptr object the compiler wants.
-        // .cast() ensures it matches the expected Void pointer type.
+        // 2. SUCCESS FIX: Use the methods found in your mem.rs
+        // We point the mutations_ptr to the state's own guest address.
         state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
 
-        // 3. Write it back to guest memory
+        // 3. Write the updated state back to guest memory
         env.mem.write(state, state_struct);
     }
 
@@ -739,7 +737,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
                                     }
-            
+               
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -1101,15 +1099,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())removeLastObject {
     let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-    // Check and pop at the same time
     if let Some(object) = host_obj.array.pop() {
         host_obj.mutation_count += 1;
-        release(env, object);
-    } else {
-        log!("Warning: NSMutableArray removeLastObject: array is empty");
+        // In non-retaining, we don't call release(env, object)
     }
 }
-             
+                
 - (())removeAllObjects {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
