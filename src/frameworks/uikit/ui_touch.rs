@@ -448,31 +448,32 @@ fn handle_touches_down(
         retain(env, window);
 
         {
-            let (old_view, old_window) = {
+    let (old_view, old_window) = {
+        let t_obj = env.objc.borrow_mut::<UITouchHostObject>(touch);
+
+        let old_view = t_obj.view;
+        let old_window = t_obj.window;
+
+        t_obj.view = nil;
+        t_obj.window = nil;
+
+        (old_view, old_window)
+    };
+
+    if old_view != nil {
+        release(env, old_view);
+    }
+
+    if old_window != nil {
+        release(env, old_window);
+    }
+
     let t_obj = env.objc.borrow_mut::<UITouchHostObject>(touch);
 
-    let old_view = t_obj.view;
-    let old_window = t_obj.window;
-
-    t_obj.view = nil;
-    t_obj.window = nil;
-
-    (old_view, old_window)
-};
-
-if old_view != nil {
-    release(env, old_view);
-}
-
-if old_window != nil {
-    release(env, old_window);
-}
-
-            t_obj.view = view;
-            t_obj.window = window;
-            t_obj.location = location;
+    t_obj.view = view;
+    t_obj.window = window;
+    t_obj.location = location;
         }
-    }
 
     for (view, v_set) in view_touches {
         let _: () = msg![env;
@@ -678,18 +679,20 @@ fn handle_touches_up(
             .current_touches
             .remove(&finger_id);
 
-        {
-            let host =
-                env.objc.borrow::<UITouchHostObject>(touch);
+        let (view_to_release, window_to_release) = {
+    let host =
+        env.objc.borrow::<UITouchHostObject>(touch);
 
-            if host.view != nil {
-                release(env, host.view);
-            }
+    (host.view, host.window)
+};
 
-            if host.window != nil {
-                release(env, host.window);
-            }
-        }
+if view_to_release != nil {
+    release(env, view_to_release);
+}
+
+if window_to_release != nil {
+    release(env, window_to_release);
+}
 
         release(env, touch);
     }
