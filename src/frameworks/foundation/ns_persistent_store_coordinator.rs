@@ -177,38 +177,37 @@ pub const CLASSES: ClassExports = objc_classes! {
     false
 }
 
-- (id)addPersistentStoreWithType:(id)store_type     // NSString*
-                   configuration:(id)_configuration // NSString*
-                              URL:(id)url            // NSURL*
-                          options:(id)options        // NSDictionary*
-                            error:(id)_error {       // NSError**
+- (id)addPersistentStoreWithType:(id)store_type
+                   configuration:(id)_configuration
+                             URL:(id)url
+                         options:(id)options
+                           error:(id*)error {
+    // Safety: Ensure the error pointer is null if provided
+    if error != nil {
+        unsafe { *error = nil; }
+    }
+
     let type_str = if store_type != nil {
         ns_string::to_rust_string(env, store_type).into_owned()
     } else {
         "<nil>".to_string()
     };
-    log!(
-        "NSPersistentStoreCoordinator addPersistentStoreWithType:{} URL:{:?} — stubbed",
-        type_str, url
-    );
+    log!("NSPersistentStoreCoordinator addPersistentStoreWithType:{} URL:{:?}", type_str, url);
 
-    // Allocate a stub store object.
     let store: id = msg_class![env; NSPersistentStore alloc];
     let store: id = msg![env; store initWithPersistentStoreCoordinator:this
                                                      configurationName:nil
                                                                    URL:url
                                                                options:options];
 
-    let stores = env.objc.borrow::<NSPersistentStoreCoordinatorHostObject>(this).persistent_stores;
+    let stores = env.objc.borrow_mut::<NSPersistentStoreCoordinatorHostObject>(this).persistent_stores;
     () = msg![env; stores addObject:store];
     release(env, store);
 
-    // Return the store (retained by the array).
-    let stores = env.objc.borrow::<NSPersistentStoreCoordinatorHostObject>(this).persistent_stores;
     let count: u32 = msg![env; stores count];
     msg![env; stores objectAtIndex:(count - 1)]
-}
-
+                           }
+    
 - (bool)removePersistentStore:(id)store  // NSPersistentStore*
                         error:(id)_error { // NSError**
     let stores = env.objc.borrow::<NSPersistentStoreCoordinatorHostObject>(this).persistent_stores;
