@@ -609,8 +609,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(ArrayHostObject {
-        array: Vec::new(),
-    });
+    array: Vec::new(),
+    mutation_count: 0, // Add this line
+});
+    
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
@@ -718,12 +720,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Get the host object to access the mutation_count
     let host_obj = env.objc.borrow::<ArrayHostObject>(this);
     
-    // Set the mutationsPtr so the guest app knows if we modified the array
+        // Set the mutationsPtr so the guest app knows if we modified the array
     unsafe {
-        let state_ptr = state.as_mut_ptr();
+        // We get a raw pointer to the state struct from the guest memory
+        let state_ptr: *mut NSFastEnumerationState = env.mem.get_mut_ptr(state);
         (*state_ptr).mutationsPtr = &host_obj.mutation_count as *const u32 as *mut u64;
     }
-
+                                        
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -818,8 +821,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(ArrayHostObject {
-        array: Vec::new(),
-    });
+    array: Vec::new(),
+    mutation_count: 0, // Add this line
+});
+    
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
@@ -1078,14 +1083,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeLastObject {
-    let object_opt = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop();
+    let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
+    let object_opt = host_obj.array.pop();
+    
     if let Some(object) = object_opt {
-        release(env, object)
+        host_obj.mutation_count += 1; // Add this line!
+        release(env, object);
     } else {
         log!("Warning: NSMutableArray removeLastObject: array is empty");
     }
 }
-
+    
 - (())removeAllObjects {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
