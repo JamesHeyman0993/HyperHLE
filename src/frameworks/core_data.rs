@@ -49,10 +49,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 
     @implementation NSEntityDescription : NSObject
-    // FIX: Using the correct environment method to allocate a dummy instance.
-    // If objc_runtime_alloc fails to compile, replace the block with: { this }
+    // FIX: Returning 'this' (the Class pointer). 
+    // This provides a valid, non-null memory address.
     + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { 
-        unsafe { env.objc_runtime_alloc("NSEntityDescription") }
+        this 
     }
     - (id)init { this }
     - (id)name { crate::objc::nil }
