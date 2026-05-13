@@ -237,14 +237,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (bool)isEqualToArray:(id)other { // NSArray*
+- (bool)isEqualToArray:(id)other {
     let count: NSUInteger = msg![env; this count];
     let other_count: NSUInteger = msg![env; other count];
     if count != other_count {
         return false;
     }
+    // Optimization: Access our internal Vec directly, but we still 
+    // have to message 'other' since it might be a different subclass.
+    let this_array = &env.objc.borrow::<ArrayHostObject>(this).array;
     for i in 0..count {
-        let a: id = msg![env; this objectAtIndex:i];
+        let a = this_array[i as usize];
         let b: id = msg![env; other objectAtIndex:i];
         let equal: bool = msg![env; a isEqual:b];
         if !equal {
@@ -253,7 +256,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     true
 }
-
+    
 - (NSUInteger)indexOfObject:(id)object inRange:(NSRange)range {
     for i in range.location..(range.location + range.length) {
         let curr: id = msg![env; this objectAtIndex:i];
@@ -858,15 +861,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    let arr: id = msg_class![env; NSArray alloc];
-    let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
-    for &object in &array {
-        retain(env, object);
+    // A copy of a mutable array should return an immutable NSArray.
+    let array_data = env.objc.borrow::<ArrayHostObject>(this).array.clone();
+    for &obj in &array_data {
+        retain(env, obj);
     }
-    env.objc.borrow_mut::<ArrayHostObject>(arr).array = array;
-    arr
+    from_vec(env, array_data)
 }
-
+    
 // NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
     mutable_copy_inner(env, this)
@@ -993,21 +995,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObject:(id)object {
-    let mut to_remove = Vec::new();
-    let count: NSUInteger = msg![env; this count];
-    for i in 0..count {
-        let curr_object: id = msg![env; this objectAtIndex:i];
-        let equal: bool = msg![env; object isEqual:curr_object];
+    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
+    let mut i = host_object.array.len();
+    while i > 0 {
+        i -= 1;
+        let curr = host_object.array[i];
+        let equal: bool = msg![env; object isEqual:curr];
         if equal {
-            to_remove.push(i);
+            let removed = host_object.array.remove(i);
+            release(env, removed);
         }
     }
-    // TODO: runtime here is O(n^2), it could be O(n) instead
-    for i in to_remove {
-        () = msg![env; this removeObjectAtIndex:i];
-    }
 }
-
+    
 - (())removeObjectAtIndex:(NSUInteger)index {
     let len = env.objc.borrow::<ArrayHostObject>(this).array.len();
     if index as usize >= len {
