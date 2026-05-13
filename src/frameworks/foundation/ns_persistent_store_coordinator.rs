@@ -689,16 +689,28 @@ insertIntoManagedObjectContext:(id)context {           // NSManagedObjectContext
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
+// FIX: Now returns a valid object instead of nil
 + (id)entityForName:(id)name                        // NSString*
     inManagedObjectContext:(id)_context {            // NSManagedObjectContext*
-    log!("NSEntityDescription entityForName: stubbed -> nil");
-    nil
+    log!("NSEntityDescription entityForName: stubbed -> creating dummy entity");
+    let entity: id = msg_class![env; NSEntityDescription alloc];
+    let entity: id = msg![env; entity init];
+    () = msg![env; entity setName:name];
+    autorelease(env, entity)
 }
 
+// FIX: Now returns a valid object instead of nil
 + (id)insertNewObjectForEntityForName:(id)name      // NSString*
              inManagedObjectContext:(id)context {   // NSManagedObjectContext*
-    log!("NSEntityDescription insertNewObjectForEntityForName: stubbed -> nil");
-    nil
+    log!("NSEntityDescription insertNewObjectForEntityForName: stubbed -> creating dummy object");
+    let entity: id = msg_class![env; NSEntityDescription entityForName:name inManagedObjectContext:context];
+    let obj: id = msg_class![env; NSManagedObject alloc];
+    let obj: id = msg![env; obj initWithEntity:entity insertIntoManagedObjectContext:context];
+    autorelease(env, obj)
+}
+
+- (id)init {
+    this
 }
 
 - (())dealloc {
@@ -754,7 +766,7 @@ insertIntoManagedObjectContext:(id)context {           // NSManagedObjectContext
 - (id)userInfo      { nil }
 
 @end
-
+    
 // =========================================================================
 // NSFetchRequest
 // =========================================================================
