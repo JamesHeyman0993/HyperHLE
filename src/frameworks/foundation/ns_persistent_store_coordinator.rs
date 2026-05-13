@@ -183,17 +183,17 @@ pub const CLASSES: ClassExports = objc_classes! {
                          options:(id)options
                            error:(id)error {
     
-    // Safety: If the caller provided a pointer, clear it.
-    // We treat 'error' as a raw pointer address (usize) to allow the cast.
     if error != nil {
         unsafe {
-            let error_ptr = error as *mut id; 
+            // Cast to usize first to get the raw address, then to the pointer
+            let error_ptr = error as usize as *mut id; 
             if !error_ptr.is_null() {
                 *error_ptr = nil;
             }
         }
     }
 
+    // ... rest of your code ...
     let type_str = if store_type != nil {
         ns_string::to_rust_string(env, store_type).into_owned()
     } else {
