@@ -143,6 +143,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Return XML bytes
     return data;
             }
+        }
+    }
             
     // --- END HACK ---
 
