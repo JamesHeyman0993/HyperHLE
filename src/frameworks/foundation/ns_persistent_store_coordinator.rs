@@ -181,10 +181,13 @@ pub const CLASSES: ClassExports = objc_classes! {
                    configuration:(id)_configuration
                              URL:(id)url
                          options:(id)options
-                           error:(id*)error {
-    // Safety: Ensure the error pointer is null if provided
+                           error:(id)error { // Removed the * to satisfy the macro
+    
+    // Check if error is not null before dereferencing
     if error != nil {
-        unsafe { *error = nil; }
+        // We cast it to a pointer here instead of in the signature
+        let error_ptr = error as *mut id;
+        unsafe { *error_ptr = nil; }
     }
 
     let type_str = if store_type != nil {
