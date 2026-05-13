@@ -448,17 +448,25 @@ fn handle_touches_down(
         retain(env, window);
 
         {
-            let t_obj =
-                env.objc.borrow_mut::<UITouchHostObject>(touch);
+            let (old_view, old_window) = {
+    let t_obj = env.objc.borrow_mut::<UITouchHostObject>(touch);
 
-            // Release old retained refs if reused
-            if t_obj.view != nil {
-                release(env, t_obj.view);
-            }
+    let old_view = t_obj.view;
+    let old_window = t_obj.window;
 
-            if t_obj.window != nil {
-                release(env, t_obj.window);
-            }
+    t_obj.view = nil;
+    t_obj.window = nil;
+
+    (old_view, old_window)
+};
+
+if old_view != nil {
+    release(env, old_view);
+}
+
+if old_window != nil {
+    release(env, old_window);
+}
 
             t_obj.view = view;
             t_obj.window = window;
