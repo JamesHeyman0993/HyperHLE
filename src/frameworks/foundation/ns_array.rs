@@ -991,8 +991,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // TODO: check that array wasn't mutated!
     let count: NSUInteger = msg![env; this count];
+    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+
+    // Objective-C Fast Enumeration expects a pointer to a mutation counter.
+    unsafe {
+        // 1. Read the current state from guest memory using the Ptr directly
+        let mut state_struct: NSFastEnumerationState = env.mem.read(state);
+
+        // 2. Point the mutations_ptr to our host object's counter.
+        // Fix: Use the snake_case name 'mutations_ptr' as suggested by the compiler.
+        state_struct.mutations_ptr = &host_obj.mutation_count as *const u32 as *mut u64;
+
+        // 3. Write the updated state back to guest memory
+        env.mem.write(state, state_struct);
+    }
+
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -1000,8 +1014,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             nil
         }
     }, state, stackbuf, len)
-}
-
+                                    }
+    
 - (NSUInteger)count {
     env.objc.borrow::<ArrayHostObject>(this).array.len().try_into().unwrap()
 }
