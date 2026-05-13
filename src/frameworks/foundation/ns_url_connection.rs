@@ -207,10 +207,43 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Instance methods
 
 - (())start {
+
     log!(
-        "NSURLConnection start: silently dropping \
-         (networking not supported in touchHLE)"
+        "NSURLConnection start: faking successful completion"
     );
+
+    let delegate = env
+        .objc
+        .borrow::<NSURLConnectionHostObject>(this)
+        .delegate;
+
+    if delegate == nil {
+        return;
+    }
+
+    // Fake NSURLResponse
+    let response: id = msg_class![env; NSURLResponse new];
+    autorelease(env, response);
+
+    // Fake empty NSData
+    let data: id = msg_class![env; NSData data];
+
+    // connection:didReceiveResponse:
+    () = msg![env;
+        delegate connection:this
+        didReceiveResponse:response
+    ];
+
+    // connection:didReceiveData:
+    () = msg![env;
+        delegate connection:this
+        didReceiveData:data
+    ];
+
+    // connectionDidFinishLoading:
+    () = msg![env;
+        delegate connectionDidFinishLoading:this
+    ];
 }
 
 - (())cancel {
