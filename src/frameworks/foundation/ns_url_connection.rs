@@ -133,9 +133,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Fake XML string
     let xml = crate::frameworks::foundation::ns_string::from_rust_string(
-        env,
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
-    );
+    env,
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
+);
+                
+let xml = autorelease(env, xml);
 
     // Convert NSString -> NSData
     let data: id = msg![env; xml dataUsingEncoding:4];
