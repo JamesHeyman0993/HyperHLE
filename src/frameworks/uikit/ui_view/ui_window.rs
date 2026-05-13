@@ -256,14 +256,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // Handle auto-rotation
+    // Support for apps that request a non-portrait interface orientation via Info.plist.
     if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
         crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
         crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
         crate::window::DeviceOrientation::Portrait => None,
     } {
-        let should: bool = msg![env; vc maybe_send_shouldAutorotateToInterfaceOrientation:orientation].unwrap_or(true);
+        // We use a helper here to check if the view controller allows this orientation
+        let should: bool = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
+        
         if should && vc != nil {
+            log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
             let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
+        
             let transform = match orientation {
                 UIInterfaceOrientationLandscapeLeft => {
                     let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
@@ -276,13 +281,19 @@ pub const CLASSES: ClassExports = objc_classes! {
                 _ => CGAffineTransform::make_rotation(0.0),
             };
             
+            if is_dmc4 {
+                log!("HACK: Inverting landscape rotation for DMC4 Refrain");
+            }
+            
             let window_frame: CGRect = msg![env; this frame];
             () = msg![env; view setTransform:transform];
+
+            // Re-apply the frame to ensure it fills the window after rotation
             () = msg![env; view setFrame:window_frame];
         }
     }
 }
-    
+     
     // Support auto-rotation. This is currently only for apps that request a
     // non-portrait interface orientation via Info.plist, as we do not yet
     // support changes of orientation caused by device rotation (TODO).
