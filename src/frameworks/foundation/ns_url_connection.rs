@@ -121,21 +121,29 @@ pub const CLASSES: ClassExports = objc_classes! {
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
             
             if url_str.contains("localfeed.xml") {
-                log!("HACK: Detected localfeed.xml request. Faking success to unblock menu.");
-                
-                if !response_ptr.is_null() {
-                    env.mem.write(response_ptr, nil); 
-                }
+    log!("HACK: Detected localfeed.xml request. Returning fake XML.");
 
-                if !error_ptr.is_null() {
-                    env.mem.write(error_ptr, nil); // Important: No error!
-                }
-
-                // Return an empty data object and EXIT immediately
-                return msg_class![env; NSData data];
-            }
-        }
+    if !response_ptr.is_null() {
+        env.mem.write(response_ptr, nil);
     }
+
+    if !error_ptr.is_null() {
+        env.mem.write(error_ptr, nil);
+    }
+
+    // Fake XML string
+    let xml = crate::frameworks::foundation::ns_string::from_rust_string(
+        env,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
+    );
+
+    // Convert NSString -> NSData
+    let data: id = msg![env; xml dataUsingEncoding:4];
+
+    // Return XML bytes
+    return data;
+            }
+            
     // --- END HACK ---
 
     // Default behavior for everything else (which currently fails)
