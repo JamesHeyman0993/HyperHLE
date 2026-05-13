@@ -39,13 +39,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation UIWindow: UIView
 
-// TODO: more?
-
 - (id)initWithFrame:(CGRect)frame {
     let this = msg_super![env; this initWithFrame:frame];
     // Undocumented: windows seem to be hidden by default on iOS, unlike views.
-    // Super call to bypass the overriden setter on this class, which would post
-    // a notification.
     () = msg_super![env; this setHidden:true];
 
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
@@ -59,24 +55,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
     let this = msg_super![env; this initWithCoder:coder];
-    // Undocumented: windows seem to be hidden by default on iOS, unlike views.
-    // Super call to bypass the overriden setter on this class, which would post
-    // a notification.
     () = msg_super![env; this setHidden:true];
 
-    // Real iOS forces UIWindow.frame to match UIScreen.bounds regardless of
-    // whatever frame was encoded in the NIB. Interface Builder by default
-    // uses a 320x460 canvas (status bar visible) for iPhone XIBs, so a
-    // window loaded from a NIB will normally come out at 320x460 and miss
-    // the bottom 20px of the screen. Apps that hide the status bar via
-    // Info.plist (e.g. Minecraft PE 0.6.x) then end up with their EAGLView
-    // sized to the truncated window, producing a visible offset/shift.
-    //
-    // Mirror Apple's behaviour by re-setting the frame to the full screen
-    // bounds after the super decoder runs.
     let screen: id = msg_class![env; UIScreen mainScreen];
     let screen_bounds: CGRect = msg![env; screen bounds];
     let current_bounds: CGRect = msg![env; this bounds];
@@ -92,12 +74,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
     list.push(this);
-    log_dbg!(
-        "New window: {:?}. New list of all windows: {:?}",
-        this,
-        list,
-    );
-
     this
 }
 
@@ -108,55 +84,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
-    let idx = list.iter().position(|&w| w == this).unwrap();
-    list.remove(idx);
-    log_dbg!(
-        "Deallocating window {:?}. New list of all windows: {:?}",
-        this,
-        list,
-    );
+    if let Some(idx) = list.iter().position(|&w| w == this) {
+        list.remove(idx);
+    }
     msg_super![env; this dealloc]
 }
 
 - (())layoutIfNeeded {
     log_dbg!("[(UIWindow*){:?} layoutIfNeeded]", this);
-    // Честная реализация: немедленно форсируем пересчет layout'а,
-    // отправляя сообщение layoutSubviews самому себе (наследуется от UIView)
     () = msg![env; this layoutSubviews];
 }
 
-// Permissive hit-testing for the application window.
-//
-// On real iOS, UIWindow's frame matches UIScreen.bounds and touches always
-// land inside it, so the standard UIView hitTest implementation is fine.
-// In touchHLE, however, the host window can be larger than the iPhone's
-// virtual screen (Android phones, large desktop windows). Even with the
-// touch-coordinate clamp in `transform_input_coords`, edge cases such as
-// the rootViewController's view being rotated for landscape orientation
-// can leave individual modal/overlay subviews positioned in such a way
-// that a touch landing on them produces a window-coordinate point just
-// outside of UIWindow's own bounds (off-by-one at the bottom row, status
-// bar overlap, etc.). The default UIView.hitTest then early-exits via
-// pointInside, returning nil for the entire touch — which is what
-// produced the `SUPER HACK: Forcing rejected touch ...` log spam and
-// stopped the in-game chat / Create World text fields from ever becoming
-// first responder.
-//
-// Override hitTest to ALWAYS recurse into subviews. If any subview claims
-// the touch we return it; otherwise we fall back to the window itself so
-// touch dispatch is never lost. This matches Apple's documented intent:
-// "Windows don't actively participate in event handling. They merely
-// pass events on to their subviews."
 - (id)hitTest:(CGPoint)point withEvent:(id)event {
     let subviews = env.objc.borrow::<super::UIViewHostObject>(this).subviews.clone();
     for subview in subviews.into_iter().rev() {
-        // ... your existing hidden/alpha/interactible checks ...
-
         let sub_point: CGPoint = msg![env; subview convertPoint:point fromView:this];
         let hit: id = msg![env; subview hitTest:sub_point withEvent:event];
         
         if hit != nil { 
-            // DEBUG: Print the class of the object being hit
             let class_name: id = msg![env; hit class];
             log!("Hit detected on object: {:?} (Class: {:?}) at {:?}", hit, class_name, sub_point);
             return hit; 
@@ -167,16 +112,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     
 - (())setHidden:(bool)is_hidden {
     () = msg_super![env; this setHidden:is_hidden];
-
-    // TODO: post UIWindowDidBecomeVisibleNotification,
-    //            UIWindowDidBecomeHiddenNotification
     log_dbg!("[(UIWindow*){:?} setHidden:{:?}]", this, is_hidden);
 }
 
 - (())makeKeyWindow {
-    // TODO: post UIWindowDidResignKeyNotification for previous key window
     env.framework_state.uikit.ui_view.ui_window.key_window = Some(this);
-
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];
     let notif_name = ns_string::get_static_str(env, UIWindowDidBecomeKeyNotification);
     () = msg![env; center postNotificationName:notif_name object:this userInfo:nil];
@@ -187,36 +127,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())makeKeyAndVisible {
-    // TODO: We don't currently have send any non-touch events to windows,
-    // so there's no meaning in it yet.
-
-    // FIXME: This should also bump the window to the top of the list.
-
     () = msg![env; this makeKeyWindow];
-
-    // TODO: post UIWindowDidBecomeVisibleNotification
     () = msg![env; this setHidden:false];
 }
 
-// Legacy iOS 2/3 pattern: [window setContentView:someView]
-// Semantically equivalent to addSubview: for UIWindow.
 - (())setContentView:(id)view {
-    log_dbg!("[(UIWindow*){:?} setContentView:{:?}]", this, view);
     () = msg![env; this addSubview:view];
 }
 
-// Returns the first subview as the content view (legacy behaviour).
 - (id)contentView {
     let subviews = &env.objc.borrow::<UIViewHostObject>(this).subviews;
     subviews.first().copied().unwrap_or(nil)
 }
 
-// Support for rootViewController (iOS 4+)
 - (())setRootViewController:(id)view_controller {
-    log_dbg!("[(UIWindow*){:?} setRootViewController:{:?}]", this, view_controller);
-
-    // The default behavior in iOS is to add the view controller's view as a
-    // subview of the window.
     if view_controller != nil {
         let view: id = msg![env; view_controller view];
         () = msg![env; this addSubview:view];
@@ -224,13 +148,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)rootViewController {
-    log!("TODO: [(UIWindow*){:?} rootViewController] full implementation missing", this);
     nil
 }
 
-// UIResponder implementation
-// From the Apple UIView docs regarding [UIResponder nextResponder]:
-// "UIWindow returns the application object."
 - (id)nextResponder {
     msg_class![env; UIApplication sharedApplication]
 }
@@ -240,14 +160,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     if view == nil { return; }
 
-    // Use a scoped borrow to avoid holding the RefCell during msg! calls
     let vc = {
         let host_obj = env.objc.borrow::<UIViewHostObject>(view);
         host_obj.view_controller
     };
     
     if vc != nil {
-        // Force appearance notifications so the game doesn't get stuck
+        // Fix: Force appearance notifications to move past splash screens
         () = msg![env; vc viewWillAppear:false];
         () = msg_super![env; this addSubview:view];
         () = msg![env; vc viewDidAppear:false];
@@ -255,20 +174,15 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg_super![env; this addSubview:view];
     }
 
-    // Handle auto-rotation
-    // Support for apps that request a non-portrait interface orientation via Info.plist.
+    // Handle auto-rotation logic inside addSubview
     if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
         crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
         crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
         crate::window::DeviceOrientation::Portrait => None,
     } {
-        // We use a helper here to check if the view controller allows this orientation
         let should: bool = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
-        
         if should && vc != nil {
-            log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
             let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
-        
             let transform = match orientation {
                 UIInterfaceOrientationLandscapeLeft => {
                     let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
@@ -281,99 +195,21 @@ pub const CLASSES: ClassExports = objc_classes! {
                 _ => CGAffineTransform::make_rotation(0.0),
             };
             
-            if is_dmc4 {
-                log!("HACK: Inverting landscape rotation for DMC4 Refrain");
-            }
-            
             let window_frame: CGRect = msg![env; this frame];
             () = msg![env; view setTransform:transform];
-
-            // Re-apply the frame to ensure it fills the window after rotation
             () = msg![env; view setFrame:window_frame];
         }
     }
 }
-     
-    // Support auto-rotation. This is currently only for apps that request a
-    // non-portrait interface orientation via Info.plist, as we do not yet
-    // support changes of orientation caused by device rotation (TODO).
-    // FIXME: It's unclear when and where this auto-rotation is supposed to
-    //        happen. It must have something to do with mounting the view
-    //        controller to a window, so we do it here. QA1688 (see top of file)
-    //        mentions a breaking behaviour change in iOS 6 that makes
-    //        auto-rotation rely on rootViewController (a property only found in
-    //        iOS 6), so the current implementation is specific to iOS <= 5.
-    // FIXME: Are we supposed to notify the view somehow of the rotation?
-    // FIXME: What do we do if shouldAutorotateToInterfaceOrientation:
-    //        returns false? The status bar has already been rotated…
-    // FIXME: The device orientation stored on env.window can come from one of
-    //        three places (user/default options, setStatusBarOrientation: etc,
-    //        Info.plist UIInterfaceOrientation etc). It's not clear if these
-    //        are really equivalent and should all trigger autorotation.
-    if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
-        crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
-        crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
-        // Portrait is the default so we don't do anything here.
-        crate::window::DeviceOrientation::Portrait => None,
-    } {
-        // (UIInterfaceOrientation and UIDeviceOrientation are compatible enums,
-        //  here we use whichever is clearer contextually.)
-        let should = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
-        log_dbg!("[{:?} shouldAutorotateToInterfaceOrientation:{:?}] => {:?}", vc, orientation, should);
-        if should {
-            log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
-                        let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
-        
-            let transform = match orientation {
-                UIInterfaceOrientationLandscapeLeft => {
-                    let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
-                    CGAffineTransform::make_rotation(angle)
-                },
-                UIInterfaceOrientationLandscapeRight => {
-                    let angle = if is_dmc4 { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
-                    CGAffineTransform::make_rotation(angle)
-                },
-                _ => unimplemented!(),
-            };
-            
-            if is_dmc4 {
-                log!("HACK: Inverting landscape rotation for DMC4 Refrain");
-            }
-            
-            let window_frame: CGRect = msg![env; this frame];
-            log_dbg!("Window frame: {window_frame:?}");
-            let view_frame: CGRect = msg![env; view frame];
-            log_dbg!("Old view frame: {view_frame:?}");
 
-            () = msg![env; view setTransform:transform];
-
-            // Re-apply the view's old frame to compensate for the rotation
-            // effectively offseting its center position and changing the size.
-            // FIXME: I have no idea if this is how this should be solved, but
-            //        it works for DMC4 Refrain at least.
-
-            let view_frame: CGRect = msg![env; view frame];
-            log_dbg!("Old view frame after transform: {view_frame:?}");
-
-            () = msg![env; view setFrame:window_frame];
-
-            let view_frame: CGRect = msg![env; view frame];
-            log_dbg!("New view frame after re-applying old view frame: {view_frame:?}");
-        }
-    }
-}
-
-- (CGPoint)convertPoint:(CGPoint)point
-             fromWindow:(id)other { // UIWindow*
+- (CGPoint)convertPoint:(CGPoint)point fromWindow:(id)other {
     let this_layer: id = msg![env; this layer];
-    // Resolves to nil if other is nil.
     let other_layer: id = msg![env; other layer];
     msg![env; this_layer convertPoint:point fromLayer:other_layer]
 }
-- (CGPoint)convertPoint:(CGPoint)point
-               toWindow:(id)other { // UIWindow*
+
+- (CGPoint)convertPoint:(CGPoint)point toWindow:(id)other {
     let this_layer: id = msg![env; this layer];
-    // Resolves to nil if other is nil.
     let other_layer: id = msg![env; other layer];
     msg![env; this_layer convertPoint:point toLayer:other_layer]
 }
@@ -382,11 +218,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
-/// Window life-cycle notifications
-/// TODO: more notifications
 const UIWindowDidBecomeKeyNotification: &str = "UIWindowDidBecomeKeyNotification";
-/// Keyboard notifications
-/// TODO: more keyboard notifications
 pub const UIKeyboardWillShowNotification: &str = "UIKeyboardWillShowNotification";
 pub const UIKeyboardDidShowNotification: &str = "UIKeyboardDidShowNotification";
 pub const UIKeyboardWillHideNotification: &str = "UIKeyboardWillHideNotification";
@@ -398,8 +230,4 @@ pub const CONSTANTS: ConstantExports = &[
         "_UIWindowDidBecomeKeyNotification",
         HostConstant::NSString(UIWindowDidBecomeKeyNotification),
     ),
-    // _UIKeyboardWillShowNotification, _UIKeyboardDidShowNotification,
-    // _UIKeyboardWillHideNotification, _UIKeyboardDidHideNotification and
-    // _UIKeyboardBoundsUserInfoKey are exported from
-    // uikit::ui_keyboard::CONSTANTS; not duplicated here.
 ];
