@@ -49,13 +49,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 
     @implementation NSEntityDescription : NSObject
-    // Changed: Returning 'this' instead of 'nil' to prevent the NULL-PAGE crash
-    + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { this }
+    // FIX: Returning a dummy object instead of nil or the class pointer.
+    // This provides a valid memory address for the game to read from.
+    + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { 
+        unsafe { env.create_object("NSEntityDescription") }
+    }
+    - (id)init { this }
     - (id)name { crate::objc::nil }
     - (void)setProperties:(id)_properties {}
     @end
 
-    // New: Added to satisfy the "unimplemented" warning in your logs
     @implementation NSAttributeDescription : NSObject
     - (id)init { this }
     - (void)setName:(id)_name {}
