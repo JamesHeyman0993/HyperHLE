@@ -28,7 +28,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 };
 
-pub const DYLIB: super::HostDylib = super::HostDylib {
+pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony",
     aliases: &[],
     class_exports: &[CLASSES],
