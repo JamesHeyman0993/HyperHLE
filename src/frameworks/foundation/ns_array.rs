@@ -994,14 +994,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; this count];
     let host_obj = env.objc.borrow::<ArrayHostObject>(this);
 
-    // Objective-C Fast Enumeration expects a pointer to a mutation counter.
     unsafe {
-        // 1. Read the current state from guest memory using the Ptr directly
+        // 1. Read the current state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // 2. Point the mutations_ptr to our host object's counter.
-        // Fix: Use the snake_case name 'mutations_ptr' as suggested by the compiler.
-        state_struct.mutations_ptr = &host_obj.mutation_count as *const u32 as *mut u64;
+        // 2. Fix: Create a bridge-compatible Ptr from our host object's counter.
+        // We use Ptr::new to wrap the memory address so the emulator can understand it.
+        state_struct.mutations_ptr = Ptr::new(&host_obj.mutation_count as *const u32 as usize);
 
         // 3. Write the updated state back to guest memory
         env.mem.write(state, state_struct);
