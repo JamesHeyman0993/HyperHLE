@@ -185,15 +185,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     
     if error != nil {
         unsafe {
-            // Cast to usize first to get the raw address, then to the pointer
-            let error_ptr = error as usize as *mut id; 
+            // We take the address of the 'error' variable, cast it to a pointer-to-a-pointer,
+            // then dereference it to get the actual destination address.
+            let error_ptr = (&error as *const id as *const *mut id).read();
             if !error_ptr.is_null() {
                 *error_ptr = nil;
             }
         }
     }
 
-    // ... rest of your code ...
+    // ... rest of your existing logic ...
     let type_str = if store_type != nil {
         ns_string::to_rust_string(env, store_type).into_owned()
     } else {
@@ -214,7 +215,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: u32 = msg![env; stores count];
     msg![env; stores objectAtIndex:(count - 1)]
                            }
-    
+     
 - (bool)removePersistentStore:(id)store  // NSPersistentStore*
                         error:(id)_error { // NSError**
     let stores = env.objc.borrow::<NSPersistentStoreCoordinatorHostObject>(this).persistent_stores;
