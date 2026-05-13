@@ -716,21 +716,18 @@ pub const CLASSES: ClassExports = objc_classes! {
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
-    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
-
-    // Objective-C Fast Enumeration expects a pointer to a mutation counter.
-    // We update the state struct in guest memory.
+    
     unsafe {
-        let state_addr = state.0; // Access the VAddr directly from the Ptr tuple
-        
-        // Read the current state from guest memory
+        // 1. Read the state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // Point the mutationsPtr to our host object's counter.
-        // We cast the Rust reference to a raw pointer, then to the u64 the guest expects.
-        state_struct.mutationsPtr = &host_obj.mutation_count as *const u32 as *mut u64;
+        // 2. Set mutations_ptr. 
+        // We use state.to_bits() to get the address and Ptr::from_bits to wrap it.
+        // We point it to the state struct itself (a common trick) to ensure 
+        // it points to valid Guest memory.
+        state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
 
-        // Write the updated state back to guest memory
+        // 3. Write it back
         env.mem.write(state, state_struct);
     }
 
