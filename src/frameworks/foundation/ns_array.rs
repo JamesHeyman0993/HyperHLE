@@ -718,16 +718,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; this count];
 
     unsafe {
-        // 1. Read the state struct from guest memory
+        // Read the current state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // 2. Point mutations_ptr to the state struct's own address.
-        // state.to_bits() gets the u32 address.
-        // Ptr::from_bits wraps it.
-        // .cast() matches the void pointer type expected by mutations_ptr.
+        // FIX: Use from_bits and to_bits instead of new.
+        // We point mutations_ptr to the state struct's own guest address.
         state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
 
-        // 3. Write the updated struct back to guest memory
+        // Write the updated state back to guest memory
         env.mem.write(state, state_struct);
     }
 
@@ -739,7 +737,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
                                     }
-       
+        
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -1101,7 +1099,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())removeLastObject {
     let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-    // Combine the pop and the check
+    // Check and pop at the same time
     if let Some(object) = host_obj.array.pop() {
         host_obj.mutation_count += 1;
         release(env, object);
@@ -1109,7 +1107,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Warning: NSMutableArray removeLastObject: array is empty");
     }
 }
-          
+             
 - (())removeAllObjects {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
