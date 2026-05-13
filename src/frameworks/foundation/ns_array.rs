@@ -995,7 +995,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
         // 2. Fix: Create a bridge-compatible Ptr from our host object's counter.
         // We use Ptr::new to wrap the memory address so the emulator can understand it.
-        state_struct.mutations_ptr = Ptr::from_bits(&host_obj.mutation_count as *const u32 as usize);
+        state_struct.mutations_ptr = Ptr::from_bits(&host_obj.mutation_count as *const u32 as u32);
         
         // 3. Write the updated state back to guest memory
         env.mem.write(state, state_struct);
