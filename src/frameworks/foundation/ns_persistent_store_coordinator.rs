@@ -551,10 +551,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (())insertObject:(id)_object { // NSManagedObject*
-    log!("NSManagedObjectContext insertObject: stubbed");
+- (void)insertObject:(id)object { // NSManagedObject*
+    log!("NSManagedObjectContext insertObject: linking object to context");
+    // Inform the object that it has been inserted into this context
+    // This often sets up internal pointers that prevent the 0xc crash
+    let _: () = unsafe { msg![env; object _setManagedObjectContext:this] };
 }
-
+    
 - (())deleteObject:(id)_object { // NSManagedObject*
     log!("NSManagedObjectContext deleteObject: stubbed");
 }
