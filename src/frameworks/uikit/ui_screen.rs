@@ -69,9 +69,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGRect)nativeBounds {
-    msg![env; this bounds]
+    let scale: CGFloat = msg![env; this scale];
+    let bounds: CGRect = msg![env; this bounds];
+    CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: CGSize {
+            width:  bounds.size.width * scale,
+            height: bounds.size.height * scale,
+        },
+    }
 }
-
+    
 - (CGRect)applicationFrame {
     let mut bounds: CGRect = msg![env; this bounds];
     const STATUS_BAR_HEIGHT: CGFloat = 20.0;
@@ -89,9 +97,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (CGFloat)nativeScale {
-    1.0
+    msg![env; this scale]
 }
-
+    
 // MARK: - Brightness
 
 - (CGFloat)brightness {
@@ -126,9 +134,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)availableModes {
-    msg_class![env; NSArray new]
+    let current: id = msg![env; this currentMode];
+    // Return an array containing the current mode
+    msg_class![env; NSArray arrayWithObject:current]
 }
-
+    
 - (CGFloat)overscanCompensationInsets {
     0.0
 }
