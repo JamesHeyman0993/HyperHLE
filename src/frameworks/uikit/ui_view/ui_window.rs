@@ -238,25 +238,51 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())addSubview:(id)view {
     log_dbg!("[(UIWindow*){:?} addSubview:{:?}] => ()", this, view);
 
-    if view == nil || env.objc.borrow::<UIViewHostObject>(view).view_controller == nil {
+    if view == nil { return; }
+
+    // Use a scoped borrow to avoid holding the RefCell during msg! calls
+    let vc = {
+        let host_obj = env.objc.borrow::<UIViewHostObject>(view);
+        host_obj.view_controller
+    };
+    
+    if vc != nil {
+        // Force appearance notifications so the game doesn't get stuck
+        () = msg![env; vc viewWillAppear:false];
         () = msg_super![env; this addSubview:view];
-        return;
+        () = msg![env; vc viewDidAppear:false];
+    } else {
+        () = msg_super![env; this addSubview:view];
     }
 
-    // Below we treat a special case of adding view controller's view
-    // to a window, in order to generate display related notifications
-
-    if env.objc.borrow::<UIViewHostObject>(this).subviews.contains(&view) {
-        // For the case of existing view hidden by another view,
-        // we need to delay a below sequence up until obstructions are removed
-        log!("TODO: case of existing view hidden by another view for sending view[Will,Did]Appear");
+    // Handle auto-rotation
+    if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
+        crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
+        crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
+        crate::window::DeviceOrientation::Portrait => None,
+    } {
+        let should: bool = msg![env; vc maybe_send_shouldAutorotateToInterfaceOrientation:orientation].unwrap_or(true);
+        if should && vc != nil {
+            let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
+            let transform = match orientation {
+                UIInterfaceOrientationLandscapeLeft => {
+                    let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
+                    CGAffineTransform::make_rotation(angle)
+                },
+                UIInterfaceOrientationLandscapeRight => {
+                    let angle = if is_dmc4 { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
+                    CGAffineTransform::make_rotation(angle)
+                },
+                _ => CGAffineTransform::make_rotation(0.0),
+            };
+            
+            let window_frame: CGRect = msg![env; this frame];
+            () = msg![env; view setTransform:transform];
+            () = msg![env; view setFrame:window_frame];
+        }
     }
-
-    let vc = env.objc.borrow::<UIViewHostObject>(view).view_controller;
-    () = msg![env; vc viewWillAppear:false];
-    () = msg_super![env; this addSubview:view];
-    () = msg![env; vc viewDidAppear:false];
-
+}
+    
     // Support auto-rotation. This is currently only for apps that request a
     // non-portrait interface orientation via Info.plist, as we do not yet
     // support changes of orientation caused by device rotation (TODO).
