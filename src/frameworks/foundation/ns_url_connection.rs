@@ -140,10 +140,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Default behavior for everything else (which currently fails)
     if request == nil {
-        log!(
-            "NSURLConnection sendSynchronousRequest: nil request — \
-             returning empty NSData to prevent caller crash"
-        );
+    log!("HACK: nil request detected, returning fake XML");
+
+    if !response_ptr.is_null() {
+        env.mem.write(response_ptr, nil);
+    }
+
+    if !error_ptr.is_null() {
+        env.mem.write(error_ptr, nil);
+    }
+
+    let xml = crate::frameworks::foundation::ns_string::from_rust_string(
+        env,
+        "<root></root>".to_string(),
+    );
+
+    let data: id = msg_class![env; xml dataUsingEncoding:4];
+
+    return data;
     }
 
     if !response_ptr.is_null() {
