@@ -5,8 +5,8 @@
  */
 //! The UIKit framework.
 
-use crate::{msg, msg_class, Environment}; // Added msg_class
-use crate::objc::nil;                     // Added nil
+use crate::{msg, msg_class, Environment}; 
+use crate::objc::nil;                     
 use std::time::Instant;
 
 use crate::dyld::HostConstant;
@@ -95,7 +95,6 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIImagePickerControllerReferenceURL",
         HostConstant::NSString("UIImagePickerControllerReferenceURL"),
     ),
-    // Ghost Toasters Fixes
     (
         "_UIScreenDidConnectNotification",
         HostConstant::NSString("UIScreenDidConnectNotification"),
@@ -112,7 +111,6 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIApplicationLaunchOptionsLocalNotificationKey",
         HostConstant::NSString("UIApplicationLaunchOptionsLocalNotificationKey"),
     ),
-    // UIWindowLevel constants
     (
         "_UIWindowLevelNormal",
         HostConstant::Custom(ui_window_level_normal),
@@ -125,7 +123,6 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIWindowLevelAlert",
         HostConstant::Custom(ui_window_level_alert),
     ),
-    // Status-bar orientation change notifications
     (
         "_UIApplicationWillChangeStatusBarOrientationNotification",
         HostConstant::NSString("UIApplicationWillChangeStatusBarOrientationNotification"),
@@ -194,7 +191,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_geometry::CONSTANTS,
         ui_keyboard::CONSTANTS,
         ui_local_notification::CONSTANTS,
-        ui_screen::CONSTANTS, // ADDED: Ensures UIScreen fix is loaded
+        ui_screen::CONSTANTS, 
         ui_view::ui_control::ui_text_field::CONSTANTS,
         ui_view::ui_window::CONSTANTS,
         CONSTANTS,
@@ -241,17 +238,15 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
             }
-                        Event::AppWillResignActive => {
+            Event::AppWillResignActive => {
                 log!("Handling app-will-resign-active event: forcing active state.");
-                let app = msg_class![env; UIApplication sharedApplication];
-                if app != nil {
-                    // Force the app state to 0 (UIApplicationStateActive)
-                    () = msg![env; app _setApplicationState:0]; 
-                }
-                        }
+                // We force the state to 0 (Active) without sending a message to the guest 
+                // to avoid "Unknown selector" crashes on older apps.
+                env.framework_state.uikit.ui_application.application_state = 0;
+            }
             
             Event::AppWillTerminate => {
-    log!("Handling app-will-terminate event: ignoring.");
+                log!("Handling app-will-terminate event: ignoring.");
             }
             Event::EnterDebugger => {
                 if env.is_debugging_enabled() {
