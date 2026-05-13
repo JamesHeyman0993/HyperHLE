@@ -711,21 +711,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     reverse_object_enumerator_inner(env, this)
 }
 
-// NSFastEnumeration implementation for NSMutableArray
+// NSFastEnumeration implementation for _touchHLE_NSArray
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
 
     unsafe {
-        // 1. Read the current state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // 2. SUCCESS FIX: Use the methods found in your mem.rs
-        // We point the mutations_ptr to the state's own guest address.
+        // FIX: Use the guest address of the state struct itself
         state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
 
-        // 3. Write the updated state back to guest memory
         env.mem.write(state, state_struct);
     }
 
@@ -737,7 +734,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
                                     }
-               
+                 
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -982,22 +979,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
 }
 
-// NSFastEnumeration implementation
+// NSFastEnumeration implementation for _touchHLE_NSMutableArray
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
-    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
 
     unsafe {
-        // 1. Read the current state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // 2. Fix: Create a bridge-compatible Ptr from our host object's counter.
-        // We use Ptr::new to wrap the memory address so the emulator can understand it.
-        state_struct.mutations_ptr = Ptr::from_bits(&host_obj.mutation_count as *const u32 as u32);
+        // FIX: Use the guest address of the state struct itself
+        state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
         
-        // 3. Write the updated state back to guest memory
         env.mem.write(state, state_struct);
     }
 
