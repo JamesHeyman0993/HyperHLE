@@ -28,11 +28,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     - (id)persistentStoreCoordinator { crate::objc::nil }
     - (id)persistentStore { crate::objc::nil }
     - (bool)save:(id)_error { true }
+    // Unity often checks if the context is valid via this selector
+    - (id)userInfo { crate::objc::nil }
     @end
     
     @implementation NSManagedObjectModel : NSObject
     - (id)init { this }
     - (id)initWithContentsOfURL:(id)_url { this }
+    - (id)entities { crate::objc::nil }
     @end
 
     @implementation NSPersistentStoreCoordinator : NSObject
@@ -49,14 +52,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 
     @implementation NSEntityDescription : NSObject
-    // FIX: Returning 'this' (the Class pointer). 
-    // This provides a valid, non-null memory address.
+    // FORCE FIX: Explicitly returning 'this'. 
+    // If the log still says "-> nil", we must look for a duplicate stub in the foundation folder.
     + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { 
         this 
+    }
+    + (id)insertNewObjectForEntityForName:(id)_name inManagedObjectContext:(id)_context {
+        // Some Unity versions use this instead of entityForName
+        this
     }
     - (id)init { this }
     - (id)name { crate::objc::nil }
     - (void)setProperties:(id)_properties {}
+    - (id)properties { crate::objc::nil }
     @end
 
     @implementation NSAttributeDescription : NSObject
