@@ -36,9 +36,7 @@ impl HostObject for ObjectEnumeratorHostObject {}
 #[derive(Debug, Default)]
 pub(super) struct ArrayHostObject {
     pub(super) array: Vec<id>,
-    pub(super) mutation_count: u32, // New field to track changes
 }
-
 impl HostObject for ArrayHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -152,10 +150,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; this count];
     for i in 0..count {
         let curr_object: id = msg![env; this objectAtIndex:i];
-        // Optimization: Pointer identity check first
-        if curr_object == object {
-            return i;
-        }
         let equal: bool = msg![env; object isEqual:curr_object];
         if equal {
             return i;
@@ -163,7 +157,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     NSNotFound as NSUInteger
 }
-    
 - (bool)containsObject:(id)object {
     let idx: NSUInteger = msg![env; this indexOfObject:object];
     idx != NSNotFound as NSUInteger
@@ -244,20 +237,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (bool)isEqualToArray:(id)other {
+- (bool)isEqualToArray:(id)other { // NSArray*
     let count: NSUInteger = msg![env; this count];
     let other_count: NSUInteger = msg![env; other count];
     if count != other_count {
         return false;
     }
-
     for i in 0..count {
-        // Fix: Scope the borrow so it's dropped before the msg! call
-        let a = {
-            let host_obj = env.objc.borrow::<ArrayHostObject>(this);
-            host_obj.array[i as usize]
-        }; 
-
+        let a: id = msg![env; this objectAtIndex:i];
         let b: id = msg![env; other objectAtIndex:i];
         let equal: bool = msg![env; a isEqual:b];
         if !equal {
@@ -266,7 +253,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     true
 }
-      
+
 - (NSUInteger)indexOfObject:(id)object inRange:(NSRange)range {
     for i in range.location..(range.location + range.length) {
         let curr: id = msg![env; this objectAtIndex:i];
@@ -511,7 +498,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 // NSCopying implementation
-- (id)copyWithZone:(NSZonePtr)_zone {
+    - (id)copyWithZone:(NSZonePtr)_zone {
     let other: id = msg_class![env; NSArray alloc];
     let other: id = msg![env; other initWithArray:this];
     other
@@ -609,10 +596,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(ArrayHostObject {
-    array: Vec::new(),
-    mutation_count: 0, // Add this line
-});
-    
+        array: Vec::new(),
+    });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
@@ -711,21 +696,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     reverse_object_enumerator_inner(env, this)
 }
 
-// NSFastEnumeration implementation for _touchHLE_NSArray
+// NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
-
-    unsafe {
-        let mut state_struct: NSFastEnumerationState = env.mem.read(state);
-
-        // FIX: Use the guest address of the state struct itself
-        state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
-
-        env.mem.write(state, state_struct);
-    }
-
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -733,8 +708,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             nil
         }
     }, state, stackbuf, len)
-                                    }
-                 
+}
+
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -755,24 +730,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())addObject:(id)object {
     retain(env, object);
-    let host_object = env.objc.borrow_mut::<ArrayHostObject>(this);
-    host_object.array.push(object);
-    host_object.mutation_count += 1; // Increment the version number
+    env.objc.borrow_mut::<ArrayHostObject>(this).array.push(object);
 }
-    
-- (id)subarrayWithRange:(NSRange)range {
-    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
-    let count = host_obj.array.len();
-    
-    // Ensure the requested range doesn't exceed the actual Vec length
-    if (range.location + range.length) as usize > count {
-        log!("Warning: NSArray subarrayWithRange: range out of bounds");
-        return nil;
-    }
 
+- (id)subarrayWithRange:(NSRange)range {
     let mut tmp = Vec::new();
     tmp.extend_from_slice(
-        &host_obj.array[range.location as usize..(range.location + range.length) as usize]
+        &env.objc.borrow::<ArrayHostObject>(this).array[range.location as usize..(range.location + range.length) as usize]
     );
     for &obj in &tmp {
         retain(env, obj);
@@ -780,7 +744,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let res = from_vec(env, tmp);
     autorelease(env, res)
 }
-    
+
 - (id)sortedArrayUsingSelector:(SEL)comparator {
     let new = msg![env; this mutableCopy];
     () = msg![env; new sortUsingSelector:comparator];
@@ -820,10 +784,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(ArrayHostObject {
-    array: Vec::new(),
-    mutation_count: 0, // Add this line
-});
-    
+        array: Vec::new(),
+    });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
@@ -896,14 +858,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
-    // A copy of a mutable array should return an immutable NSArray.
-    let array_data = env.objc.borrow::<ArrayHostObject>(this).array.clone();
-    for &obj in &array_data {
-        retain(env, obj);
+    let arr: id = msg_class![env; NSArray alloc];
+    let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
+    for &object in &array {
+        retain(env, object);
     }
-    from_vec(env, array_data)
+    env.objc.borrow_mut::<ArrayHostObject>(arr).array = array;
+    arr
 }
-    
+
 // NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
     mutable_copy_inner(env, this)
@@ -979,21 +942,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
 }
 
-// NSFastEnumeration implementation for _touchHLE_NSMutableArray
+// NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
+    // TODO: check that array wasn't mutated!
     let count: NSUInteger = msg![env; this count];
-
-    unsafe {
-        let mut state_struct: NSFastEnumerationState = env.mem.read(state);
-
-        // FIX: Use the guest address of the state struct itself
-        state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
-        
-        env.mem.write(state, state_struct);
-    }
-
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -1001,8 +955,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             nil
         }
     }, state, stackbuf, len)
-                                    }
-    
+}
+
 - (NSUInteger)count {
     env.objc.borrow::<ArrayHostObject>(this).array.len().try_into().unwrap()
 }
@@ -1039,36 +993,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObject:(id)object {
-    let count = {
-        let host_obj = env.objc.borrow::<ArrayHostObject>(this);
-        host_obj.array.len()
-    };
-
-    let mut i = count;
-    while i > 0 {
-        i -= 1;
-        
-        // 1. Get the object at index i
-        let curr = {
-            let host_obj = env.objc.borrow::<ArrayHostObject>(this);
-            host_obj.array[i]
-        };
-
-        // 2. Check equality (requires mutable env)
-        let equal: bool = msg![env; object isEqual:curr];
-
+    let mut to_remove = Vec::new();
+    let count: NSUInteger = msg![env; this count];
+    for i in 0..count {
+        let curr_object: id = msg![env; this objectAtIndex:i];
+        let equal: bool = msg![env; object isEqual:curr_object];
         if equal {
-            // 3. Remove it (requires mutable env)
-            let removed = {
-                let host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-                host_obj.array.remove(i)
-            };
-            // 4. Release it
-            release(env, removed);
+            to_remove.push(i);
         }
     }
+    // TODO: runtime here is O(n^2), it could be O(n) instead
+    for i in to_remove {
+        () = msg![env; this removeObjectAtIndex:i];
+    }
 }
-      
+
 - (())removeObjectAtIndex:(NSUInteger)index {
     let len = env.objc.borrow::<ArrayHostObject>(this).array.len();
     if index as usize >= len {
@@ -1091,13 +1030,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeLastObject {
-    let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-    if let Some(object) = host_obj.array.pop() {
-        host_obj.mutation_count += 1;
-        // In non-retaining, we don't call release(env, object)
+    let object_opt = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop();
+    if let Some(object) = object_opt {
+        release(env, object)
+    } else {
+        log!("Warning: NSMutableArray removeLastObject: array is empty");
     }
 }
-                
+
 - (())removeAllObjects {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
@@ -1132,15 +1072,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeLastObject {
-    let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-    if let Some(object) = host_obj.array.pop() {
-        host_obj.mutation_count += 1;
-        release(env, object);
-    } else {
-        log!("Warning: NSMutableArray removeLastObject: array is empty");
+    let popped = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop();
+    if popped.is_none() {
+        log!("Warning: NSMutableArray_non_retaining removeLastObject: array is empty");
     }
 }
-    
+
 @end
 
 };
