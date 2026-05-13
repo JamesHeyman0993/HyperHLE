@@ -718,14 +718,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; this count];
 
     unsafe {
-        // Read the current state from guest memory
+        // 1. Use the bridge to read the state from guest memory
         let mut state_struct: NSFastEnumerationState = env.mem.read(state);
 
-        // FIX: Use from_bits and to_bits instead of new.
-        // We point mutations_ptr to the state struct's own guest address.
+        // 2. Set mutations_ptr to point back to the state's own guest address.
+        // state.to_bits() gets the u32 address (VAddr).
+        // Ptr::from_bits(bits) creates the Ptr object the compiler wants.
+        // .cast() ensures it matches the expected Void pointer type.
         state_struct.mutations_ptr = Ptr::from_bits(state.to_bits()).cast();
 
-        // Write the updated state back to guest memory
+        // 3. Write it back to guest memory
         env.mem.write(state, state_struct);
     }
 
@@ -737,7 +739,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
                                     }
-        
+            
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -1142,12 +1144,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeLastObject {
-    let popped = env.objc.borrow_mut::<ArrayHostObject>(this).array.pop();
-    if popped.is_none() {
-        log!("Warning: NSMutableArray_non_retaining removeLastObject: array is empty");
+    let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
+    if let Some(object) = host_obj.array.pop() {
+        host_obj.mutation_count += 1;
+        release(env, object);
+    } else {
+        log!("Warning: NSMutableArray removeLastObject: array is empty");
     }
 }
-
+    
 @end
 
 };
