@@ -187,13 +187,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
     if let Err(e) = crate::window::open_url(env, &url_string) {
-        echo!("App opened URL {:?} unsuccessfully ({}), exiting.", url_string, e);
-    } else {
-        echo!("App opened URL {:?}, exiting.", url_string);
-    }
+    echo!(
+        "App opened URL {:?} unsuccessfully ({})",
+        url_string,
+        e
+    );
+} else {
+    echo!("App opened URL {:?}", url_string);
+}
 
-    exit(env);
-    true
+// Real iOS backgrounds the app here instead of killing it.
+// Some older games expect execution to continue afterward.
+log!("UIApplication openURL: ignoring forced exit for compatibility");
+
+true
 }
 
 - (())beginIgnoringInteractionEvents {
