@@ -181,13 +181,17 @@ pub const CLASSES: ClassExports = objc_classes! {
                    configuration:(id)_configuration
                              URL:(id)url
                          options:(id)options
-                           error:(id)error { // Removed the * to satisfy the macro
+                           error:(id)error {
     
-    // Check if error is not null before dereferencing
+    // Safety: If the caller provided a pointer, clear it.
+    // We treat 'error' as a raw pointer address (usize) to allow the cast.
     if error != nil {
-        // We cast it to a pointer here instead of in the signature
-        let error_ptr = error as *mut id;
-        unsafe { *error_ptr = nil; }
+        unsafe {
+            let error_ptr = error as *mut id; 
+            if !error_ptr.is_null() {
+                *error_ptr = nil;
+            }
+        }
     }
 
     let type_str = if store_type != nil {
@@ -553,13 +557,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     nil
 }
 
-- (void)insertObject:(id)object { // NSManagedObject*
+- (())insertObject:(id)object { // Changed (void) to (())
     log!("NSManagedObjectContext insertObject: linking object to context");
-    // Inform the object that it has been inserted into this context
-    // This often sets up internal pointers that prevent the 0xc crash
     let _: () = unsafe { msg![env; object _setManagedObjectContext:this] };
 }
-    
+     
 - (())deleteObject:(id)_object { // NSManagedObject*
     log!("NSManagedObjectContext deleteObject: stubbed");
 }
