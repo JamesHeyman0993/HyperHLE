@@ -49,10 +49,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 
     @implementation NSEntityDescription : NSObject
-    // FIX: Returning a dummy object instead of nil or the class pointer.
-    // This provides a valid memory address for the game to read from.
+    // FIX: Using the correct environment method to allocate a dummy instance.
+    // If objc_runtime_alloc fails to compile, replace the block with: { this }
     + (id)entityForName:(id)_name inManagedObjectContext:(id)_context { 
-        unsafe { env.create_object("NSEntityDescription") }
+        unsafe { env.objc_runtime_alloc("NSEntityDescription") }
     }
     - (id)init { this }
     - (id)name { crate::objc::nil }
