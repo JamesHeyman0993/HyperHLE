@@ -514,13 +514,25 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("NSManagedObjectContext redo: stubbed");
 }
 
-- (id)executeFetchRequest:(id)_request // NSFetchRequest*
+- (id)executeFetchRequest:(id)request // NSFetchRequest*
                     error:(id)_error { // NSError**
-    log!("NSManagedObjectContext executeFetchRequest:error: stubbed -> empty array");
-    let arr: id = msg_class![env; NSArray new];
-    autorelease(env, arr)
-}
+    log!("NSManagedObjectContext executeFetchRequest: returning dummy object array");
 
+    // 1. Get the entity name the game is looking for
+    let entity_name: id = msg![env; request entityName];
+
+    // 2. Create a dummy entity description
+    let entity: id = msg_class![env; NSEntityDescription entityForName:entity_name inManagedObjectContext:this];
+
+    // 3. Create a dummy managed object based on that entity
+    let dummy_obj: id = msg_class![env; NSManagedObject alloc];
+    let dummy_obj: id = msg![env; dummy_obj initWithEntity:entity insertIntoManagedObjectContext:this];
+
+    // 4. Put that dummy object into a new array and return it
+    let array: id = msg_class![env; NSMutableArray arrayWithObject:dummy_obj];
+    autorelease(env, array)
+                    }
+    
 - (NSUInteger)countForFetchRequest:(id)_request // NSFetchRequest*
                               error:(id)_error { // NSError**
     0
