@@ -241,12 +241,10 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 ui_touch::handle_event(env, event)
             }
             Event::AppWillResignActive => {
-                log!("Handling app-will-resign-active event: exiting.");
-                ui_application::exit(env);
+    log!("Handling app-will-resign-active event: ignoring.");
             }
             Event::AppWillTerminate => {
-                log!("Handling app-will-terminate event.");
-                ui_application::exit(env);
+    log!("Handling app-will-terminate event: ignoring.");
             }
             Event::EnterDebugger => {
                 if env.is_debugging_enabled() {
