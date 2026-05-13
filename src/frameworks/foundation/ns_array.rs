@@ -243,11 +243,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     if count != other_count {
         return false;
     }
-    // Optimization: Access our internal Vec directly, but we still 
-    // have to message 'other' since it might be a different subclass.
-    let this_array = &env.objc.borrow::<ArrayHostObject>(this).array;
+
     for i in 0..count {
-        let a = this_array[i as usize];
+        // Fix: Scope the borrow so it's dropped before the msg! call
+        let a = {
+            let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+            host_obj.array[i as usize]
+        }; 
+
         let b: id = msg![env; other objectAtIndex:i];
         let equal: bool = msg![env; a isEqual:b];
         if !equal {
@@ -256,7 +259,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     true
 }
-    
+      
 - (NSUInteger)indexOfObject:(id)object inRange:(NSRange)range {
     for i in range.location..(range.location + range.length) {
         let curr: id = msg![env; this objectAtIndex:i];
@@ -995,19 +998,36 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObject:(id)object {
-    let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
-    let mut i = host_object.array.len();
+    let count = {
+        let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+        host_obj.array.len()
+    };
+
+    let mut i = count;
     while i > 0 {
         i -= 1;
-        let curr = host_object.array[i];
+        
+        // 1. Get the object at index i
+        let curr = {
+            let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+            host_obj.array[i]
+        };
+
+        // 2. Check equality (requires mutable env)
         let equal: bool = msg![env; object isEqual:curr];
+
         if equal {
-            let removed = host_object.array.remove(i);
+            // 3. Remove it (requires mutable env)
+            let removed = {
+                let host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
+                host_obj.array.remove(i)
+            };
+            // 4. Release it
             release(env, removed);
         }
     }
 }
-    
+      
 - (())removeObjectAtIndex:(NSUInteger)index {
     let len = env.objc.borrow::<ArrayHostObject>(this).array.len();
     if index as usize >= len {
