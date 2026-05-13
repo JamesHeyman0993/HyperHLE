@@ -720,13 +720,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Get the host object to access the mutation_count
     let host_obj = env.objc.borrow::<ArrayHostObject>(this);
     
-        // Set the mutationsPtr so the guest app knows if we modified the array
+            // Set the mutationsPtr so the guest app knows if we modified the array
     unsafe {
-        // We get a raw pointer to the state struct from the guest memory
-        let state_ptr: *mut NSFastEnumerationState = env.mem.get_mut_ptr(state);
-        (*state_ptr).mutationsPtr = &host_obj.mutation_count as *const u32 as *mut u64;
+        // 1. Get the raw address from the Ptr wrapper
+        let state_vaddr = state.addr(); 
+        
+        // 2. Access the memory through the environment
+        let state_ptr = env.mem.get_ptr_mut::<NSFastEnumerationState>(state_vaddr);
+        
+        if !state_ptr.is_null() {
+            (*state_ptr).mutationsPtr = &host_obj.mutation_count as *const u32 as *mut u64;
+        }
     }
-                                        
+                                                                           
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -1084,16 +1090,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())removeLastObject {
     let mut host_obj = env.objc.borrow_mut::<ArrayHostObject>(this);
-    let object_opt = host_obj.array.pop();
-    
-    if let Some(object) = object_opt {
-        host_obj.mutation_count += 1; // Add this line!
+    // Directly check if pop gives us something
+    if let Some(object) = host_obj.array.pop() {
+        host_obj.mutation_count += 1;
         release(env, object);
     } else {
         log!("Warning: NSMutableArray removeLastObject: array is empty");
     }
 }
-    
+       
 - (())removeAllObjects {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
