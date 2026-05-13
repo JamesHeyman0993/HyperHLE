@@ -36,7 +36,9 @@ impl HostObject for ObjectEnumeratorHostObject {}
 #[derive(Debug, Default)]
 pub(super) struct ArrayHostObject {
     pub(super) array: Vec<id>,
+    pub(super) mutation_count: u32, // New field to track changes
 }
+
 impl HostObject for ArrayHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -150,6 +152,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let count: NSUInteger = msg![env; this count];
     for i in 0..count {
         let curr_object: id = msg![env; this objectAtIndex:i];
+        // Optimization: Pointer identity check first
+        if curr_object == object {
+            return i;
+        }
         let equal: bool = msg![env; object isEqual:curr_object];
         if equal {
             return i;
@@ -157,6 +163,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     NSNotFound as NSUInteger
 }
+    
 - (bool)containsObject:(id)object {
     let idx: NSUInteger = msg![env; this indexOfObject:object];
     idx != NSNotFound as NSUInteger
@@ -707,6 +714,16 @@ pub const CLASSES: ClassExports = objc_classes! {
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
     let count: NSUInteger = msg![env; this count];
+    
+    // Get the host object to access the mutation_count
+    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+    
+    // Set the mutationsPtr so the guest app knows if we modified the array
+    unsafe {
+        let state_ptr = state.as_mut_ptr();
+        (*state_ptr).mutationsPtr = &host_obj.mutation_count as *const u32 as *mut u64;
+    }
+
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
             msg![env; this objectAtIndex:idx]
@@ -714,8 +731,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             nil
         }
     }, state, stackbuf, len)
-}
-
+                                    }
+    
 // TODO: more init methods, etc
 
 - (NSUInteger)count {
@@ -736,13 +753,24 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())addObject:(id)object {
     retain(env, object);
-    env.objc.borrow_mut::<ArrayHostObject>(this).array.push(object);
+    let host_object = env.objc.borrow_mut::<ArrayHostObject>(this);
+    host_object.array.push(object);
+    host_object.mutation_count += 1; // Increment the version number
 }
-
+    
 - (id)subarrayWithRange:(NSRange)range {
+    let host_obj = env.objc.borrow::<ArrayHostObject>(this);
+    let count = host_obj.array.len();
+    
+    // Ensure the requested range doesn't exceed the actual Vec length
+    if (range.location + range.length) as usize > count {
+        log!("Warning: NSArray subarrayWithRange: range out of bounds");
+        return nil;
+    }
+
     let mut tmp = Vec::new();
     tmp.extend_from_slice(
-        &env.objc.borrow::<ArrayHostObject>(this).array[range.location as usize..(range.location + range.length) as usize]
+        &host_obj.array[range.location as usize..(range.location + range.length) as usize]
     );
     for &obj in &tmp {
         retain(env, obj);
@@ -750,7 +778,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let res = from_vec(env, tmp);
     autorelease(env, res)
 }
-
+    
 - (id)sortedArrayUsingSelector:(SEL)comparator {
     let new = msg![env; this mutableCopy];
     () = msg![env; new sortUsingSelector:comparator];
