@@ -238,12 +238,11 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
             }
-            Event::AppWillResignActive => {
-                log!("Handling app-will-resign-active event: forcing active state.");
-                // We force the state to 0 (Active) without sending a message to the guest 
-                // to avoid "Unknown selector" crashes on older apps.
-                env.framework_state.uikit.ui_application.application_state = 0;
-            }
+                        Event::AppWillResignActive => {
+                log!("Handling app-will-resign-active event: ignoring to prevent pause.");
+                // We return to prevent the event loop from telling the game to pause.
+                return;
+                        }
             
             Event::AppWillTerminate => {
                 log!("Handling app-will-terminate event: ignoring.");
