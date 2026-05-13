@@ -5,7 +5,8 @@
  */
 //! The UIKit framework.
 
-use crate::{msg, Environment};
+use crate::{msg, msg_class, Environment}; // Added msg_class
+use crate::objc::nil;                     // Added nil
 use std::time::Instant;
 
 use crate::dyld::HostConstant;
