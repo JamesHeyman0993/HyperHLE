@@ -137,23 +137,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (UIInterfaceOrientation)statusBarOrientation {
-    // 1. Check if we are running Fast & Furious
+    // Fix for Fast & Furious: Force landscape
     if let Some(bundle) = env.bundle.as_ref() {
         let bundle_id = bundle.bundle_identifier();
         if bundle_id == "com.iplay.ff63d" {
-            // Force LandscapeRight for this specific game
             return UIDeviceOrientationLandscapeRight;
         }
     }
 
-    // 2. Default behavior for all other games
     match env.window().current_rotation() {
         DeviceOrientation::Portrait => UIDeviceOrientationPortrait,
         DeviceOrientation::LandscapeLeft => UIDeviceOrientationLandscapeLeft,
         DeviceOrientation::LandscapeRight => UIDeviceOrientationLandscapeRight
     }
 }
-       
+
 - (f64)statusBarOrientationAnimationDuration {
     0.3
 }
@@ -207,17 +205,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // Real iOS backgrounds the app here instead of killing it.
-    // Some older games expect execution to continue afterward.
     log!("UIApplication openURL: ignoring forced exit for compatibility");
-
     true
-}
-    
-// Real iOS backgrounds the app here instead of killing it.
-// Some older games expect execution to continue afterward.
-log!("UIApplication openURL: ignoring forced exit for compatibility");
-
-true
 }
 
 - (())beginIgnoringInteractionEvents {
@@ -233,10 +222,6 @@ true
     if *count > 0 {
         *count -= 1;
     } else {
-        // В реальной iOS здесь выбрасывается исключение
-        // NSInternalInconsistencyException,
-        // но для стабильности эмулятора мы просто залогируем предупреждение,
-        // если игра ошиблась со счетчиком.
         log!("Warning: endIgnoringInteractionEvents called without matching beginIgnoringInteractionEvents");
     }
 }
@@ -283,12 +268,10 @@ true
 }
 
 - (NSUInteger)backgroundTimeRemaining {
-    // Report effectively infinite time remaining.
     NSUInteger::MAX
 }
 
 - (UIApplicationState)applicationState {
-    // Always report active.
     UIApplicationStateActive
 }
 
@@ -344,9 +327,7 @@ true
     false
 }
 
-- (())setSupportsShakeToEdit:(bool)_value {
-    // Stub.
-}
+- (())setSupportsShakeToEdit:(bool)_value {}
 
 - (bool)applicationSupportsShakeToEdit {
     env.framework_state.uikit.ui_application.application_supports_shake_to_edit
@@ -356,12 +337,9 @@ true
     env.framework_state.uikit.ui_application.application_supports_shake_to_edit = value;
 }
 
-- (())clearKeychainIfNecessary {
-    // Stub.
-}
+- (())clearKeychainIfNecessary {}
 
 - (CGRect)statusBarFrame {
-    // Report a zero-height status bar since we don't render one.
     CGRect {
         origin: crate::frameworks::core_graphics::CGPoint { x: 0.0, y: 0.0 },
         size: crate::frameworks::core_graphics::CGSize { width: 320.0, height: 0.0 },
@@ -373,31 +351,14 @@ true
 }
 
 - (id)keyWindow {
-    let Some(key_window) = env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .key_window else {
+    let Some(key_window) = env.framework_state.uikit.ui_view.ui_window.key_window else {
         return nil;
     };
-    assert!(env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .windows
-        .contains(&key_window));
     key_window
 }
 
 - (id)windows {
-    let windows: Vec<id> = (*env
-        .framework_state
-        .uikit
-        .ui_view
-        .ui_window
-        .windows).to_vec();
+    let windows: Vec<id> = (*env.framework_state.uikit.ui_view.ui_window.windows).to_vec();
     for window in &windows {
         retain(env, *window);
     }
@@ -410,7 +371,7 @@ true
 }
 
 - (NSInteger)applicationIconBadgeNumber {
-    0 // default value
+    0
 }
 - (())setApplicationIconBadgeNumber:(NSInteger)bn {
     log!("TODO: ignoring setApplicationIconBadgeNumber:{}", bn);
@@ -422,7 +383,7 @@ true
     let ui_responder_class = env.objc.get_known_class("UIResponder", &mut env.mem);
     if env.objc.class_is_subclass_of(app_delegate_class, ui_responder_class) {
         delegate
-        } else {
+    } else {
         nil
     }
 }
@@ -430,17 +391,16 @@ true
 @end
 
 };
-/// `UIApplicationMain`, the entry point of the application.
+
 pub(super) fn UIApplicationMain(
     env: &mut Environment,
     _argc: i32,
     _argv: MutPtr<MutPtr<u8>>,
-    principal_class_name: id, // NSString*
-    delegate_class_name: id,  // NSString*
+    principal_class_name: id,
+    delegate_class_name: id,
 ) {
     let ui_application = {
         let pool: id = msg_class![env; NSAutoreleasePool new];
-
         let principal_class = if principal_class_name != nil {
             let name = ns_string::to_rust_string(env, principal_class_name);
             env.objc.get_known_class(&name, &mut env.mem)
@@ -450,11 +410,7 @@ pub(super) fn UIApplicationMain(
         let ui_application: id = msg![env; principal_class new];
 
         let device_family = env.options.device_family;
-        if let Some(main_nib_filename) = env
-            .bundle
-            .main_nib_filename(device_family)
-            .map(str::to_owned)
-        {
+        if let Some(main_nib_filename) = env.bundle.main_nib_filename(device_family).map(str::to_owned) {
             let ns_main_nib_filename = from_rust_string(env, main_nib_filename);
             let type_: id = get_static_str(env, "nib");
             let bundle: id = msg_class![env; NSBundle mainBundle];
@@ -462,10 +418,7 @@ pub(super) fn UIApplicationMain(
             if res != nil {
                 let nib: id = msg_class![env; UINib nibWithNibName:ns_main_nib_filename bundle:nil];
                 release(env, ns_main_nib_filename);
-                let _: id = msg![env; nib instantiateWithOwner:ui_application
-                                               options:nil];
-            } else {
-                log!("Warning: couldn't load main nib file.");
+                let _: id = msg![env; nib instantiateWithOwner:ui_application options:nil];
             }
         }
 
@@ -475,12 +428,9 @@ pub(super) fn UIApplicationMain(
 
         let delegate: id = msg![env; ui_application delegate];
         if delegate != nil {
-            env.objc
-                .borrow_mut::<UIApplicationHostObject>(ui_application)
-                .delegate_is_retained = true;
+            env.objc.borrow_mut::<UIApplicationHostObject>(ui_application).delegate_is_retained = true;
             retain(env, delegate);
         } else {
-            // assert!(delegate_class_name != nil);
             if msg![env; delegate_class_name isEqual:principal_class_name] {
                 let _: () = msg![env; ui_application setDelegate:ui_application];
             } else {
@@ -498,25 +448,15 @@ pub(super) fn UIApplicationMain(
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env.objc.object_has_method_named(
-            &env.mem,
-            delegate,
-            "application:didFinishLaunchingWithOptions:",
-        ) {
+        if env.objc.object_has_method_named(&env.mem, delegate, "application:didFinishLaunchingWithOptions:") {
             let empty_dict: id = msg_class![env; NSDictionary dictionary];
             () = msg![env; delegate application:ui_application didFinishLaunchingWithOptions:empty_dict];
-        } else if env.objc.object_has_method_named(
-            &env.mem,
-            delegate,
-            "applicationDidFinishLaunching:",
-        ) {
+        } else if env.objc.object_has_method_named(&env.mem, delegate, "applicationDidFinishLaunching:") {
             () = msg![env; delegate applicationDidFinishLaunching:ui_application];
         }
-
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         let notif_name = get_static_str(env, UIApplicationDidFinishLaunchingNotification);
         () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
-
         let _: () = msg![env; pool drain];
     }
 
@@ -528,10 +468,7 @@ pub(super) fn UIApplicationMain(
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationDidBecomeActive:")
-        {
+        if env.objc.object_has_method_named(&env.mem, delegate, "applicationDidBecomeActive:") {
             () = msg![env; delegate applicationDidBecomeActive:ui_application];
         }
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
@@ -547,7 +484,6 @@ pub(super) fn UIApplicationMain(
 pub(super) fn exit(env: &mut Environment) {
     let ui_application: id = msg_class![env; UIApplication sharedApplication];
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         if !env.is_app_picker {
@@ -555,10 +491,7 @@ pub(super) fn exit(env: &mut Environment) {
             let _: bool = msg![env; user_defaults synchronize];
         }
         let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationWillResignActive:")
-        {
+        if env.objc.object_has_method_named(&env.mem, delegate, "applicationWillResignActive:") {
             () = msg![env; delegate applicationWillResignActive:ui_application];
         }
         let notif_name = get_static_str(env, UIApplicationWillResignActiveNotification);
@@ -568,65 +501,34 @@ pub(super) fn exit(env: &mut Environment) {
     {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env
-            .objc
-            .object_has_method_named(&env.mem, delegate, "applicationWillTerminate:")
-        {
+        if env.objc.object_has_method_named(&env.mem, delegate, "applicationWillTerminate:") {
             () = msg![env; delegate applicationWillTerminate:ui_application];
         }
         let notif_name = get_static_str(env, UIApplicationWillTerminateNotification);
         () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
         let _: () = msg![env; pool drain];
     };
-
     std::process::exit(0);
 }
 
-const UIApplicationDidFinishLaunchingNotification: &str =
-    "UIApplicationDidFinishLaunchingNotification";
+const UIApplicationDidFinishLaunchingNotification: &str = "UIApplicationDidFinishLaunchingNotification";
 const UIApplicationDidBecomeActiveNotification: &str = "UIApplicationDidBecomeActiveNotification";
-const UIApplicationDidEnterBackgroundNotification: &str =
-    "UIApplicationDidEnterBackgroundNotification";
-const UIApplicationWillEnterForegroundNotification: &str =
-    "UIApplicationWillEnterForegroundNotification";
+const UIApplicationDidEnterBackgroundNotification: &str = "UIApplicationDidEnterBackgroundNotification";
+const UIApplicationWillEnterForegroundNotification: &str = "UIApplicationWillEnterForegroundNotification";
 const UIApplicationWillResignActiveNotification: &str = "UIApplicationWillResignActiveNotification";
 const UIApplicationWillTerminateNotification: &str = "UIApplicationWillTerminateNotification";
-const UIApplicationLaunchOptionsRemoteNotificationKey: &str =
-    "UIApplicationLaunchOptionsRemoteNotificationKey";
-const UIApplicationDidReceiveMemoryWarningNotification: &str =
-    "UIApplicationDidReceiveMemoryWarningNotification";
+const UIApplicationLaunchOptionsRemoteNotificationKey: &str = "UIApplicationLaunchOptionsRemoteNotificationKey";
+const UIApplicationDidReceiveMemoryWarningNotification: &str = "UIApplicationDidReceiveMemoryWarningNotification";
+
 pub const CONSTANTS: ConstantExports = &[
-    (
-        "_UIApplicationDidFinishLaunchingNotification",
-        HostConstant::NSString(UIApplicationDidFinishLaunchingNotification),
-    ),
-    (
-        "_UIApplicationDidBecomeActiveNotification",
-        HostConstant::NSString(UIApplicationDidBecomeActiveNotification),
-    ),
-    (
-        "_UIApplicationDidEnterBackgroundNotification",
-        HostConstant::NSString(UIApplicationDidEnterBackgroundNotification),
-    ),
-    (
-        "_UIApplicationWillEnterForegroundNotification",
-        HostConstant::NSString(UIApplicationWillEnterForegroundNotification),
-    ),
-    (
-        "_UIApplicationWillResignActiveNotification",
-        HostConstant::NSString(UIApplicationWillResignActiveNotification),
-    ),
-    (
-        "_UIApplicationWillTerminateNotification",
-        HostConstant::NSString(UIApplicationWillTerminateNotification),
-    ),
-    (
-        "_UIApplicationDidReceiveMemoryWarningNotification",
-        HostConstant::NSString(UIApplicationDidReceiveMemoryWarningNotification),
-    ),
-    (
-        "_UIApplicationLaunchOptionsRemoteNotificationKey",
-        HostConstant::NSString(UIApplicationLaunchOptionsRemoteNotificationKey),
-    ),
+    ("_UIApplicationDidFinishLaunchingNotification", HostConstant::NSString(UIApplicationDidFinishLaunchingNotification)),
+    ("_UIApplicationDidBecomeActiveNotification", HostConstant::NSString(UIApplicationDidBecomeActiveNotification)),
+    ("_UIApplicationDidEnterBackgroundNotification", HostConstant::NSString(UIApplicationDidEnterBackgroundNotification)),
+    ("_UIApplicationWillEnterForegroundNotification", HostConstant::NSString(UIApplicationWillEnterForegroundNotification)),
+    ("_UIApplicationWillResignActiveNotification", HostConstant::NSString(UIApplicationWillResignActiveNotification)),
+    ("_UIApplicationWillTerminateNotification", HostConstant::NSString(UIApplicationWillTerminateNotification)),
+    ("_UIApplicationDidReceiveMemoryWarningNotification", HostConstant::NSString(UIApplicationDidReceiveMemoryWarningNotification)),
+    ("_UIApplicationLaunchOptionsRemoteNotificationKey", HostConstant::NSString(UIApplicationLaunchOptionsRemoteNotificationKey)),
 ];
+
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(UIApplicationMain(_, _, _, _))];
