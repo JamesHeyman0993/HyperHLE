@@ -137,14 +137,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (UIInterfaceOrientation)statusBarOrientation {
-    // Fix for Fast & Furious: Force landscape
-        if let Some(ref bundle) = env.bundle {
+        // Fix for Fast & Furious: Force landscape
+    if let Some(ref bundle) = env.bundle.inner {
         let bundle_id = bundle.bundle_identifier();
         if bundle_id == "com.iplay.ff63d" {
-            return UIDeviceOrientationLandscapeRight;
+            return UIInterfaceOrientationLandscapeRight;
         }
     }
-
+    
     match env.window().current_rotation() {
         DeviceOrientation::Portrait => UIDeviceOrientationPortrait,
         DeviceOrientation::LandscapeLeft => UIDeviceOrientationLandscapeLeft,
