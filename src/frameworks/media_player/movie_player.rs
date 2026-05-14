@@ -454,16 +454,21 @@ UIColor blackColor] // TODO
 - (())play {
     log!("HACK: Skipping video [(MPMoviePlayerController*){:?} play] and sending finish notification", this);
     
-    // 1. Tell the game the video "played" and immediately "stopped"
     let host_object = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-    host_object.playback_state = 0; // 0 resets the state to Stopped
+    host_object.playback_state = MPMoviePlaybackStateStopped;
 
-    // 2. Fire the finish notification instantly so the game moves on
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let notif_name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
-    let _: () = msg![env; center postNotificationName:notif_name object:this userInfo:nil];
+    let name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
+    
+    // Create the userInfo dictionary with the "Finish Reason"
+    // reason 0 = PlaybackEnded
+    let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
+    let reason_key = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
+    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
+
+    let _: () = msg![env; center postNotificationName:name object:this userInfo:user_info];
 }
-        
+           
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
     env.objc
