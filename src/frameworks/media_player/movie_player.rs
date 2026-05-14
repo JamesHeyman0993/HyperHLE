@@ -450,22 +450,20 @@ UIColor blackColor] // TODO
 }
 
 // MPMediaPlayback implementation
+// NEW CODE (Forces immediate skip and progress)
 - (())play {
-    log!("HACK: Skipping video [(MPMoviePlayerController*){:?} play]", this);
+    log!("HACK: Skipping video [(MPMoviePlayerController*){:?} play] and sending finish notification", this);
     
-    // Set state to playing first
-    env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this).playback_state = MPMoviePlaybackStatePlaying;
+    // 1. Tell the game the video "played" and immediately "stopped"
+    let host_object = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+    host_object.playback_state = 0; // 0 resets the state to Stopped
 
-    // Queue a "Finished" notification 1 second from now.
-    // This gives the game time to start its 'video waiting' logic before we tell it it's done.
-    retain(env, this);
-    State::get(env).pending_notifications.push_back((
-        MPMoviePlayerPlaybackDidFinishNotification,
-        this,
-        Instant::now() + std::time::Duration::from_millis(1000),
-    ));
+    // 2. Fire the finish notification instantly so the game moves on
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+    let notif_name = get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
+    let _: () = msg![env; center postNotificationName:notif_name object:this userInfo:nil];
 }
-    
+        
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
     env.objc
