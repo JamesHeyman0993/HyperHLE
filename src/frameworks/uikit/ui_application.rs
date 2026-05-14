@@ -137,13 +137,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (UIInterfaceOrientation)statusBarOrientation {
-    // Check if we are running Fast & Furious
-    let bundle_id = env.bundle.identifier();
-    if bundle_id == "com.iplay.ff63d" {
-        // Force LandscapeRight for this specific game
-        return UIDeviceOrientationLandscapeRight;
+    // Check if the bundle exists and get the ID
+    if let Some(bundle) = env.bundle.as_ref() {
+        let bundle_id = bundle.bundle_identifier();
+        if bundle_id == "com.iplay.ff63d" {
+            // Force LandscapeRight for Fast & Furious
+            return UIDeviceOrientationLandscapeRight;
+        }
     }
 
+    // Default behavior for all other games
+    match env.window().current_rotation() {
+        DeviceOrientation::Portrait => UIDeviceOrientationPortrait,
+        DeviceOrientation::LandscapeLeft => UIDeviceOrientationLandscapeLeft,
+        DeviceOrientation::LandscapeRight => UIDeviceOrientationLandscapeRight
+    }
+}
+    
     // Default behavior for all other games
     match env.window().current_rotation() {
         DeviceOrientation::Portrait => UIDeviceOrientationPortrait,
