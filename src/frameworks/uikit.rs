@@ -235,17 +235,18 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 echo!("User requested quit, exiting.");
                 ui_application::exit(env);
             }
-            Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
+            // MODIFIED: Included Event::TouchesCancel fallback variant alongside standard inputs
+            Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) | Event::TouchesCancel(..) => {
                 ui_touch::handle_event(env, event)
             }
             Event::AppWillResignActive => {
                 log!("Handling app-will-resign-active event: ignoring to prevent pause.");
-                // Use continue to skip this event and move to the next one in the loop
                 continue;
-                                    }
-             
+            }
             Event::AppWillTerminate => {
-                log!("Handling app-will-terminate event: ignoring.");
+                log!("Handling app-will-terminate event: ignoring to prevent exit.");
+                // MODIFIED: Added explicit continue block to intercept termination thread fallthroughs
+                continue;
             }
             Event::EnterDebugger => {
                 if env.is_debugging_enabled() {
@@ -257,20 +258,22 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             }
             Event::TextInput(text_event) => {
                 let responder = env.framework_state.uikit.ui_responder.first_responder;
-                let class = msg![env; responder class];
-                let ui_text_field_class = env.objc.get_known_class("UITextField", &mut env.mem);
+                
+                if !responder.is_null() {
+                    let class = msg![env; responder class];
+                    let ui_text_field_class = env.objc.get_known_class("UITextField", &mut env.mem);
 
-                if !responder.is_null() && env.objc.class_is_subclass_of(class, ui_text_field_class)
-                {
-                    match text_event {
-                        TextInputEvent::Text(text) => {
-                            ui_view::ui_control::ui_text_field::handle_text(env, responder, text)
-                        }
-                        TextInputEvent::Backspace => {
-                            ui_view::ui_control::ui_text_field::handle_backspace(env, responder)
-                        }
-                        TextInputEvent::Return => {
-                            ui_view::ui_control::ui_text_field::handle_return(env, responder)
+                    if env.objc.class_is_subclass_of(class, ui_text_field_class) {
+                        match text_event {
+                            TextInputEvent::Text(text) => {
+                                ui_view::ui_control::ui_text_field::handle_text(env, responder, text)
+                            }
+                            TextInputEvent::Backspace => {
+                                ui_view::ui_control::ui_text_field::handle_backspace(env, responder)
+                            }
+                            TextInputEvent::Return => {
+                                ui_view::ui_control::ui_text_field::handle_return(env, responder)
+                            }
                         }
                     }
                 }
