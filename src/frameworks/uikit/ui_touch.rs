@@ -398,36 +398,52 @@ fn handle_touches_down(
                 .map(|(&fid, _)| fid)
                 .collect();
 
-            if !stuck.is_empty() {
-                log!(
-                    "Cleaning up {} stuck touches for single-touch view {:?}",
-                    stuck.len(),
-                    view
-                );
+            // NEW CODE (Explicitly notifies the game view that the touch has lifted)
+if !stuck.is_empty() {
+    log!(
+        "Cleaning up {} stuck touches for single-touch view {:?}",
+        stuck.len(),
+        view
+    );
 
-                for fid in stuck {
-                    if let Some(t) = env
-                        .framework_state
-                        .uikit
-                        .ui_touch
-                        .current_touches
-                        .remove(&fid)
-                    {
-                        {
-                            let host =
-                                env.objc.borrow_mut::<UITouchHostObject>(t);
+    // Create a temporary set to pass to the Objective-C view callback
+    let dead_touches_set: id = msg_class![env; NSMutableSet allocWithZone:(crate::mem::MutVoidPtr::null())];
 
-                            host.phase = UITouchPhaseEnded;
-                        }
-
-                        release(env, t);
-                    }
-                }
-            } else {
-                continue;
+    for fid in stuck {
+        if let Some(t) = env
+            .framework_state
+            .uikit
+            .ui_touch
+            .current_touches
+            .remove(&fid)
+        {
+            {
+                let host = env.objc.borrow_mut::<UITouchHostObject>(t);
+                host.phase = UITouchPhaseEnded;
             }
-        }
 
+            // Add this specific touch object into our notification bundle
+            let _: () = msg![env; dead_touches_set addObject:t];
+
+            // Safely clean up memory references tied to this touch structure
+            let (v_rel, w_rel) = {
+                let host = env.objc.borrow::<UITouchHostObject>(t);
+                (host.view, host.window)
+            };
+            if v_rel != nil { release(env, v_rel); }
+            if w_rel != nil { release(env, w_rel); }
+            release(env, t);
+        }
+    }
+
+    // Explicitly command the game view to release its button/UI state!
+    if view != nil {
+        let _: () = msg![env; view touchesEnded:dead_touches_set withEvent:event];
+    }
+} else {
+    continue;
+}
+            
         if let Entry::Vacant(e) = view_touches.entry(view) {
             let s: id = msg_class![env;
                 NSMutableSet allocWithZone:(MutVoidPtr::null())
