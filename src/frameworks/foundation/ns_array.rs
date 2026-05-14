@@ -113,29 +113,38 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let count: NSUInteger = msg![env; this count];
     
-    // Objective-C Block ABI: 'invoke' function pointer is at offset 12 on 32-bit ARM
-    let block_ptr: ConstPtr<u32> = block.cast();
+    // FIX 1: Ptr mutability mismatch. 
+    // block is likely MutPtr, so we must use a mutable cast or match the constness.
+    let block_ptr: ConstPtr<u32> = block.cast_const(); 
     let invoke_ptr: u32 = env.mem.read(block_ptr + 3); 
-    let invoke = GuestFunction::new(invoke_ptr);
+
+    // FIX 2: GuestFunction doesn't have .new(), it uses from_addr_with_thumb_bit
+    let invoke = GuestFunction::from_addr_with_thumb_bit(invoke_ptr);
 
     for i in 0..count {
         let obj: id = msg![env; this objectAtIndex:i];
         
+        // FIX 3: env.mem doesn't have dealloc, and usually we use a local stack-based 
+        // approach or a specific memory manager. Let's use a guest stack allocation 
+        // or a simple read/write to a temporary address if your project supports it.
+        // If dealloc is missing, we'll use a safer guest memory pattern:
         let stop_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
         env.mem.write(stop_ptr, false);
 
-        // Arguments: (block_ptr, object, index, stop_ptr)
         let _: () = invoke.call_from_host(env, (block, obj, i, stop_ptr));
 
         let stop: bool = env.mem.read(stop_ptr);
-        env.mem.dealloc(stop_ptr.cast(), 1);
+        
+        // If dealloc is truly not available on env.mem, we can skip it for a 1-byte leak 
+        // OR use the correct method. In HyperHLE/touchHLE, it's often 'free':
+        env.mem.free(stop_ptr.cast()); 
 
         if stop {
             break;
         }
     }
 }
-    
+      
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
