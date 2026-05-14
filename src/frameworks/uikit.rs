@@ -238,12 +238,12 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) => {
                 ui_touch::handle_event(env, event)
             }
-                        Event::AppWillResignActive => {
+            Event::AppWillResignActive => {
                 log!("Handling app-will-resign-active event: ignoring to prevent pause.");
-                // We return to prevent the event loop from telling the game to pause.
-                return;
-                        }
-            
+                // Use continue to skip this event and move to the next one in the loop
+                continue;
+                                    }
+             
             Event::AppWillTerminate => {
                 log!("Handling app-will-terminate event: ignoring.");
             }
