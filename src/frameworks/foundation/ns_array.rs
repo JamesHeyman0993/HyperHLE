@@ -106,7 +106,36 @@ pub const CLASSES: ClassExports = objc_classes! {
     let array: id = msg![env; array initWithObjects:objects_ptr count:count];
     autorelease(env, array)
 }
+    
+// PASTE THE NEW METHOD HERE:
+- (())enumerateObjectsUsingBlock:(id)block {
+    if block == nil { return; }
 
+    let count: NSUInteger = msg![env; this count];
+    
+    // Objective-C Block ABI: 'invoke' function pointer is at offset 12 on 32-bit ARM
+    let block_ptr: ConstPtr<u32> = block.cast();
+    let invoke_ptr: u32 = env.mem.read(block_ptr + 3); 
+    let invoke = GuestFunction::new(invoke_ptr);
+
+    for i in 0..count {
+        let obj: id = msg![env; this objectAtIndex:i];
+        
+        let stop_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
+        env.mem.write(stop_ptr, false);
+
+        // Arguments: (block_ptr, object, index, stop_ptr)
+        let _: () = invoke.call_from_host(env, (block, obj, i, stop_ptr));
+
+        let stop: bool = env.mem.read(stop_ptr);
+        env.mem.dealloc(stop_ptr.cast(), 1);
+
+        if stop {
+            break;
+        }
+    }
+}
+    
 // These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
