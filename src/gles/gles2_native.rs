@@ -13,6 +13,7 @@ use super::gles11_raw as gles11;
 use super::gles11_raw::types::*;
 use super::gles2_raw as gles2;
 use super::gles_generic::{GLchar, GLES};
+use super::util::{try_decode_pvrtc, PalettedTextureFormat};
 use super::GLESContext;
 use crate::window::{GLContext, GLVersion, Window};
 use std::ffi::CStr;
@@ -21,6 +22,18 @@ use std::marker::PhantomData;
 pub struct GLES2NativeContext {
     gl_ctx: GLContext,
     is_loaded: bool,
+    /// Whether the underlying OpenGL ES 2.0 driver advertises
+    /// `GL_IMG_texture_compression_pvrtc`. Apps shipped for iPhone OS use
+    /// PVRTC textures pervasively (Apple's recommended compression format),
+    /// so when the host driver lacks PVRTC we must software-decode the
+    /// payload and upload it as plain RGBA — otherwise every PVRTC texture
+    /// silently fails with `GL_INVALID_ENUM` and the app renders as black
+    /// silhouettes (see Subway Surfers 1.0.1 on Mesa/llvmpipe).
+    pvrtc_native: bool,
+    /// Whether `pvrtc_native` has been populated yet. The check is deferred
+    /// to the first `make_current` because we need a current GL context to
+    /// query `GL_EXTENSIONS`.
+    pvrtc_native_checked: bool,
 }
 
 impl GLESContext for GLES2NativeContext {
@@ -32,6 +45,8 @@ impl GLESContext for GLES2NativeContext {
         Ok(Self {
             gl_ctx: window.create_gl_context(GLVersion::GLES20)?,
             is_loaded: false,
+            pvrtc_native: false,
+            pvrtc_native_checked: false,
         })
     }
 
@@ -42,6 +57,7 @@ impl GLESContext for GLES2NativeContext {
         if self.gl_ctx.is_current() && self.is_loaded {
             return Box::new(GLES2Native {
                 _gl_lifetime: PhantomData,
+                pvrtc_native: self.pvrtc_native,
             });
         }
         unsafe {
@@ -53,8 +69,13 @@ impl GLESContext for GLES2NativeContext {
         // too so the existing helpers continue to work.
         gles11::load_with(|s| window.gl_get_proc_address(s));
         self.is_loaded = true;
+        if !self.pvrtc_native_checked {
+            self.pvrtc_native = unsafe { detect_pvrtc_support() };
+            self.pvrtc_native_checked = true;
+        }
         Box::new(GLES2Native {
             _gl_lifetime: PhantomData,
+            pvrtc_native: self.pvrtc_native,
         })
     }
 
@@ -66,20 +87,54 @@ impl GLESContext for GLES2NativeContext {
         if self.gl_ctx.is_current() && self.is_loaded {
             return Box::new(GLES2Native {
                 _gl_lifetime: PhantomData,
+                pvrtc_native: self.pvrtc_native,
             });
         }
         make_current_fn(&self.gl_ctx);
         gles2::load_with(&mut *loader_fn);
         gles11::load_with(&mut *loader_fn);
         self.is_loaded = true;
+        if !self.pvrtc_native_checked {
+            self.pvrtc_native = detect_pvrtc_support();
+            self.pvrtc_native_checked = true;
+        }
         Box::new(GLES2Native {
             _gl_lifetime: PhantomData,
+            pvrtc_native: self.pvrtc_native,
         })
     }
 }
 
+/// Query `GL_EXTENSIONS` and return whether the current OpenGL ES 2.0 driver
+/// advertises `GL_IMG_texture_compression_pvrtc`. Must be called with a
+/// current GL context.
+///
+/// On strict OpenGL ES 3.0+ contexts `glGetString(GL_EXTENSIONS)` is
+/// deprecated and may return an empty string. We can't use `glGetStringi`
+/// here because the touchHLE GLES 2.0 raw bindings (generated for Core
+/// ES 2.0 only) don't expose it. When the legacy string is unavailable we
+/// conservatively return `false`, which causes us to software-decode PVRTC.
+/// That's the safe choice: it produces correct output everywhere, at the
+/// cost of one extra in-memory pass per texture upload on hosts where
+/// PVRTC could otherwise be uploaded directly.
+unsafe fn detect_pvrtc_support() -> bool {
+    let legacy = gles2::GetString(gles11::EXTENSIONS);
+    if legacy.is_null() {
+        return false;
+    }
+    let Ok(s) = CStr::from_ptr(legacy as *const _).to_str() else {
+        return false;
+    };
+    if s.is_empty() {
+        return false;
+    }
+    s.split(' ')
+        .any(|ext| ext == "GL_IMG_texture_compression_pvrtc")
+}
+
 pub struct GLES2Native<'gl_ctx> {
     _gl_lifetime: PhantomData<&'gl_ctx ()>,
+    pvrtc_native: bool,
 }
 
 /// Returns `true` if `cap` is an ES 1.1 fixed-function capability that has
@@ -342,8 +397,8 @@ impl GLES for GLES2Native<'_> {
     }
     unsafe fn BindTexture(&mut self, target: GLenum, texture: GLuint) {
         gles2::BindTexture(target, texture)
-    }
-    unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
+            }
+     unsafe fn TexParameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
         // GL_GENERATE_MIPMAP (0x8191) is a TexParameter pname only on ES 1.1.
         // On ES 2.0 the equivalent is the standalone glGenerateMipmap() call.
         // Apps that ask for an ES 1.1 context but rely on shaders frequently
@@ -437,6 +492,44 @@ impl GLES for GLES2Native<'_> {
         image_size: GLsizei,
         data: *const GLvoid,
     ) {
+        // Apps built for iPhone OS overwhelmingly ship textures in PVRTC
+        // (Apple's recommended compression format on PowerVR-based devices,
+        // documented at
+        // https://developer.apple.com/library/archive/documentation/3DDrawing/Conceptual/OpenGLES_ProgrammingGuide/TextureTool/TextureTool.html).
+        // Most desktop OpenGL ES 2.0 drivers — including Mesa/llvmpipe used
+        // for software rendering — do not implement
+        // `GL_IMG_texture_compression_pvrtc`, so a pass-through call returns
+        // GL_INVALID_ENUM and leaves the texture in its default (black)
+        // state. Mirror the behaviour of the ES 1.1 backends here and
+        // software-decode PVRTC to plain RGBA when the host can't do it.
+        if !self.pvrtc_native && !data.is_null() && image_size > 0 {
+            let payload = std::slice::from_raw_parts(data.cast::<u8>(), image_size as usize);
+            if try_decode_pvrtc(
+                self,
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                payload,
+            ) {
+                return;
+            }
+            // Apple-targeted apps also sometimes ship
+            // `GL_OES_compressed_paletted_texture` data. Desktop ES 2.0
+            // doesn't advertise that extension either, so we'd silently
+            // produce another GL_INVALID_ENUM. Drop the upload with a
+            // single warning rather than corrupting the texture state.
+            if PalettedTextureFormat::get_info(internalformat).is_some() {
+                log!(
+                    "GLES2Native::CompressedTexImage2D: unsupported paletted format {:#x}; \
+                     skipping {width}x{height} upload.",
+                    internalformat,
+                );
+                return;
+            }
+        }
         gles2::CompressedTexImage2D(
             target,
             level,
