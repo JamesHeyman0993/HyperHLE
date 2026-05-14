@@ -164,20 +164,16 @@ pub enum TextInputEvent {
 }
 
 #[derive(Debug)]
+// Around line 167 in src/window.rs
 pub enum Event {
-    /// User requested quit.
     Quit,
-    /// OS has informed touchHLE it will soon become inactive.
-    /// (iOS `applicationWillResignActive:`, Android `onPause()`)
+    TouchesDown(std::collections::HashMap<FingerId, Coords>),
+    TouchesMove(std::collections::HashMap<FingerId, Coords>),
+    TouchesUp(std::collections::HashMap<FingerId, Coords>),
+    // FIX: Add this line so uikit.rs can compile!
+    TouchesCancel(std::collections::HashMap<FingerId, Coords>), 
     AppWillResignActive,
-    /// OS has informed touchHLE it will soon terminate.
-    /// (iOS `applicationWillTerminate:`, Android `onDestroy()`)
     AppWillTerminate,
-    TouchesDown(HashMap<FingerId, Coords>),
-    TouchesMove(HashMap<FingerId, Coords>),
-    TouchesUp(HashMap<FingerId, Coords>),
-    /// User pressed F12, requesting that execution be paused and the debugger
-    /// take over.
     EnterDebugger,
     TextInput(TextInputEvent),
 }
