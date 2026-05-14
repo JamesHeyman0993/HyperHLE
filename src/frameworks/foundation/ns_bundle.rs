@@ -733,20 +733,36 @@ pub const CLASSES: ClassExports = objc_classes! {
 // =========================================================================
 
 - (id)infoDictionary {
+    // 1. Check if we already have it cached
     if let Some(dict) = env.objc.borrow::<NSBundleHostObject>(this).info_dictionary {
         return dict;
     }
+
     let bundle_path = env.objc.borrow::<NSBundleHostObject>(this).bundle_path;
-    if bundle_path == nil {
-        return nil;
+    let mut dict: id = nil;
+
+    if bundle_path != nil {
+        let plist_comp = ns_string::get_static_str(env, "Info.plist");
+        let plist_path: id = msg![env; bundle_path stringByAppendingPathComponent:plist_comp];
+        
+        // Try to load the actual file
+        dict = msg_class![env; NSDictionary alloc];
+        dict = msg![env; dict initWithContentsOfFile:plist_path];
     }
-    let plist_comp = ns_string::get_static_str(env, "Info.plist");
-    let plist_path: id = msg![env; bundle_path stringByAppendingPathComponent:plist_comp];
-    let dict: id = msg_class![env; NSDictionary alloc];
-    let dict: id = msg![env; dict initWithContentsOfFile:plist_path];
+
+    // 2. THE FIX: If the dictionary is still nil (file missing/failed to load),
+    // provide an empty NSMutableDictionary so the game doesn't crash on a null borrow.
+    if dict == nil {
+        log_dbg!("Warning: Info.plist not found for bundle at {:?}, creating empty stub", 
+                 if bundle_path == nil { "nil path".into() } else { ns_string::to_rust_string(env, bundle_path) });
+        dict = msg_class![env; NSDictionary dictionary];
+        retain(env, dict); // Keep it alive for the host object
+    }
+
     env.objc.borrow_mut::<NSBundleHostObject>(this).info_dictionary = Some(dict);
     dict
 }
+    
 
 - (id)objectForInfoDictionaryKey:(id)key {
     let info_dict: id = msg![env; this infoDictionary];
