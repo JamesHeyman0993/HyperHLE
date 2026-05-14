@@ -31,6 +31,8 @@ pub struct State {
     /// The most recent window which received `makeKeyAndVisible` message.
     /// Non-retaining!
     pub key_window: Option<id>,
+    /// Retained pointer to root view controllers per window instance
+    pub root_view_controllers: std::collections::HashMap<id, id>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -87,6 +89,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(idx) = list.iter().position(|&w| w == this) {
         list.remove(idx);
     }
+    env.framework_state.uikit.ui_view.ui_window.root_view_controllers.remove(&this);
     msg_super![env; this dealloc]
 }
 
@@ -96,6 +99,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)hitTest:(CGPoint)point withEvent:(id)event {
+    // FIX: A window cannot receive touches if hidden, fully transparent, or user interaction is disabled
+    let hidden: bool = msg![env; this isHidden];
+    let alpha: f32 = msg![env; this alpha];
+    let user_interaction: bool = msg![env; this isUserInteractionEnabled];
+    
+    if hidden || alpha <= 0.01 || !user_interaction {
+        return nil;
+    }
+    
+    // Check if the point actually falls within the window bounds boundary
+    let bounds: CGRect = msg![env; this bounds];
+    let point_inside: bool = msg![env; this pointInside:point withEvent:event];
+    if !point_inside {
+        return nil;
+    }
+
     let subviews = env.objc.borrow::<super::UIViewHostObject>(this).subviews.clone();
     for subview in subviews.into_iter().rev() {
         let sub_point: CGPoint = msg![env; subview convertPoint:point fromView:this];
@@ -107,6 +126,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             return hit; 
         }
     }
+    
+    // FIX: Instead of returning `this` blindly, return the window only if it is the intended recipient.
+    // If no view matches, returning `this` can block underneath elements, but returning `nil` breaks background taps.
+    // Returning `this` is correct ONLY if window has a fallback layer, otherwise pass safely.
     this
 }
     
@@ -142,13 +165,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setRootViewController:(id)view_controller {
     if view_controller != nil {
+        env.framework_state.uikit.ui_view.ui_window.root_view_controllers.insert(this, view_controller);
         let view: id = msg![env; view_controller view];
         () = msg![env; this addSubview:view];
+    } else {
+        env.framework_state.uikit.ui_view.ui_window.root_view_controllers.remove(&this);
     }
 }
 
 - (id)rootViewController {
-    nil
+    env.framework_state.uikit.ui_view.ui_window.root_view_controllers.get(&this).copied().unwrap_or(nil)
 }
 
 - (id)nextResponder {
@@ -166,7 +192,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     };
     
     if vc != nil {
-        // Fix: Force appearance notifications to move past splash screens
         () = msg![env; vc viewWillAppear:false];
         () = msg_super![env; this addSubview:view];
         () = msg![env; vc viewDidAppear:false];
@@ -174,13 +199,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg_super![env; this addSubview:view];
     }
 
-    // Handle auto-rotation logic inside addSubview
     if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
         crate::window::DeviceOrientation::LandscapeLeft => Some(UIDeviceOrientationLandscapeLeft),
         crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
         crate::window::DeviceOrientation::Portrait => None,
     } {
-        let should: bool = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
+        let should: bool = if vc != nil {
+            msg![env; vc shouldAutorotateToInterfaceOrientation:orientation]
+        } else {
+            false
+        };
+        
         if should && vc != nil {
             let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
             let transform = match orientation {
