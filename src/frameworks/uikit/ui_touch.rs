@@ -443,7 +443,11 @@ if !stuck.is_empty() {
 } else {
     continue;
 }
-            
+
+// These close the parent blocks (the loop and the multi-touch condition check)
+    }
+    }
+    
         if let Entry::Vacant(e) = view_touches.entry(view) {
             let s: id = msg_class![env;
                 NSMutableSet allocWithZone:(MutVoidPtr::null())
