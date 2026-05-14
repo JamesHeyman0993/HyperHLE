@@ -460,7 +460,8 @@ UIColor blackColor] // TODO
 
     // 2. Fire the finish notification instantly so the game moves on
     let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let notif_name = get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
+    // NEW LINE (Fixed)
+let notif_name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
     let _: () = msg![env; center postNotificationName:notif_name object:this userInfo:nil];
 }
         
