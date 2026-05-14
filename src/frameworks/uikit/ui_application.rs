@@ -137,15 +137,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (UIInterfaceOrientation)statusBarOrientation {
-            // Fix for Fast & Furious: Force landscape
+                // Fix for Fast & Furious AND Power Rangers: Force landscape
     if !env.bundle.is_null() {
         let bundle = env.bundle.as_ref();
         let bundle_id = bundle.bundle_identifier();
-        if bundle_id == "com.iplay.ff63d" {
+        // Check for BOTH games here using ||
+        if bundle_id == "com.iplay.ff63d" || bundle_id == "com.saban.powerrangersbash" {
             return UIInterfaceOrientationLandscapeRight;
         }
     }
-    
+     
     match env.window().current_rotation() {
         DeviceOrientation::Portrait => UIDeviceOrientationPortrait,
         DeviceOrientation::LandscapeLeft => UIDeviceOrientationLandscapeLeft,
