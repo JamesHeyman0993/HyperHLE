@@ -1134,16 +1134,22 @@ impl Dyld {
             return Some(f);
         }
 
-        // Fallback: the symbol isn't implemented by any host dylib and isn't
-        // exported by any loaded guest dylib. Instead of panicking (which kills
-        // the app), install a stub that logs a warning and returns 0. This
-        // lets the emulator keep running for relatively harmless symbols like
-        // `_getuid`, `_geteuid`, `_getpid`, etc.
+                // Fallback: Check guest dylibs ONE MORE TIME before giving up
+        for dylib in bins.iter() {
+            if let Some(&addr) = dylib.exported_symbols.get(symbol) {
+                let (stub_ptr, la_ptr) = link_by_restoring_stub(mem, cpu, addr, svc_pc, info.entry_size, pic_offset);
+                log!("HyperHLE: Late-link success for {} at {:#x}", symbol, addr);
+                return None;
+            }
+        }
+
+        // If it's REALLY not there, then and only then, install the stub
         log!(
             "Warning: call to unimplemented function {} at {:#x}; installing return-0 stub",
             symbol,
             svc_pc
         );
+        
         // `linked_host_functions` requires a `&'static str`, so leak the name.
         let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
         let f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
