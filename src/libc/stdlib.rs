@@ -302,20 +302,30 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
     let name_bytes = env.mem.cstr_at(name).to_vec(); // Copy to Vec to free the memory borrow
     let name_str = std::str::from_utf8(&name_bytes).unwrap_or("");
 
-        // --- Intercept Mono requests for Bad Piggies ---
-    if name_str == "MONO_CFG_DIR" || name_str == "MONO_CONFIG" {
+    // --- Intercept Mono and Path requests ---
+    if name_str == "MONO_CFG_DIR" || name_str == "MONO_CONFIG" || name_str == "HOME" || name_str == "TMPDIR" {
         let path = env.bundle.executable_path(); 
-        log!("HyperHLE: Providing dummy {} path", name_str);
+        log!("HyperHLE: Providing dummy path for {}", name_str);
         
         let path_bytes = std::ffi::CString::new(path.as_str()).unwrap();
-        let bytes_with_nul = path_bytes.as_bytes_with_nul();
+        let bytes = path_bytes.as_bytes_with_nul();
         
-        // .cast() converts Ptr<c_void> to Ptr<u8> so bytes_at_mut is happy
-        let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes_with_nul.len() as u32).cast();
+        let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
+        env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
         
-        env.mem.bytes_at_mut(guest_ptr, bytes_with_nul.len() as u32)
-               .copy_from_slice(bytes_with_nul);
-        
+        return guest_ptr.cast();
+    }
+
+    // --- Intercept Locale requests (Fixes language-related crashes) ---
+    if name_str == "LC_ALL" || name_str == "LANG" {
+        log!("HyperHLE: Providing default locale (en_US.UTF-8)");
+        let val = "en_US.UTF-8";
+        let val_bytes = std::ffi::CString::new(val).unwrap();
+        let bytes = val_bytes.as_bytes_with_nul();
+
+        let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
+        env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
+
         return guest_ptr.cast();
     }
     
@@ -326,7 +336,8 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
             && name_str != "LUA_CPATH"
             && name_str != "MMGC_HEAP_LIMIT"
             && name_str != "MMGC_HEAP_SOFT_LIMIT"
-            && !name_str.starts_with("MONO_") 
+            && !name_str.starts_with("MONO_")
+            && !name_str.starts_with("GC_")
         {
             log!(
                 "Warning: getenv() for {:?} ({:?}) unhandled",
