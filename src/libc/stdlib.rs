@@ -299,28 +299,34 @@ fn arc4random(env: &mut Environment) -> u32 {
 }
 
 fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
-        let name_cstr = env.mem.cstr_at(name);
-    let name_str = std::str::from_utf8(name_cstr).unwrap_or("");
+    let name_bytes = env.mem.cstr_at(name).to_vec(); // Copy to Vec to free the memory borrow
+    let name_str = std::str::from_utf8(&name_bytes).unwrap_or("");
 
     // --- Intercept Mono requests for Bad Piggies ---
     if name_str == "MONO_CFG_DIR" || name_str == "MONO_CONFIG" {
         let path = env.bundle.executable_path(); 
         log!("HyperHLE: Providing dummy {} path", name_str);
-        return crate::libc::string::strdup(env, env.mem.push_cstr(path.as_str()).cast_const());
+        
+        // Convert the path to a C-string (with \0 terminator)
+        let path_bytes = std::ffi::CString::new(path.as_str()).unwrap();
+        let bytes_with_nul = path_bytes.as_bytes_with_nul();
+        
+        // Manually allocate and write to guest memory
+        let guest_ptr = env.mem.alloc(bytes_with_nul.len() as u32);
+        env.mem.bytes_at_mut(guest_ptr, bytes_with_nul.len() as u32)
+               .copy_from_slice(bytes_with_nul);
+        
+        return guest_ptr.cast();
     }
 
-    let Some(&value) = env.env_vars.get(name_cstr) else {
-        
-        // Игнорируем предупреждения для известных переменных, отсутствие
-        // которых — норма.
-        // MMGC_HEAP_LIMIT и MMGC_HEAP_SOFT_LIMIT ищет Adobe AIR / Flash
-        // (Macromedia GC).
-        // Возвращать NULL для них — это правильное и честное поведение,
-        // так как движок сам подставит нужные дефолтные лимиты для iOS.
+    // Look up in the existing environment variables map
+    let Some(&value) = env.env_vars.get(&name_bytes) else {
+        // Ignore warnings for known variables where NULL is a valid/expected response
         if name_str != "LUA_PATH"
             && name_str != "LUA_CPATH"
             && name_str != "MMGC_HEAP_LIMIT"
             && name_str != "MMGC_HEAP_SOFT_LIMIT"
+            && !name_str.starts_with("MONO_") 
         {
             log!(
                 "Warning: getenv() for {:?} ({:?}) unhandled",
@@ -330,10 +336,11 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
         }
         return Ptr::null();
     };
+
     log_dbg!(
         "getenv({:?} ({:?})) => {:?} ({:?})",
         name,
-        name_cstr,
+        name_str,
         value,
         env.mem.cstr_at_utf8(value),
     );
