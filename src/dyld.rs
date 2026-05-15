@@ -1038,7 +1038,26 @@ impl Dyld {
         assert!(offset.is_multiple_of(info.entry_size));
         let idx = (offset / info.entry_size) as usize;
         let symbol = info.indirect_undef_symbols[idx].as_deref().unwrap();
-
+        
+        // --- START OF FIX ---
+        let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
+        if symbol == vector_math_mangled {
+             log!("HyperHLE: Critical math function detected: {}. Blocking return-0 stub to prevent crash.", symbol);
+             
+             // Check if any loaded guest dylib (like libstdc++) has this
+             for dylib in bins.iter() {
+                 if let Some(&addr) = dylib.exported_symbols.get(symbol) {
+                     let (stub_ptr, la_ptr) = link_by_restoring_stub(mem, cpu, addr, svc_pc, info.entry_size, pic_offset);
+                     log!("HyperHLE: Successfully linked math function to guest dylib at {:#x}", addr);
+                     return None;
+                 }
+             }
+             // If we get here, it's not in a dylib. We return None to stop the return-0 stub.
+             // This might cause a different error, but it's better than an invisible math crash.
+             return None; 
+        }
+        // --- END OF FIX ---
+        
         if let Some(&addr) = self.non_lazy_host_functions.get(symbol) {
             // The host function was already linked non-lazily, point the
             // stub and __la_symbol_ptr to the function.
