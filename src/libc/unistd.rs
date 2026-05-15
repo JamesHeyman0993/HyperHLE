@@ -271,29 +271,25 @@ fn readlink(
     buf: MutPtr<u8>,
     buf_size: GuestISize,
 ) -> GuestISize {
-    let path_str = env.mem.cstr_at_utf8(path).unwrap_or_default();
+    // .to_owned() breaks the connection to env.mem, freeing up the borrow
+    let path_str = env.mem.cstr_at_utf8(path).unwrap_or_default().to_owned();
 
-    // --- REDIRECTION LOGIC ---
-    // Unity/Mono apps often check /var/mobile/Applications/.../
-    // We redirect these to the actual internal app path.
     if path_str.starts_with("/var/mobile/Applications") || path_str.starts_with("/var/mobile/Containers") {
         log!("HyperHLE: Intercepted readlink for virtual path: {}", path_str);
         
-        // We "lie" and say the link points to itself but in our real filesystem.
-        // Most apps just want to confirm the file exists and is accessible.
         let bytes = path_str.as_bytes();
         let len = bytes.len();
         let max_len = buf_size as usize;
         
         if len >= max_len {
-            set_errno(env, EINVAL); // Buffer too small
+            set_errno(env, EINVAL);
             return -1;
         }
 
+        // Now env.mem is free to be borrowed mutably
         env.mem.bytes_at_mut(buf, len as GuestUSize).copy_from_slice(bytes);
         return len as GuestISize;
     }
-    // --- END REDIRECTION ---
 
     log!(
         "TODO: readlink({:?} '{}', {:?}, {}) -> -1",
@@ -303,7 +299,6 @@ fn readlink(
         buf_size,
     );
     
-    // For anything else, fail as before
     set_errno(env, EINVAL);
     -1
 }
