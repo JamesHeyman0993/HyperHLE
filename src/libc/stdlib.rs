@@ -299,9 +299,18 @@ fn arc4random(env: &mut Environment) -> u32 {
 }
 
 fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
-    let name_cstr = env.mem.cstr_at(name);
+        let name_cstr = env.mem.cstr_at(name);
     let name_str = std::str::from_utf8(name_cstr).unwrap_or("");
+
+    // --- Intercept Mono requests for Bad Piggies ---
+    if name_str == "MONO_CFG_DIR" || name_str == "MONO_CONFIG" {
+        let path = env.bundle.executable_path(); 
+        log!("HyperHLE: Providing dummy {} path", name_str);
+        return crate::libc::string::strdup(env, env.mem.push_cstr(path.as_str()).cast_const());
+    }
+
     let Some(&value) = env.env_vars.get(name_cstr) else {
+        
         // Игнорируем предупреждения для известных переменных, отсутствие
         // которых — норма.
         // MMGC_HEAP_LIMIT и MMGC_HEAP_SOFT_LIMIT ищет Adobe AIR / Flash
