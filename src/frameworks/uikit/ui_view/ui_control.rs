@@ -294,8 +294,13 @@ forControlEvents:(UIControlEvents)events {
 - (())sendAction:(SEL)action
               to:(id)target
         forEvent:(id)event { // UIEvent*
-    assert!(target != nil); // TODO
-
+    let mut actual_target = target;
+if actual_target == nil {
+    // If target is nil, try sending it to the app delegate or main window
+    actual_target = msg![env; msg_class![env; UIApplication sharedApplication] delegate];
+    log::info!("Redirecting nil target to App Delegate: {:?}", actual_target);
+}
+            
     let sel_str = action.as_str(&env.mem);
     let colon_count = sel_str.bytes().filter(|&b| b == b':').count();
     match colon_count {
