@@ -251,14 +251,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // --- START REDIRECTION FIX ---
     if actual_target == nil {
-        // Step 1: Get the UIApplication class
-        let ui_app_class = msg_class![env; UIApplication];
-        if ui_app_class != nil {
-            // Step 2: Get the shared application instance
-            let shared_app: id = msg![env; ui_app_class sharedApplication];
-            if shared_app != nil {
-                // Step 3: Get the delegate
-                actual_target = msg![env; shared_app delegate];
+        // In your project, msg_class! calls a method on the class directly.
+        // We call 'sharedApplication' on the 'UIApplication' class here.
+        let shared_app: id = msg_class![env; UIApplication sharedApplication];
+        
+        if shared_app != nil {
+            // Now we get the delegate from that instance
+            actual_target = msg![env; shared_app delegate];
+            
+            if actual_target != nil {
                 log::info!("HyperHLE: Redirecting nil target to App Delegate: {:?}", actual_target);
             }
         }
@@ -288,7 +289,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         _ => panic!(),
     };
 }
-
+    
 @end
 
 };
