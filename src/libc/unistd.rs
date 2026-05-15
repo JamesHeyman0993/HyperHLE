@@ -277,7 +277,7 @@ fn readlink(
     // Unity/Mono apps often check /var/mobile/Applications/.../
     // We redirect these to the actual internal app path.
     if path_str.starts_with("/var/mobile/Applications") || path_str.starts_with("/var/mobile/Containers") {
-        log::info!("HyperHLE: Intercepted readlink for virtual path: {}", path_str);
+        log!("HyperHLE: Intercepted readlink for virtual path: {}", path_str);
         
         // We "lie" and say the link points to itself but in our real filesystem.
         // Most apps just want to confirm the file exists and is accessible.
