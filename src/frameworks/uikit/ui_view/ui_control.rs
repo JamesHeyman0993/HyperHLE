@@ -294,53 +294,41 @@ forControlEvents:(UIControlEvents)events {
 - (())sendAction:(SEL)action
               to:(id)target
         forEvent:(id)event { // UIEvent*
+    
     let mut actual_target = target;
-if actual_target == nil {
-    // If target is nil, try sending it to the app delegate or main window
-    actual_target = msg![env; msg_class![env; UIApplication sharedApplication] delegate];
-    log::info!("Redirecting nil target to App Delegate: {:?}", actual_target);
-}
+    
+    if actual_target == nil {
+        // Redirecting to the App Delegate if target is nil
+        actual_target = msg![env; msg_class![env; UIApplication sharedApplication] delegate];
+        log::info!("HyperHLE: Redirecting nil target to App Delegate: {:?}", actual_target);
+    }
+    
+    // Safety check: if we STILL don't have a target, stop here
+    if actual_target == nil {
+        log::warn!("HyperHLE: No target found for action {:?}", action);
+        return;
+    }
             
     let sel_str = action.as_str(&env.mem);
     let colon_count = sel_str.bytes().filter(|&b| b == b':').count();
+    
     match colon_count {
-        // - (IBAction)action;
         0 => {
-            log_dbg!(
-                "Sending {:?} ({:?}) message to {:?} (no args)",
-                action,
-                sel_str,
-                target
-            );
-            () = msg_send(env, (target, action));
+            // Use actual_target here!
+            () = msg_send(env, (actual_target, action));
         }
-        // - (IBAction)action:(id)sender;
         1 => {
-            log_dbg!(
-                "Sending {:?} ({:?}) message to {:?} (one arg: {:?})",
-                action,
-                sel_str,
-                target,
-                this
-            );
-            () = msg_send(env, (target, action, this));
+            // Use actual_target here!
+            () = msg_send(env, (actual_target, action, this));
         }
-        // - (IBAction)action:(id)sender forEvent:(UIEvent*)event;
         2 => {
-            log_dbg!(
-                "Sending {:?} ({:?}) message to {:?} (two args: {:?}, {:?})",
-                action,
-                sel_str,
-                target,
-                this,
-                event
-            );
-            () = msg_send(env, (target, action, this, event));
+            // Use actual_target here!
+            () = msg_send(env, (actual_target, action, this, event));
         }
         _ => panic!(),
     };
-}
-
+        }
+    
 // TODO: more triggers/targets/actions stuff
 
 @end
