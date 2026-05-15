@@ -19,7 +19,7 @@ use crate::frameworks::core_graphics::CGPoint;
 use crate::frameworks::foundation::NSUInteger;
 use crate::objc::{
     id, impl_HostObject_with_superclass, msg, msg_send, msg_super, nil, objc_classes, release,
-    retain, ClassExports, NSZonePtr, SEL, msg_class,
+    retain, ClassExports, NSZonePtr, SEL,
 };
 use crate::Environment;
 
@@ -85,7 +85,8 @@ fn send_actions(env: &mut Environment, this: id, event: id, control_event: UICon
         .collect();
 
     for (target, action) in action_targets {
-        // We no longer assert target != nil here because sendAction now handles redirection
+        assert!(target != nil); // TODO
+
         () = msg![env; this sendAction:action to:target forEvent:event];
     }
 }
@@ -109,7 +110,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         selected: _,
         highlighted: _,
         tracking: _,
-        action_targets: _, 
+        action_targets: _, // targets are weak references, nothing to do
         tracked_touch,
     } = std::mem::take(env.objc.borrow_mut(this));
 
@@ -125,7 +126,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         selected,
         ..
     } = env.objc.borrow(this);
-    let mut state = 0; 
+    // TODO: focussed
+    let mut state = 0; // aka UIControlStateNormal
     if highlighted {
         state |= UIControlStateHighlighted;
     }
@@ -163,37 +165,66 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UIControlHostObject>(this).tracking
 }
 
-- (())cancelTrackingWithEvent:(id)_event { }
+- (())cancelTrackingWithEvent:(id)_event {
+    // default implementation, subclasses can override this
+}
 
-- (bool)beginTrackingWithTouch:(id)_touch withEvent:(id)_event { true }
-- (bool)continueTrackingWithTouch:(id)_touch withEvent:(id)_event { true }
-- (())endTrackingWithTouch:(id)_touch withEvent:(id)_event {
+- (bool)beginTrackingWithTouch:(id)_touch // UITouch*
+                     withEvent:(id)_event { // UIEvent*
+    // default implementation, subclasses can override this
+    true
+}
+- (bool)continueTrackingWithTouch:(id)_touch // UITouch*
+                        withEvent:(id)_event { // UIEvent*
+    // default implementation, subclasses can override this
+    true
+}
+- (())endTrackingWithTouch:(id)_touch // UITouch*
+                  withEvent:(id)_event { // UIEvent*
+    // default implementation, subclasses can override this, must call super
+    // (for some reason, the docs say this default implementation updates the
+    // tracking property? why here?)
     env.objc.borrow_mut::<UIControlHostObject>(this).tracking = false;
 }
 
-- (())touchesBegan:(id)touches withEvent:(id)event {
-    if !msg![env; this isEnabled] { return; }
+- (())touchesBegan:(id)touches // NSSet* of UITouch*
+         withEvent:(id)event { // UIEvent*
+    if !msg![env; this isEnabled] {
+        return;
+    }
 
+    // UIControl's documentation implies that only one touch is ever tracked
+    // at once.
     let touch: id = msg![env; touches anyObject];
-    if !msg![env; this beginTrackingWithTouch:touch withEvent:event] { return; }
+    if !msg![env; this beginTrackingWithTouch:touch withEvent:event] {
+        return;
+    }
 
     retain(env, touch);
     let host_obj = env.objc.borrow_mut::<UIControlHostObject>(this);
     host_obj.tracking = true;
     let old_touch = std::mem::replace(&mut host_obj.tracked_touch, touch);
     release(env, old_touch);
-    
+    if old_touch != nil {
+        log!("Got new touch {:?} but old touch {:?} has not yet ended!", touch, old_touch);
+    }
+    // Not sure if this is the right place to set this.
     () = msg![env; this setHighlighted:true];
+
+    // TODO: unclear if this is meant to be affected by tracking
     send_actions(env, this, event, UIControlEventTouchDown);
 }
-
-- (())touchesMoved:(id)touches withEvent:(id)event {
-    if !msg![env; this isEnabled] { return; }
+- (())touchesMoved:(id)touches // NSSet* of UITouch*
+         withEvent:(id)event { // UIEvent*
+    if !msg![env; this isEnabled] {
+        return;
+    }
 
     let touch: id = msg![env; touches anyObject];
     let tracked_touch = env.objc.borrow::<UIControlHostObject>(this).tracked_touch;
-    if tracked_touch != touch { return; }
-
+    if tracked_touch != touch {
+        return;
+    }
     if !msg![env; this continueTrackingWithTouch:touch withEvent:event] {
         release(env, tracked_touch);
         env.objc.borrow_mut::<UIControlHostObject>(this).tracked_touch = nil;
@@ -206,6 +237,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let was_inside = msg![env; this pointInside:old_pos withEvent:event];
     let is_inside = msg![env; this pointInside:new_pos withEvent:event];
 
+    // TODO: unclear if this is meant to be affected by tracking
     send_actions(env, this, event, match (was_inside, is_inside) {
         (true, true) => UIControlEventTouchDragInside,
         (false, false) => UIControlEventTouchDragOutside,
@@ -213,12 +245,13 @@ pub const CLASSES: ClassExports = objc_classes! {
         (true, false) => UIControlEventTouchDragExit,
     });
 }
-
-- (())touchesEnded:(id)touches withEvent:(id)event {
+- (())touchesEnded:(id)touches // NSSet* of UITouch*
+         withEvent:(id)event { // UIEvent*
     let touch: id = msg![env; touches anyObject];
     let tracked_touch = env.objc.borrow::<UIControlHostObject>(this).tracked_touch;
-    if tracked_touch != touch { return; }
-
+    if tracked_touch != touch {
+        return;
+    }
     () = msg![env; this endTrackingWithTouch:touch withEvent:event];
     release(env, tracked_touch);
     env.objc.borrow_mut::<UIControlHostObject>(this).tracked_touch = nil;
@@ -227,18 +260,30 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new_pos: CGPoint = msg![env; touch locationInView:this];
     let is_inside = msg![env; this pointInside:new_pos withEvent:event];
 
+    // TODO: unclear if this is meant to be affected by tracking
     send_actions(env, this, event, match is_inside {
         true => UIControlEventTouchUpInside,
         false => UIControlEventTouchUpOutside,
     });
 }
 
-- (())addTarget:(id)target action:(SEL)action forControlEvents:(UIControlEvents)events {
-    // If target is nil, we don't return anymore. We store it as nil so sendAction can redirect it later.
+- (())addTarget:(id)target
+         action:(SEL)action
+forControlEvents:(UIControlEvents)events {
     if target == nil {
-        log_dbg!("HyperHLE: UIButton addTarget with nil target for action {:?}", action);
+        // TODO: when the target is nil, the responder chain is searched for
+        // a suitable target
+        log!(
+            "TODO: [{:?} addTarget:nil action:{:?} forControlEvents:{:?}] (ignored)",
+            target,
+            action,
+            events,
+        );
+        return;
     }
+    // The target is a *weak* reference!
 
+    // The selector must be for a method with zero to two arguments
     let sel_str = action.as_str(&env.mem);
     let colon_count = sel_str.bytes().filter(|&b| b == b':').count();
     assert!([0, 1, 2].contains(&colon_count));
@@ -246,50 +291,64 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow_mut::<UIControlHostObject>(this).action_targets.push((target, action, events));
 }
 
-- (())sendAction:(SEL)action to:(id)target forEvent:(id)event {
-    let mut actual_target = target;
-
-    // --- START REDIRECTION FIX ---
-    if actual_target == nil {
-        // In your project, msg_class! calls a method on the class directly.
-        // We call 'sharedApplication' on the 'UIApplication' class here.
-        let shared_app: id = msg_class![env; UIApplication sharedApplication];
-        
-        if shared_app != nil {
-            // Now we get the delegate from that instance
-            actual_target = msg![env; shared_app delegate];
-            
-            if actual_target != nil {
-                log::info!("HyperHLE: Redirecting nil target to App Delegate: {:?}", actual_target);
-            }
-        }
-    }
-
-    if actual_target == nil {
-        log::warn!("HyperHLE: No target found for action {:?}", action);
-        return;
-    }
-    // --- END REDIRECTION FIX ---
+- (())sendAction:(SEL)action
+              to:(id)target
+        forEvent:(id)event { // UIEvent*
+    assert!(target != nil); // TODO
 
     let sel_str = action.as_str(&env.mem);
     let colon_count = sel_str.bytes().filter(|&b| b == b':').count();
     match colon_count {
+        // - (IBAction)action;
         0 => {
-            log_dbg!("Sending {:?} message to {:?} (no args)", action, actual_target);
-            () = msg_send(env, (actual_target, action));
+            log_dbg!(
+                "Sending {:?} ({:?}) message to {:?} (no args)",
+                action,
+                sel_str,
+                target
+            );
+            () = msg_send(env, (target, action));
         }
+        // - (IBAction)action:(id)sender;
         1 => {
-            log_dbg!("Sending {:?} message to {:?} (one arg)", action, actual_target);
-            () = msg_send(env, (actual_target, action, this));
+            log_dbg!(
+                "Sending {:?} ({:?}) message to {:?} (one arg: {:?})",
+                action,
+                sel_str,
+                target,
+                this
+            );
+            () = msg_send(env, (target, action, this));
         }
+        // - (IBAction)action:(id)sender forEvent:(UIEvent*)event;
         2 => {
-            log_dbg!("Sending {:?} message to {:?} (two args)", action, actual_target);
-            () = msg_send(env, (actual_target, action, this, event));
+            log_dbg!(
+                "Sending {:?} ({:?}) message to {:?} (two args: {:?}, {:?})",
+                action,
+                sel_str,
+                target,
+                this,
+                event
+            );
+            () = msg_send(env, (target, action, this, event));
         }
-        _ => panic!(),
+        other => {
+            // UIControl actions have 0, 1 or 2 explicit arguments (plus self
+            // and the selector). Anything else is a malformed selector; on
+            // real UIKit Objective-C would just `objc_msgSend` the call and
+            // garble the arguments. Logging is safer than crashing the host
+            // when an end-of-life iOS app registers an unusual selector.
+            log!(
+                "Warning: UIControl::send_actions: unsupported argument count {} for {:?}; skipping.",
+                other,
+                sel_str
+            );
+        }
     };
 }
-    
+
+// TODO: more triggers/targets/actions stuff
+
 @end
 
 };
