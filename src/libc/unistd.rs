@@ -271,22 +271,26 @@ fn readlink(
     buf: MutPtr<u8>,
     buf_size: GuestISize,
 ) -> GuestISize {
-    // .to_owned() breaks the connection to env.mem, freeing up the borrow
     let path_str = env.mem.cstr_at_utf8(path).unwrap_or_default().to_owned();
 
-    if path_str.starts_with("/var/mobile/Applications") || path_str.starts_with("/var/mobile/Containers") {
-        log!("HyperHLE: Intercepted readlink for virtual path: {}", path_str);
+    // Catch the base paths AND the deep paths to prevent the infinite loop
+    if path_str == "/var" 
+        || path_str == "/var/mobile" 
+        || path_str.starts_with("/var/mobile/Applications") 
+        || path_str.starts_with("/var/mobile/Containers") 
+    {
+        log!("HyperHLE: Intercepted readlink for path: {}", path_str);
         
         let bytes = path_str.as_bytes();
         let len = bytes.len();
         let max_len = buf_size as usize;
         
+        // Ensure we don't overflow the guest's buffer
         if len >= max_len {
             set_errno(env, EINVAL);
             return -1;
         }
 
-        // Now env.mem is free to be borrowed mutably
         env.mem.bytes_at_mut(buf, len as GuestUSize).copy_from_slice(bytes);
         return len as GuestISize;
     }
