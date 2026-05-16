@@ -216,9 +216,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setIndicatorStyle:(UIScrollViewIndicatorStyle)style {
-    todo_objc_setter!(this, style);
+    // Silent no-op stub: we turn off the log warning since touchHLE does not render visual indicators.
+    log_dbg!("UIScrollView setIndicatorStyle: called with style {}", style);
 }
-
+    
 - (())flashScrollIndicators {
     // No-op — we don't render scroll indicators.
 }
