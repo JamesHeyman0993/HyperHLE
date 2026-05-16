@@ -197,7 +197,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     let idx: NSUInteger = msg![env; this indexOfObject:object];
     idx != NSNotFound as NSUInteger
 }
-
+    
+// --- HACK FOR PLAYHAVEN AD LOOP ---
+- (bool)boolValue {
+    log!("HACK: Game called [NSArray boolValue] on an array shell. Returning false to break network loop.");
+    false
+}
+    
 - (id)firstObject {
     let size: NSUInteger = msg![env; this count];
     if size == 0 {
