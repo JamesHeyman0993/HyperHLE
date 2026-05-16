@@ -490,7 +490,7 @@ impl ObjC {
                     .unwrap_or(nil),
                 self,
             ));
-                } else {
+                        } else {
             // ЗДЕСЬ ДОБАВЛЕНА ЛОГИКА ДЛЯ ДИНАМИЧЕСКИХ КЛАССОВ (GAD и др.)
             let is_fake = name.starts_with("AdMob")
                 || name.starts_with("AltAds")
@@ -504,8 +504,11 @@ impl ObjC {
                 || name.starts_with("iSimulate")
                 || name.starts_with("SBScene")
                 || name.starts_with("SBSystem")
-                || name == "NSArray"          // <-- ADDED TO PREVENT PANIC
-                || name == "NSMutableArray";   // <-- ADDED TO PREVENT PANIC
+                || name.starts_with("PH")          // Prevents PlayHaven crash
+                || name.starts_with("PlayHaven")   // Prevents PlayHaven crash
+                || name == "NSArray"               // Handles explicit array lookups
+                || name == "NSMutableArray"        // Handles explicit array lookups
+                || name == "ns_array_class!";      // Intercepts the macro literal string typo
 
             if !use_placeholder && !is_fake {
                 panic!("Missing implementation for class {name}!");
