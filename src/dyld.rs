@@ -872,6 +872,27 @@ impl Dyld {
                 );
                 continue;
             }
+                      
+            // --- PATCH: Stub missing Network and CoreText constants for Sonic Racing ---
+            if symbol == "_in6addr_any" 
+                || symbol == "_in6addr_loopback" 
+                || symbol == "_kCFStreamErrorDomainNetDB" 
+                || symbol == "_NSURLErrorFailingURLStringErrorKey"
+                || symbol == "_MPMovieDurationAvailableNotification"
+                || symbol == "_UIApplicationDidChangeStatusBarFrameNotification"
+                || symbol == "_NSUbiquitousKeyValueStoreDidChangeExternallyNotification"
+            {
+                // Allocate a 28-byte block (enough room for an in6_addr IPv6 struct)
+                let dummy = mem.alloc(28);
+                mem.write(ptr_ptr, dummy.cast().cast_const());
+                log_dbg!(
+                    "Patched Sonic Racing network/framework symbol {} -> {:#x}",
+                    symbol,
+                    dummy.to_bits()
+                );
+                continue;
+            }
+            // ---------------------------------------------------------------------------
             
             if symbol == "___objc_personality_v0" {
                 // Minimal ARM32 function: BX LR (returns 0 in R0).
