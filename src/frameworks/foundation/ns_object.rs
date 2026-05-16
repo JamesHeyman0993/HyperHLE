@@ -630,4 +630,22 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
+@implementation NSHTTPCookieStorage: NSObject
+
++ (id)sharedHTTPCookieStorage {
+    log!("HACK: Handled [NSHTTPCookieStorage sharedHTTPCookieStorage] safely.");
+    this
+}
+
+- (id)init {
+    let this: id = msg![env; this init];
+    this
+}
+
+- (id)cookies {
+    nil
+}
+
+@end
+
 };
