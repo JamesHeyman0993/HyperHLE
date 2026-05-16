@@ -637,14 +637,21 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+// Added class method version (+) in case the compiler optimizes or issues static class selectors
++ (id)cookiesForURL:(id)_url {
+    log!("Warning: [NSHTTPCookieStorage +cookiesForURL:] called. Returning empty NSArray stub.");
+    let ns_array_class = env.objc.get_known_class("NSArray", &mut env.mem);
+    msg_class![env; ns_array_class array]
+}
+
 - (id)init {
     let this: id = msg![env; this init];
     this
 }
 
-// Added to handle the game checking for specific URL cookies
+// Added instance method version (-) to support targeted query evaluation 
 - (id)cookiesForURL:(id)_url {
-    log!("Warning: [NSHTTPCookieStorage cookiesForURL:] called. Returning empty NSArray stub.");
+    log!("Warning: [NSHTTPCookieStorage -cookiesForURL:] called. Returning empty NSArray stub.");
     let ns_array_class = env.objc.get_known_class("NSArray", &mut env.mem);
     msg_class![env; ns_array_class array]
 }
