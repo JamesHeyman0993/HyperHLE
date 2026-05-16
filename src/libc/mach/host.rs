@@ -90,31 +90,48 @@ fn host_statistics(
     host_info_out: host_info_t,
     host_info_out_count: MutPtr<mach_msg_type_number_t>,
 ) -> kern_return_t {
-    assert_eq!(host, MACH_HOST_SELF);
-    assert_eq!(flavor, HOST_VM_INFO);
+    if host != MACH_HOST_SELF {
+        return 4; // KERN_INVALID_ARGUMENT
+    }
+    if flavor != HOST_VM_INFO {
+        log!("Warning: host_statistics called with unhandled flavor: {}", flavor);
+        return 2; // KERN_INVALID_STATUS
+    }
+
     let out_size_available = env.mem.read(host_info_out_count);
     let out_size_expected = guest_size_of::<vm_statistics>() / guest_size_of::<natural_t>();
-    assert_eq!(out_size_expected, out_size_available);
-    env.mem.write(
-        host_info_out.cast(),
-        vm_statistics {
-            free_count: FREE_COUNT,
-            active_count: ACTIVE_COUNT,
-            inactive_count: INACTIVE_COUNT,
-            wire_count: WIRE_COUNT,
-            zero_fill_count: 0,
-            reactivations: 0,
-            pageins: 0,
-            pageouts: 0,
-            faults: 0,
-            cow_faults: 0,
-            lookups: 0,
-            hits: 0,
-            purgeable_count: 0,
-            purges: 0,
-            speculative_count: 0,
-        },
-    );
+    
+    // Determine bounds dynamically to process smaller structural lookups safely
+    let count_to_write = out_size_available.min(out_size_expected);
+    
+    let stats = vm_statistics {
+        free_count: FREE_COUNT,
+        active_count: ACTIVE_COUNT,
+        inactive_count: INACTIVE_COUNT,
+        wire_count: WIRE_COUNT,
+        zero_fill_count: 0,
+        reactivations: 0,
+        pageins: 0,
+        pageouts: 0,
+        faults: 0,
+        cow_faults: 0,
+        lookups: 0,
+        hits: 0,
+        purgeable_count: 0,
+        purges: 0,
+        speculative_count: 0,
+    };
+
+    // Cap memory write limit down to what the target buffer allocation expects
+    let bytes_to_write = count_to_write * guest_size_of::<natural_t>();
+    unsafe {
+        let src_ptr = &stats as *const vm_statistics as *const u8;
+        env.mem.write_bytes(host_info_out.cast(), std::slice::from_raw_parts(src_ptr, bytes_to_write as usize));
+    }
+
+    // Write back the verified block size back to the program environment
+    env.mem.write(host_info_out_count, count_to_write);
+    
     KERN_SUCCESS
 }
 
