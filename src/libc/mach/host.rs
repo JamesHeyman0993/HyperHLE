@@ -104,29 +104,29 @@ fn host_statistics(
     // Determine bounds dynamically to process smaller structural lookups safely
     let count_to_write = out_size_available.min(out_size_expected);
     
-    let stats = vm_statistics {
-        free_count: FREE_COUNT,
-        active_count: ACTIVE_COUNT,
-        inactive_count: INACTIVE_COUNT,
-        wire_count: WIRE_COUNT,
-        zero_fill_count: 0,
-        reactivations: 0,
-        pageins: 0,
-        pageouts: 0,
-        faults: 0,
-        cow_faults: 0,
-        lookups: 0,
-        hits: 0,
-        purgeable_count: 0,
-        purges: 0,
-        speculative_count: 0,
-    };
+    // An array of values mapping exactly to the fields in vm_statistics structure layout
+    let stats_data: [natural_t; 15] = [
+        FREE_COUNT,     // free_count
+        ACTIVE_COUNT,   // active_count
+        INACTIVE_COUNT, // inactive_count
+        WIRE_COUNT,     // wire_count
+        0,              // zero_fill_count
+        0,              // reactivations
+        0,              // pageins
+        0,              // pageouts
+        0,              // faults
+        0,              // cow_faults
+        0,              // lookups
+        0,              // hits
+        0,              // purgeable_count
+        0,              // purges
+        0,              // speculative_count
+    ];
 
-    // Cap memory write limit down to what the target buffer allocation expects
-    let bytes_to_write = count_to_write * guest_size_of::<natural_t>();
-    unsafe {
-        let src_ptr = &stats as *const vm_statistics as *const u8;
-        env.mem.write_bytes(host_info_out.cast(), std::slice::from_raw_parts(src_ptr, bytes_to_write as usize));
+    // Write the fields one by one up to the requested available size count
+    for i in 0..count_to_write {
+        let offset_ptr = host_info_out.offset(i as isize);
+        env.mem.write(offset_ptr, stats_data[i as usize]);
     }
 
     // Write back the verified block size back to the program environment
