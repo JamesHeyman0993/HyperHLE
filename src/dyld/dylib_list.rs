@@ -81,6 +81,15 @@ pub const CORE_DATA: super::HostDylib = super::HostDylib {
     function_exports: &[],
 };
 
+// --- ADDED EVENTKIT MOCK STUB ---
+pub const EVENT_KIT: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/EventKit.framework/EventKit",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: &[],
+    function_exports: &[],
+};
+
 /// The single list of host dylibs that the linker searches through.
 pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &libc::DYLIB,
@@ -101,7 +110,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::security::DYLIB,
     &frameworks::store_kit::DYLIB,
     &frameworks::system_configuration::DYLIB,
-    &frameworks::uikit::DYLIB, // This now includes your fixed UIKit constants
+    &frameworks::uikit::DYLIB, 
     &frameworks::user_voice::DYLIB, 
     &frameworks::libicucore::DYLIB,
     &frameworks::libsqlite3::DYLIB,
@@ -120,4 +129,5 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &ADDRESS_BOOK_UI,
     &CORE_DATA,
     &frameworks::core_telephony::DYLIB,
+    &EVENT_KIT, // Added our new reference here at the bottom
 ];
