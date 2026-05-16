@@ -10,8 +10,8 @@ mod av_audio_player;
 pub mod av_audio_session;
 pub mod av_capture;
 
-use crate::objc::id;
-use crate::dyld::HostConstant; // Added import
+use crate::objc::{id, msg_class, msg, objc_classes, ClassExports, NSZonePtr, nil};
+use crate::dyld::HostConstant;
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -26,6 +26,28 @@ pub const CONSTANTS: crate::dyld::ConstantExports = &[
     ("_AVPlayerItemDidPlayToEndTimeNotification", HostConstant::NSString("AVPlayerItemDidPlayToEndTimeNotification")),
 ];
 
+// --- MOCK FOR AVURLAsset ---
+pub const MOCK_CLASSES: ClassExports = objc_classes! {
+    (env, this, _cmd);
+
+    @implementation AVURLAsset: NSObject
+
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        // Just alloc a plain NSObject-sized shell since we don't have a custom HostObject struct for it
+        env.objc.alloc_object_without_host_object(this, &mut env.mem)
+    }
+
+    + (id)URLAssetWithURL:(id)url options:(id)options {
+        log!("HACK: Mocking [AVURLAsset URLAssetWithURL:] to prevent null path crash.");
+        
+        let asset: id = msg_class![env; AVURLAsset alloc];
+        let asset: id = msg![env; asset init];
+        asset
+    }
+
+    @end
+};
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
     aliases: &[],
@@ -33,11 +55,12 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         av_audio_player::CLASSES,
         av_audio_session::CLASSES,
         av_capture::CLASSES,
+        MOCK_CLASSES, // Added our new mock class here
     ],
     constant_exports: &[
         av_audio_session::CONSTANTS, 
         av_capture::CONSTANTS,
-        CONSTANTS, // Added our new constants here
+        CONSTANTS,
     ],
     function_exports: &[],
 };
