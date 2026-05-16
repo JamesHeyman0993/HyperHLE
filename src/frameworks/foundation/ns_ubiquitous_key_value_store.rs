@@ -58,6 +58,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this setObject:num forKey:key]
 }
 
+- (id)dictionaryRepresentation {
+    log!("NSUbiquitousKeyValueStore dictionaryRepresentation: redirecting to NSUserDefaults dictionaryRepresentation");
+    // Вместо возврата пустой заглушки, мы запрашиваем реальный словарь у локального NSUserDefaults,
+    // чтобы игра видела все сохранённые ключи и настройки.
+    let defaults: id = msg_class![env; NSUserDefaults standardUserDefaults];
+    msg![env; defaults dictionaryRepresentation]
+}
+
 @end
 
 };
