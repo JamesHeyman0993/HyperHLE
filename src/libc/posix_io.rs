@@ -783,12 +783,12 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
         return -1;
     }
 
-    // INTERCEPT FIX: Check if the path references hardcoded iOS sandbox patterns.
-    // Explicitly unwrap env.bundle and use `.bundle_path()` to grab the root mount string.
+    // INTERCEPT FIX: Both branches now explicitly return an owned String 
+    // to satisfy the compiler's type matching rules.
     let path_to_use = if raw_path.contains("/var/mobile/Applications/") || raw_path.contains(".app") {
         (*env.bundle).bundle_path().as_str().to_string()
     } else {
-        raw_path
+        raw_path.to_string() // Added .to_string() here to match types!
     };
 
     let path = GuestPath::new(&path_to_use);
