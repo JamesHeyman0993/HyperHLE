@@ -490,7 +490,7 @@ impl ObjC {
                     .unwrap_or(nil),
                 self,
             ));
-        } else {
+                } else {
             // ЗДЕСЬ ДОБАВЛЕНА ЛОГИКА ДЛЯ ДИНАМИЧЕСКИХ КЛАССОВ (GAD и др.)
             let is_fake = name.starts_with("AdMob")
                 || name.starts_with("AltAds")
@@ -502,19 +502,15 @@ impl ObjC {
                 || name.starts_with("UA")
                 || name.starts_with("GAD")
                 || name.starts_with("iSimulate")
-                // SpringBoard private classes (e.g. "SBSceneFor%@" → "SBSceneFor(null)").
-                // Apps probing for jailbroken-device features look these up
-                // via NSClassFromString and only act if they exist; returning
-                // a fake class lets the probe fail gracefully instead of
-                // panicking. Restricted to the known SBScene prefix to avoid
-                // accidentally swallowing real third-party SB-prefixed libs.
                 || name.starts_with("SBScene")
-                || name.starts_with("SBSystem"); // <-- ДОБАВЛЕНО ЗДЕСЬ
+                || name.starts_with("SBSystem")
+                || name == "NSArray"          // <-- ADDED TO PREVENT PANIC
+                || name == "NSMutableArray";   // <-- ADDED TO PREVENT PANIC
 
             if !use_placeholder && !is_fake {
                 panic!("Missing implementation for class {name}!");
             }
-
+            
             if is_fake {
                 class_host_object = Box::new(FakeClass {
                     name: name.to_string(),
