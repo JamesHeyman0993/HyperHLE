@@ -783,10 +783,10 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
         return -1;
     }
 
-    // INTERCEPT FIX: Force-dereference the NullableBox wrapper (*env.bundle) 
-    // to get access to the underlying Bundle methods.
+    // INTERCEPT FIX: Check if the path references hardcoded iOS sandbox patterns.
+    // Explicitly unwrap env.bundle and use `.bundle_path()` to grab the root mount string.
     let path_to_use = if raw_path.contains("/var/mobile/Applications/") || raw_path.contains(".app") {
-        (*env.bundle).root_path().as_str().to_string()
+        (*env.bundle).bundle_path().as_str().to_string()
     } else {
         raw_path
     };
