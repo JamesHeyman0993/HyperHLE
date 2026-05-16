@@ -783,11 +783,10 @@ fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
         return -1;
     }
 
-    // INTERCEPT FIX: If the app is using a hardcoded or generic iOS directory 
-    // path (common in UDK/Unreal Engine 3 games like Batman), redirect it 
-    // to the root of the currently active app bundle.
+    // INTERCEPT FIX: Force-dereference the NullableBox wrapper (*env.bundle) 
+    // to get access to the underlying Bundle methods.
     let path_to_use = if raw_path.contains("/var/mobile/Applications/") || raw_path.contains(".app") {
-        env.bundle.root_path().as_str().to_string()
+        (*env.bundle).root_path().as_str().to_string()
     } else {
         raw_path
     };
