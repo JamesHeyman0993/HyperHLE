@@ -120,8 +120,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     if path == nil {
-        log!("Warning: UINib instantiateWithOwner: nib file {:?} not found", to_rust_string(env, nib_name));
-        return nil;
+        log!("Warning: UINib instantiateWithOwner: nib file {:?} not found. Handing back empty NSArray stub.", to_rust_string(env, nib_name));
+        let array_cls = env.objc.get_known_class("NSArray", &mut env.mem);
+        let empty_array: id = msg![env; array_cls array];
+        return empty_array;
     }
 
     let nib_path = to_rust_string(env, path).to_string();
@@ -142,10 +144,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         if objects != nil {
             autorelease(env, objects)
         } else {
-            nil
+            let array_cls = env.objc.get_known_class("NSArray", &mut env.mem);
+            msg![env; array_cls array]
         }
     } else {
-        nil
+        let array_cls = env.objc.get_known_class("NSArray", &mut env.mem);
+        msg![env; array_cls array]
     };
 
     env.objc.borrow_mut::<UINibHostObject>(this).file_owner = nil;
