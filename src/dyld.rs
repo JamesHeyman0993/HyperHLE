@@ -856,7 +856,23 @@ impl Dyld {
                 );
                 continue;
             }
-
+            
+// --- PATCH: Stub missing NSMetadata external constants for Batman Arkham City ---
+            if symbol == "_NSMetadataItemFSNameKey" 
+                || symbol == "_NSMetadataItemURLKey" 
+                || symbol == "_NSMetadataQueryDidFinishGatheringNotification" 
+                || symbol == "_NSMetadataQueryUbiquitousDocumentsScope" 
+            {
+                let dummy = mem.alloc(16);
+                mem.write(ptr_ptr, dummy.cast().cast_const());
+                log_dbg!(
+                    "Patched non-lazy metadata symbol {} -> {:#x}",
+                    symbol,
+                    dummy.to_bits()
+                );
+                continue;
+            }
+            
             if symbol == "___objc_personality_v0" {
                 // Minimal ARM32 function: BX LR (returns 0 in R0).
                 // Returning _URC_NO_REASON (0) for every frame tells
