@@ -196,10 +196,14 @@ fn CFRunLoopWakeUp(_env: &mut Environment, _rl: CFRunLoopRef) {
 
 fn CFRunLoopAddSource(
     _env: &mut Environment,
-    _rl: CFRunLoopRef,
-    _source: CFRunLoopSourceRef,
+    rl: CFRunLoopRef,
+    source: CFRunLoopSourceRef,
     _mode: CFRunLoopMode,
 ) {
+    if rl.is_null() || source.is_null() {
+        log!("CFRunLoopAddSource: skipped due to null parameters.");
+        return;
+    }
     log!("CFRunLoopAddSource: stubbed");
 }
 
@@ -213,13 +217,16 @@ fn CFRunLoopRemoveSource(
 }
 
 fn CFRunLoopSourceCreate(
-    _env: &mut Environment,
+    env: &mut Environment,
     _allocator: CFTypeRef,
     _order: i32,
     _context: MutVoidPtr, // CFRunLoopSourceContext*
 ) -> CFRunLoopSourceRef {
-    log!("CFRunLoopSourceCreate: stubbed, returning null");
-    nil
+    log!("CFRunLoopSourceCreate: stubbed, applying dummy pointer fallback to prevent crash.");
+    
+    // Allocate a real object reference so CFRunLoopAddSource doesn't encounter a null pointer
+    let class = env.objc.get_known_class("NSObject", &mut env.mem);
+    env.objc.alloc_object(class, Box::new(()), &mut env.mem)
 }
 
 fn CFRunLoopSourceRetain(env: &mut Environment, source: CFRunLoopSourceRef) -> CFRunLoopSourceRef {
@@ -252,10 +259,14 @@ fn CFRunLoopSourceInvalidate(_env: &mut Environment, _source: CFRunLoopSourceRef
 
 fn CFRunLoopAddObserver(
     _env: &mut Environment,
-    _rl: CFRunLoopRef,
-    _observer: CFRunLoopObserverRef,
+    rl: CFRunLoopRef,
+    observer: CFRunLoopObserverRef,
     _mode: CFRunLoopMode,
 ) {
+    if rl.is_null() || observer.is_null() {
+        log!("CFRunLoopAddObserver: skipped due to null parameters.");
+        return;
+    }
     log!("CFRunLoopAddObserver: stubbed");
 }
 
@@ -269,7 +280,7 @@ fn CFRunLoopRemoveObserver(
 }
 
 fn CFRunLoopObserverCreate(
-    _env: &mut Environment,
+    env: &mut Environment,
     _allocator: CFTypeRef,
     _activities: CFRunLoopActivity,
     _repeats: bool,
@@ -277,8 +288,11 @@ fn CFRunLoopObserverCreate(
     _callout: MutVoidPtr, // CFRunLoopObserverCallBack
     _context: MutVoidPtr, // CFRunLoopObserverContext*
 ) -> CFRunLoopObserverRef {
-    log!("CFRunLoopObserverCreate: stubbed, returning null");
-    nil
+    log!("CFRunLoopObserverCreate: stubbed, applying dummy pointer fallback to prevent crash.");
+    
+    // Allocate a real object reference instead of returning nil
+    let class = env.objc.get_known_class("NSObject", &mut env.mem);
+    env.objc.alloc_object(class, Box::new(()), &mut env.mem)
 }
 
 fn CFRunLoopObserverRetain(
@@ -457,7 +471,7 @@ pub const FUNCTIONS: FunctionExports = &[
     // Sources
     export_c_func!(CFRunLoopAddSource(_, _, _)),
     export_c_func!(CFRunLoopRemoveSource(_, _, _)),
-    export_c_func!(CFRunLoopSourceCreate(_, _, _)),
+    export_c_func!(CFRunLoopSourceCreate(_, _, _, _)),
     export_c_func!(CFRunLoopSourceRetain(_)),
     export_c_func!(CFRunLoopSourceRelease(_)),
     export_c_func!(CFRunLoopSourceSignal(_)),
