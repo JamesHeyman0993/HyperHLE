@@ -32,11 +32,14 @@ pub const MOCK_CLASSES: ClassExports = objc_classes! {
 
     @implementation AVURLAsset: NSObject
 
-    + (id)allocWithZone:(NSZonePtr)_zone {
-        // Just alloc a plain NSObject-sized shell since we don't have a custom HostObject struct for it
-        env.objc.alloc_object_without_host_object(this, &mut env.mem)
-    }
+        + (id)allocWithZone:(NSZonePtr)_zone {
+        // Create an empty dummy structure to act as the host object layout wrapper
+        struct DummyAsset;
+        impl crate::objc::HostObject for DummyAsset {}
 
+        env.objc.alloc_object(this, Box::new(DummyAsset), &mut env.mem)
+        }
+    
     + (id)URLAssetWithURL:(id)url options:(id)options {
         log!("HACK: Mocking [AVURLAsset URLAssetWithURL:] to prevent null path crash.");
         
