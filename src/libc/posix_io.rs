@@ -771,17 +771,28 @@ pub fn getcwd(env: &mut Environment, buf_ptr: MutPtr<u8>, buf_size: GuestUSize) 
 fn chdir(env: &mut Environment, path_ptr: ConstPtr<u8>) -> i32 {
     set_errno(env, 0);
 
-    let path_str = env.mem.cstr_at_utf8(path_ptr).unwrap_or_default();
+    let raw_path = env.mem.cstr_at_utf8(path_ptr).unwrap_or_default();
+    
     // POSIX: chdir("") must fail with ENOENT. Treating it as success
     // (which previously silently chdir'd to "/") confuses some apps that
     // rely on errno propagation — most notably Farm Frenzy.
-    if path_str.is_empty() {
+    if raw_path.is_empty() {
         use crate::libc::errno::ENOENT;
         set_errno(env, ENOENT);
         log!("Warning: chdir(\"\") rejected, returning -1 (ENOENT)");
         return -1;
     }
-    let path = GuestPath::new(&path_str);
+
+    // INTERCEPT FIX: If the app is using a hardcoded or generic iOS directory 
+    // path (common in UDK/Unreal Engine 3 games like Batman), redirect it 
+    // to the root of the currently active app bundle.
+    let path_to_use = if raw_path.contains("/var/mobile/Applications/") || raw_path.contains(".app") {
+        env.bundle.root_path().as_str().to_string()
+    } else {
+        raw_path
+    };
+
+    let path = GuestPath::new(&path_to_use);
     match env.fs.change_working_directory(path) {
         Ok(new) => {
             log_dbg!(
