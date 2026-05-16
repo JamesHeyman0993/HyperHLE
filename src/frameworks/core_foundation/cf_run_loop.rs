@@ -49,6 +49,14 @@ pub struct CFRunLoopTimerHostObject {
 
 impl HostObject for CFRunLoopTimerHostObject {}
 
+// Dummy structs to satisfy the touchHLE HostObject trait requirements for stubs
+pub struct CFRunLoopSourceDummyHostObject;
+impl HostObject for CFRunLoopSourceDummyHostObject {}
+
+// Dummy structs to satisfy the touchHLE HostObject trait requirements for stubs
+pub struct CFRunLoopObserverDummyHostObject;
+impl HostObject for CFRunLoopObserverDummyHostObject {}
+
 // CFRunLoopRunResult
 const kCFRunLoopRunFinished: i32 = 1;
 const kCFRunLoopRunStopped: i32 = 2;
@@ -224,9 +232,9 @@ fn CFRunLoopSourceCreate(
 ) -> CFRunLoopSourceRef {
     log!("CFRunLoopSourceCreate: stubbed, applying dummy pointer fallback to prevent crash.");
     
-    // Allocate a real object reference so CFRunLoopAddSource doesn't encounter a null pointer
+    // Allocate a real object reference using the proper dummy structure wrapper
     let class = env.objc.get_known_class("NSObject", &mut env.mem);
-    env.objc.alloc_object(class, Box::new(()), &mut env.mem)
+    env.objc.alloc_object(class, Box::new(CFRunLoopSourceDummyHostObject), &mut env.mem)
 }
 
 fn CFRunLoopSourceRetain(env: &mut Environment, source: CFRunLoopSourceRef) -> CFRunLoopSourceRef {
@@ -290,9 +298,9 @@ fn CFRunLoopObserverCreate(
 ) -> CFRunLoopObserverRef {
     log!("CFRunLoopObserverCreate: stubbed, applying dummy pointer fallback to prevent crash.");
     
-    // Allocate a real object reference instead of returning nil
+    // Allocate a real object reference using the proper dummy structure wrapper
     let class = env.objc.get_known_class("NSObject", &mut env.mem);
-    env.objc.alloc_object(class, Box::new(()), &mut env.mem)
+    env.objc.alloc_object(class, Box::new(CFRunLoopObserverDummyHostObject), &mut env.mem)
 }
 
 fn CFRunLoopObserverRetain(
@@ -471,7 +479,7 @@ pub const FUNCTIONS: FunctionExports = &[
     // Sources
     export_c_func!(CFRunLoopAddSource(_, _, _)),
     export_c_func!(CFRunLoopRemoveSource(_, _, _)),
-    export_c_func!(CFRunLoopSourceCreate(_, _, _, _)),
+    export_c_func!(CFRunLoopSourceCreate(_, _, _)),
     export_c_func!(CFRunLoopSourceRetain(_)),
     export_c_func!(CFRunLoopSourceRelease(_)),
     export_c_func!(CFRunLoopSourceSignal(_)),
@@ -502,3 +510,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFRunLoopTimerDoesRepeat(_)),
     export_c_func!(CFRunLoopTimerGetOrder(_)),
 ];
+        
