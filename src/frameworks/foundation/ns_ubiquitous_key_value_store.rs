@@ -44,6 +44,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; defaults setObject:obj forKey:key]
 }
 
+- ((())removeObjectForKey:(id)key {
+    let defaults: id = msg_class![env; NSUserDefaults standardUserDefaults];
+    msg![env; defaults removeObjectForKey:key]
+}
+
 - (i64)longLongForKey:(id)key {
     let obj: id = msg![env; this objectForKey:key];
     if obj != crate::objc::nil {
