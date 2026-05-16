@@ -534,6 +534,7 @@ UIColor blackColor] // TODO
 @end
         
 };
+
 /// For use by `NSRunLoop` via [super::handle_players]: check movie players'
 /// status, send notifications if necessary.
 pub(super) fn handle_players(env: &mut Environment) {
