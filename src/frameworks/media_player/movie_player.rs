@@ -501,24 +501,27 @@ UIColor blackColor] // TODO
     let this: id = msg![env; this init];
 
     // 2. Create a REAL controller and store it in the active_player state
-    // This ensures the HostObject is created via allocWithZone
     let player: id = msg_class![env; MPMoviePlayerController alloc];
     let player: id = msg![env; player initWithContentURL:url];
     
     // We store this player globally in the state so moviePlayer can find it
     State::get(env).active_player = Some(player);
 
-    // 3. Post notification so the game thinks it's already done
-    let nc: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let name: id = crate::frameworks::foundation::ns_string::from_rust_string(
-        env, 
-        "MPMoviePlayerPlaybackDidFinishNotification".to_string()
-    );
-    let _: () = msg![env; nc postNotificationName:name object:this];
+    // 3. Post notification immediately with the CORRECT objects and userInfo payload
+    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+    let name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
+    
+    // Build the userInfo map (Reason 0 = Playback Ended) so game logic doesn't crash on a null check
+    let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
+    let reason_key = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
+    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
+
+    // CRITICAL: Send 'player' as the object, NOT 'this'
+    let _: () = msg![env; center postNotificationName:name object:player userInfo:user_info];
 
     this
 }
-
+     
 // 4. Return the player we just created
 - (id)moviePlayer {
     if let Some(player) = State::get(env).active_player {
