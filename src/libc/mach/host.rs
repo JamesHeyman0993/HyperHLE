@@ -104,29 +104,42 @@ fn host_statistics(
     // Determine bounds dynamically to process smaller structural lookups safely
     let count_to_write = out_size_available.min(out_size_expected);
     
-    // An array of values mapping exactly to the fields in vm_statistics structure layout
-    let stats_data: [natural_t; 15] = [
-        FREE_COUNT,     // free_count
-        ACTIVE_COUNT,   // active_count
-        INACTIVE_COUNT, // inactive_count
-        WIRE_COUNT,     // wire_count
-        0,              // zero_fill_count
-        0,              // reactivations
-        0,              // pageins
-        0,              // pageouts
-        0,              // faults
-        0,              // cow_faults
-        0,              // lookups
-        0,              // hits
-        0,              // purgeable_count
-        0,              // purges
-        0,              // speculative_count
-    ];
+    // Create a temporary local statistics object
+    let mut stats = vm_statistics {
+        free_count: FREE_COUNT,
+        active_count: ACTIVE_COUNT,
+        inactive_count: INACTIVE_COUNT,
+        wire_count: WIRE_COUNT,
+        zero_fill_count: 0,
+        reactivations: 0,
+        pageins: 0,
+        pageouts: 0,
+        faults: 0,
+        cow_faults: 0,
+        lookups: 0,
+        hits: 0,
+        purgeable_count: 0,
+        purges: 0,
+        speculative_count: 0,
+    };
 
-    // Write the fields one by one up to the requested available size count
-    for i in 0..count_to_write {
-        let offset_ptr = host_info_out.offset(i as isize);
-        env.mem.write(offset_ptr, stats_data[i as usize]);
+    // If the app requested less than a full vm_statistics struct, 
+    // we pass data via a truncated type-cast pointer block.
+    if count_to_write == out_size_expected {
+        env.mem.write(host_info_out.cast(), stats);
+    } else {
+        // Fallback for partial reads: treat the memory address as a raw array pointer
+        // and copy individual elements sequentially by reading the struct fields as an array slice.
+        let stats_ptr = &stats as *const vm_statistics as *const natural_t;
+        for i in 0..count_to_write {
+            unsafe {
+                let val = *stats_ptr.add(i as usize);
+                // Cast host_info_out to a raw natural_t pointer, shift the virtual address manually
+                let target_vaddr = host_info_out.cast::<natural_t>().0 + (i * guest_size_of::<natural_t>());
+                let target_ptr = MutPtr::<natural_t>::cast(MutPtr::<()>(target_vaddr, std::marker::PhantomData));
+                env.mem.write(target_ptr, val);
+            }
+        }
     }
 
     // Write back the verified block size back to the program environment
