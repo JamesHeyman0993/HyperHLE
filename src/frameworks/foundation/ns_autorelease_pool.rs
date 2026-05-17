@@ -73,12 +73,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)retain {
-    // TODO: throw proper exception?
-    panic!("NSAutoreleasePool can't be retained!");
+    // MODIFIED: Bypassed panic to handle buggy early iOS games/middleware
+    log_dbg!("Warning: Guest app tried to retain NSAutoreleasePool ({:?}). Bypassing to prevent crash.", this);
+    this
 }
+
 - (id)autorelease {
-    // TODO: throw proper exception?
-    panic!("NSAutoreleasePool can't be autoreleased!");
+    // MODIFIED: Bypassed panic to handle buggy early iOS games/middleware
+    log_dbg!("Warning: Guest app tried to autorelease NSAutoreleasePool ({:?}). Bypassing to prevent crash.", this);
+    this
 }
 
 - (i32)intValue {
