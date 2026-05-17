@@ -137,8 +137,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Open a virtual AudioFile or map a mock ID so the player doesn't panic on unwrap()
     let tmp_afi_ptr: MutPtr<AudioFileID> = env.mem.alloc(guest_size_of::<AudioFileID>()).cast();
     
-    // Using a safe placeholder mock file ID so the engine tracks it as an active instance
-    let mock_file_id = 9999; 
+        // Using a safe placeholder mock file ID so the engine tracks it as an active instance
+    let mock_file_id = Ptr::from_bits(9999); // <-- CHANGED THIS LINE
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_file_id = Some(mock_file_id);
     env.mem.free(tmp_afi_ptr.cast());
 
