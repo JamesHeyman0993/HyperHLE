@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-use crate::objc::{id, nil, objc_classes, ClassExports};
+use crate::objc::{id, nil, objc_classes, ClassExports, NSZonePtr};
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -19,6 +19,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     // TODO
     nil
 }
+@end
+
+// FIX: Stub out SKStoreProductViewController so the dynamic linker 
+// stops warning us when games look up the class method.
+@implementation SKStoreProductViewController: crate::frameworks::uikit::ui_view_controller::UIViewController
+
++ (id)allocWithZone:(NSZonePtr)_zone {
+    // Return nil to signal that the store popup is unavailable
+    nil
+}
+
 @end
 
 };
