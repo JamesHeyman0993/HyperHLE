@@ -73,7 +73,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let callback = env
         .dyld
         .create_guest_function(&mut env.mem, symb, hf);
-        let host_object = Box::new(AVAudioPlayerHostObject {
+    let host_object = Box::new(AVAudioPlayerHostObject {
         audio_file_url: nil,
         audio_data_blob: nil, // <-- ADD THIS LINE
         output_callback: callback,
@@ -137,8 +137,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Open a virtual AudioFile or map a mock ID so the player doesn't panic on unwrap()
     let tmp_afi_ptr: MutPtr<AudioFileID> = env.mem.alloc(guest_size_of::<AudioFileID>()).cast();
     
-        // Using a safe placeholder mock file ID so the engine tracks it as an active instance
-    let mock_file_id = Ptr::from_bits(9999); // <-- CHANGED THIS LINE
+    // Using a safe placeholder mock file ID so the engine tracks it as an active instance
+    let mock_file_id = Ptr::from_bits(9999); 
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_file_id = Some(mock_file_id);
     env.mem.free(tmp_afi_ptr.cast());
 
@@ -203,11 +203,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let tmp_size_ptr: MutPtr<GuestUSize> = env.mem.alloc(guest_size_of::<GuestUSize>()).cast();
     env.mem.write(tmp_size_ptr, size);
     let tmp_data_ptr: MutPtr<AudioStreamBasicDescription> = env.mem.alloc(size).cast();
-        let status = AudioFileGetProperty(
+    let status = AudioFileGetProperty(
         env, audio_file_id, kAudioFilePropertyDataFormat, tmp_size_ptr, tmp_data_ptr.cast()
     );
     
-        let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
+    let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
         // Fallback: provide a standard structural description for raw SFX streams (PCM/16-bit/Stereo/44.1kHz)
         crate::frameworks::core_audio_types::AudioStreamBasicDescription {
             sample_rate: 44100.0,
@@ -218,10 +218,9 @@ pub const CLASSES: ClassExports = objc_classes! {
             bytes_per_frame: 4,
             channels_per_frame: 2,
             bits_per_channel: 16,
-            reserved: 0,
+            _reserved: 0,
         }
     } else {
-            
         assert_eq!(status, 0, "AudioFileGetProperty failed with status: {}", status);
         assert_eq!(size, env.mem.read(tmp_size_ptr));
         env.mem.read(tmp_data_ptr)
@@ -247,7 +246,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let size = guest_size_of::<u32>();
     env.mem.write(tmp_size_ptr, size);
     let prop_size_ptr: MutPtr<u32> = env.mem.alloc(size).cast();
-        let status = AudioFileGetProperty(
+    let status = AudioFileGetProperty(
         env, audio_file_id, kAudioFilePropertyPacketSizeUpperBound, tmp_size_ptr, prop_size_ptr.cast()
     );
     
@@ -300,10 +299,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())stop {
-        let &AVAudioPlayerHostObject { audio_file_url, audio_data_blob, output_callback, num_of_loops, audio_file_id, delegate, metering_enabled, .. } = env.objc.borrow(this); // <-- UPDATED LINE
+    let &AVAudioPlayerHostObject { audio_file_url, audio_data_blob, output_callback, num_of_loops, audio_file_id, delegate, metering_enabled, .. } = env.objc.borrow(this);
     *env.objc.borrow_mut::<AVAudioPlayerHostObject>(this) = AVAudioPlayerHostObject {
         audio_file_url,
-        audio_data_blob, // <-- ADD THIS LINE
+        audio_data_blob, 
         output_callback,
         num_of_loops,
         audio_file_id,
@@ -318,7 +317,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         delegate,         
         metering_enabled,
     };
-    
 }
 
 - (())setNumberOfLoops:(NSInteger)numberOfLoops {
@@ -328,13 +326,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     () = msg![env; this stop];
-    let &AVAudioPlayerHostObject {audio_file_url, audio_data_blob, audio_file_id, ..} = env.objc.borrow(this); // <-- UPDATED LINE
+    let &AVAudioPlayerHostObject {audio_file_url, audio_data_blob, audio_file_id, ..} = env.objc.borrow(this);
     release(env, audio_file_url);
-    if audio_data_blob != nil { // <-- ADD THIS BLOCK
+    if audio_data_blob != nil { 
         release(env, audio_data_blob);
     }
     if let Some(audio_file_id) = audio_file_id {
-        
         AudioFileClose(env, audio_file_id);
     }
     env.objc.dealloc_object(this, &mut env.mem)
@@ -609,7 +606,7 @@ fn derive_buffer_size(
     // Если upper bound размера пакета = 0, пытаемся взять размер из дескриптора
     // формата.
     // Если и там пусто, ставим безопасный дефолт, как это делает настоящий
-    // CoreAudio.
+ // CoreAudio.
     let actual_max_packet_size = if max_packet_size > 0 {
         max_packet_size
     } else if audio_desc.bytes_per_packet > 0 {
@@ -683,23 +680,23 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
     env.mem.write(num_packets_ptr, num_packets_to_read);
     let mut audio_queue_buffer = env.mem.read(in_buf);
 
-            let mut status = 0; // Create a mutable status variable accessible throughout the function scope
+    let mut status = 0; // Create a mutable status variable accessible throughout the function scope
 
-    if audio_file_id.to_bits() == 9999 {
+    if audio_file_id.map_or(0, |id| id.to_bits()) == 9999 {
         // If it's a mock audio stream, simulate EOF (End of File)
         env.mem.write(num_packets_ptr, 0);
         env.mem.write(num_bytes_ptr, 0);
     } else {
         status = AudioFileReadPackets(
             env,
-            audio_file_id,
+            audio_file_id.unwrap(), // Safely unwrap since we checked it isn't our mock handle
             false,
             num_bytes_ptr,
             Ptr::null(),
             current_packet,
             num_packets_ptr,
             audio_queue_buffer.audio_data,
-        ) as i32; // or whatever concrete integer type status matches in your project environment
+        ) as i32; 
     }
     
     let num_packets = env.mem.read(num_packets_ptr);
