@@ -207,12 +207,12 @@ pub const CLASSES: ClassExports = objc_classes! {
         env, audio_file_id, kAudioFilePropertyDataFormat, tmp_size_ptr, tmp_data_ptr.cast()
     );
     
-    let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
+        let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
         // Fallback: provide a standard structural description for raw SFX streams (PCM/16-bit/Stereo/44.1kHz)
         crate::frameworks::core_audio_types::AudioStreamBasicDescription {
             sample_rate: 44100.0,
-            format_id: 0, // 0 maps safely to a general/none/unspecified format indicator
-            format_flags: 0,
+            format_id: 0x6c70636d, // 'lpcm' - Lineal PCM format tag identifier flag
+            format_flags: 0xC,     // Common flag settings for standard packed signed integer audio streams
             bytes_per_packet: 4,
             frames_per_packet: 1,
             bytes_per_frame: 4,
@@ -221,6 +221,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             _reserved: 0,
         }
     } else {
+            
         assert_eq!(status, 0, "AudioFileGetProperty failed with status: {}", status);
         assert_eq!(size, env.mem.read(tmp_size_ptr));
         env.mem.read(tmp_data_ptr)
@@ -695,11 +696,12 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
 
     let mut status = 0; // Create a mutable status variable accessible throughout the function scope
 
-    if audio_file_id.map_or(0, |id| id.to_bits()) == 9999 {
-        // If it's a mock audio stream, simulate EOF (End of File)
-        env.mem.write(num_packets_ptr, 0);
-        env.mem.write(num_bytes_ptr, 0);
+        if audio_file_id.map_or(0, |id| id.to_bits()) == 9999 {
+        // Fake a tiny, valid chunk read instead of an immediate 0 to stop engines from dividing by zero
+        env.mem.write(num_packets_ptr, num_packets_to_read.min(1));
+        env.mem.write(num_bytes_ptr, 4); // 4 bytes matches our frame size definition
     } else {
+            
         status = AudioFileReadPackets(
             env,
             audio_file_id.unwrap(), // Safely unwrap since we checked it isn't our mock handle
