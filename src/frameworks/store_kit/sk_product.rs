@@ -5,6 +5,8 @@
  */
 
 use crate::objc::{id, nil, objc_classes, ClassExports, NSZonePtr};
+// Bring UIViewController into scope so the macro can see it cleanly
+use crate::frameworks::uikit::ui_view_controller::UIViewController;
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -23,7 +25,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // FIX: Stub out SKStoreProductViewController so the dynamic linker 
 // stops warning us when games look up the class method.
-@implementation SKStoreProductViewController: crate::frameworks::uikit::ui_view_controller::UIViewController
+@implementation SKStoreProductViewController: UIViewController
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     // Return nil to signal that the store popup is unavailable
