@@ -1,6 +1,7 @@
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * License, v. 2.0.
+ * If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `ifaddrs.h` and `net/if.h` (interface addresses and interface naming)
@@ -18,12 +19,26 @@ pub struct ifaddrs {
     pub ifa_next: MutPtr<ifaddrs>,
     pub ifa_name: ConstPtr<u8>,
     pub ifa_flags: u32,
-    pub ifa_addr: u32, 
-    pub ifa_netmask: u32,
-    pub ifa_broadaddr: u32,
+    pub ifa_addr: u32, // Pointer to struct sockaddr
+    pub ifa_netmask: u32, // Pointer to struct sockaddr
+    pub ifa_broadaddr: u32, // Pointer to struct sockaddr
     pub ifa_data: u32,
 }
 unsafe impl SafeRead for ifaddrs {}
+
+// Minimal BSD sockaddr layout for 32-bit iOS/ARM guests
+#[allow(non_camel_case_types)]
+#[repr(C, packed)]
+struct sockaddr_in {
+    sin_len: u8,
+    sin_family: u8,
+    sin_port: u16,
+    sin_addr: u32,
+    sin_zero: [u8; 8],
+}
+unsafe impl SafeRead for sockaddr_in {}
+
+const AF_INET: u8 = 2;
 
 // ---------------------------------------------------------------------------
 // getifaddrs / freeifaddrs
@@ -31,39 +46,56 @@ unsafe impl SafeRead for ifaddrs {}
 
 /// `int getifaddrs(struct ifaddrs **ifap)`
 fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
-    // 1. Prepare a simple name pointer. 
-    // We'll just allocate a single byte 'e' to represent the name for now 
-    // to see if the game just wants a non-null pointer.
-    let fake_name_ptr = env.mem.alloc_and_write(b'e');
-    
-    // 2. Flags: UP | RUNNING | BROADCAST
-    let active_flags: u32 = 0x1 | 0x40 | 0x02;
+    if ifap.is_null() {
+        set_errno(env, EINVAL);
+        return -1;
+    }
 
-    // 3. Create the struct
+    // 1. Properly null-terminate the interface name "en0"
+    let name_bytes = b"en0\0";
+    let fake_name_ptr = env.mem.alloc_and_write(*name_bytes);
+    
+    // 2. Flags: UP | RUNNING | BROADCAST | LOOPBACK
+    let active_flags: u32 = 0x1 | 0x2 | 0x4 | 0x40;
+
+    // 3. Create a mock sockaddr structure for an IP address (e.g., 127.0.0.1)
+    // This stops the game from parsing a NULL pointer when reading address families
+    let fake_addr = env.mem.alloc_and_write(sockaddr_in {
+        sin_len: std::mem::size_of::<sockaddr_in>() as u8,
+        sin_family: AF_INET,
+        sin_port: 0,
+        sin_addr: 0x0100007F, // 127.0.0.1 in network byte order
+        sin_zero: [0; 8],
+    });
+
+    let fake_netmask = env.mem.alloc_and_write(sockaddr_in {
+        sin_len: std::mem::size_of::<sockaddr_in>() as u8,
+        sin_family: AF_INET,
+        sin_port: 0,
+        sin_addr: 0x00FFFFFF, // 255.255.255.0
+        sin_zero: [0; 8],
+    });
+
+    // 4. Create the final ifaddrs struct linking the mock properties
     let fake_if = env.mem.alloc_and_write(ifaddrs {
         ifa_next: MutPtr::null(),
         ifa_name: fake_name_ptr.cast_const(),
         ifa_flags: active_flags,
-        ifa_addr: 0,
-        ifa_netmask: 0,
-        ifa_broadaddr: 0,
+        ifa_addr: fake_addr.to_bits(),
+        ifa_netmask: fake_netmask.to_bits(),
+        ifa_broadaddr: MutPtr::<u8>::null().to_bits(),
         ifa_data: 0,
     });
 
-    // 4. Update the pointer provided by the game
-    if !ifap.is_null() {
-        env.mem.write(ifap, fake_if);
-        log!("getifaddrs(): Provided fake interface en0 at {:?}", fake_if);
-        0 
-    } else {
-        set_errno(env, EINVAL);
-        -1
-    }
+    // 5. Update the pointer provided by the game
+    env.mem.write(ifap, fake_if);
+    log!("getifaddrs(): Provided stable fake interface en0 at {:?}", fake_if);
+    0 
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
 fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
-    // No-op. Since we returned an empty list (NULL), there is nothing to free.
+    // Memory handles allocated via env.mem are persistent or garbage collected by the runtime environment layer
 }
 
 // ---------------------------------------------------------------------------
@@ -74,15 +106,20 @@ const IF_NAMESIZE: usize = 16;
 
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
     let name = env.mem.cstr_at_utf8(ifname).unwrap_or("<invalid>");
-    log!("if_nametoindex(\"{}\") – returning 0", name);
-    set_errno(env, ENXIO);
-    0
+    log!("if_nametoindex(\"{}\") – returning 1 for en0", name);
+    1
 }
 
 fn if_indextoname(env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
-    log!("if_indextoname({}) – returning NULL", ifindex);
-    set_errno(env, ENXIO);
-    MutPtr::null()
+    if ifindex == 1 && !ifname.is_null() {
+        log!("if_indextoname({}) – writing 'en0'", ifindex);
+        env.mem.write_bytes(ifname, b"en0\0");
+        ifname
+    } else {
+        log!("if_indextoname({}) – returning NULL", ifindex);
+        set_errno(env, ENXIO);
+        MutPtr::null()
+    }
 }
 
 #[allow(non_camel_case_types)]
@@ -94,7 +131,6 @@ pub struct if_nameindex {
 unsafe impl SafeRead for if_nameindex {}
 
 fn if_nameindex(_env: &mut Environment) -> MutPtr<if_nameindex> {
-    // Return NULL but don't set an error; let the app think the list is just empty.
     MutPtr::null()
 }
 
