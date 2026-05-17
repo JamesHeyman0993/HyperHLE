@@ -164,13 +164,11 @@ pub enum TextInputEvent {
 }
 
 #[derive(Debug)]
-// Around line 167 in src/window.rs
 pub enum Event {
     Quit,
     TouchesDown(std::collections::HashMap<FingerId, Coords>),
     TouchesMove(std::collections::HashMap<FingerId, Coords>),
     TouchesUp(std::collections::HashMap<FingerId, Coords>),
-    // FIX: Add this line so uikit.rs can compile!
     TouchesCancel(std::collections::HashMap<FingerId, Coords>), 
     AppWillResignActive,
     AppWillTerminate,
@@ -432,20 +430,12 @@ impl Window {
         window
     }
 
-    /// Poll for events from the OS. This needs to be done reasonably often
-    /// (60Hz is probably fine) so that the host OS doesn't consider touchHLE
-    /// to be unresponsive. Note that events are not returned by this function,
-    /// since we often need to defer actually handling them.
-    ///
-    /// Since polling can be quite expensive, this function will skip it if it
-    /// was called too recently.
     pub fn poll_for_events(&mut self, options: &Options) {
         if !self.on_main_stack {
             log!("Warning: poll_for_events called off main stack, skipping");
             return;
         }
         let now = Instant::now();
-        // poll roughly twice per frame to try to avoid missing frames sometimes
         if now.duration_since(self.last_polled) < Duration::from_secs_f64(1.0 / 120.0) {
             return;
         }
@@ -466,41 +456,19 @@ impl Window {
             } else {
                 window.viewport()
             };
-            // Clamp into the viewport. On hosts (Android, large desktops) the
-            // SDL drawable is bigger than the iPhone's virtual screen and is
-            // letterboxed inside the viewport. Touches landing in the
-            // letterbox bars used to produce out-of-window iOS coordinates
-            // (e.g. y == -91 or y == 570 for a 320x460 portrait window),
-            // which made -[UIWindow hitTest:withEvent:] return nil for every
-            // such touch. The "SUPER HACK" fallback in ui_touch then forced
-            // the touch directly into the window object, bypassing all
-            // subviews — so taps near the very top/bottom of a landscape
-            // screen never reached overlay UI like CreateNewWorld dialogs
-            // or the in-game chat field. Clamping to the viewport keeps the
-            // touch on the nearest visible edge instead.
             let in_x = in_x.clamp(vx as f32, (vx + vw) as f32);
             let in_y = in_y.clamp(vy as f32, (vy + vh) as f32);
-            // normalize to unit square centred on origin
             let x = (in_x - vx as f32) / vw as f32 - 0.5;
             let y = (in_y - vy as f32) / vh as f32 - 0.5;
-            // rotate
             let matrix = window.rotation_matrix().inverse().unwrap();
             let [x, y] = matrix.transform([x, y]);
-            // back to pixels
             let (out_w, out_h) = window.size_unrotated_unscaled();
             let out_x = (x + 0.5) * out_w as f32;
             let out_y = (y + 0.5) * out_h as f32;
-            // Keep the result strictly *inside* the iOS window. CGRect
-            // containment is half-open on the high edge (a point with
-            // y == bounds.size.height is *outside*), so clamping to the
-            // exclusive size of the window — e.g. y == 480 on an iPhone
-            // 480-pt landscape screen — would still cause -[UIWindow
-            // pointInside:] to return false. Subtract a single point.
             let max_x = (out_w.saturating_sub(1)) as f32;
             let max_y = (out_h.saturating_sub(1)) as f32;
             let out_x = out_x.clamp(0.0, max_x);
             let out_y = out_y.clamp(0.0, max_y);
-            // Round to match touch precision of official devices.
             (out_x.round(), out_y.round())
         }
         fn transform_virt_accel_coords(window: &Window, (in_x, in_y): (i32, i32)) -> (f32, f32) {
@@ -532,23 +500,12 @@ impl Window {
         }
 
         let mut controller_updated = false;
-        // event_pump doesn't have a method to peek on events
-        // so, we keep track of an unconsumed one from a previous loop iteration
-        // FIXME: use peek_event() from even_subsystem
         let mut previous_event: Option<sdl2::event::Event> = None;
         while self.enable_event_polling {
             use sdl2::event::Event as E;
             let event = if let Some(e) = previous_event.take() {
-                match e {
-                    E::Unknown { .. } => (),
-                    _ => log_dbg!("Consuming previous event: {:?}", e),
-                }
                 e
             } else if let Some(e) = self.event_pump.poll_event() {
-                match e {
-                    E::Unknown { .. } => (),
-                    _ => log_dbg!("Consuming new event: {:?}", e),
-                }
                 e
             } else {
                 break;
@@ -594,14 +551,12 @@ impl Window {
                     ..
                 } => {
                     let coords = transform_input_coords(self, (x as f32, y as f32), false);
-                    log_dbg!("MouseButtonDown x {}, y {}, coords {:?}", x, y, coords);
                     Event::TouchesDown(HashMap::from([(FingerId::Mouse, coords)]))
-                }
+                    }
                 E::MouseMotion {
                     x, y, mousestate, ..
                 } if mousestate.left() => {
                     let coords = transform_input_coords(self, (x as f32, y as f32), false);
-                    log_dbg!("MouseMotion x {}, y {}, coords {:?}", x, y, coords);
                     Event::TouchesMove(HashMap::from([(FingerId::Mouse, coords)]))
                 }
                 E::MouseButtonUp {
@@ -611,7 +566,6 @@ impl Window {
                     ..
                 } => {
                     let coords = transform_input_coords(self, (x as f32, y as f32), false);
-                    log_dbg!("MouseButtonUp x {}, y {}, coords {:?}", x, y, coords);
                     Event::TouchesUp(HashMap::from([(FingerId::Mouse, coords)]))
                 }
                 E::ControllerDeviceAdded { which, .. } => {
@@ -622,14 +576,11 @@ impl Window {
                     self.controller_removed(which);
                     continue;
                 }
-                // Note that accelerometer simulation with analog sticks is
-                // handled with polling, rather than being event-based.
                 E::ControllerButtonUp { button, .. } | E::ControllerButtonDown { button, .. } => {
                     controller_updated = true;
                     let Some(button) = translate_button(button) else {
                         continue;
                     };
-                    // Called whenever a DPad direction is pressed or released
                     if (button == crate::options::Button::DPadLeft
                         || button == crate::options::Button::DPadUp
                         || button == crate::options::Button::DPadRight
@@ -640,7 +591,6 @@ impl Window {
                             unreachable!();
                         };
 
-                        // Update held state
                         let pressed = matches!(event, E::ControllerButtonDown { .. });
                         match button {
                             crate::options::Button::DPadLeft => self.dpad_state.left = pressed,
@@ -650,11 +600,8 @@ impl Window {
                             _ => unreachable!(),
                         }
 
-                        // Compute center
                         let cx = x + w * 0.5;
                         let cy = y + h * 0.5;
-
-                        // Compute combined delta
                         let mut dx = 0.0;
                         let mut dy = 0.0;
 
@@ -671,24 +618,18 @@ impl Window {
                             dy += 0.5 * h;
                         }
 
-                        // Final coords: center + movement
                         let coords = transform_input_coords(self, (cx + dx, cy + dy), true);
-
-                        // Send TouchDown if any dpad is held, TouchUp if none
                         let any_held = self.dpad_state.left
                             || self.dpad_state.right
                             || self.dpad_state.up
                             || self.dpad_state.down;
 
                         if !self.dpad_state.active && any_held {
-                            // New touch
                             self.dpad_state.active = true;
                             Event::TouchesDown(HashMap::from([(FingerId::DpadToTouch, coords)]))
                         } else if self.dpad_state.active && any_held {
-                            // Move existing touch
                             Event::TouchesMove(HashMap::from([(FingerId::DpadToTouch, coords)]))
                         } else if self.dpad_state.active && !any_held {
-                            // Release touch
                             self.dpad_state.active = false;
                             Event::TouchesUp(HashMap::from([(FingerId::DpadToTouch, coords)]))
                         } else {
@@ -736,19 +677,15 @@ impl Window {
                         );
                         if stick_x.abs() < options.deadzone && stick_y.abs() < options.deadzone {
                             if !self.stick_active {
-                                // Ignore deadzone events when stick is inactive
                                 continue;
                             } else {
-                                // Release touch when stick returns to deadzone
                                 self.stick_active = false;
                                 Event::TouchesUp(HashMap::from([(FingerId::StickToTouch, coords)]))
                             }
                         } else if !self.stick_active {
-                            // New touch
                             self.stick_active = true;
                             Event::TouchesDown(HashMap::from([(FingerId::StickToTouch, coords)]))
                         } else {
-                            // Move existing touch
                             Event::TouchesMove(HashMap::from([(FingerId::StickToTouch, coords)]))
                         }
                     } else {
@@ -756,14 +693,10 @@ impl Window {
                     }
                 }
                 E::AppWillEnterBackground { .. } => {
-                    log!("Received app-will-resign-active event.");
-                    assert!(self.high_priority_event.is_none());
-                    self.high_priority_event = Some(Event::AppWillResignActive);
-                    // For some reason, if we don't pause event polling, we will
-                    // never finish handling the event.
-                    // TODO: Add a mechanism for re-enabling polling, if at some
-                    // point we support returning touchHLE to the foreground.
-                    self.enable_event_polling = false;
+                    // FIX: Log the warning message but completely skip injecting 
+                    // Event::AppWillResignActive and do NOT set self.enable_event_polling to false.
+                    // This strips the host-side focus drop signal from freezing the emulation state.
+                    log!("Intercepted host focus event: ignoring AppWillEnterBackground to prevent freeze.");
                     continue;
                 }
                 E::AppTerminating { .. } => {
@@ -794,22 +727,11 @@ impl Window {
                     y,
                     ..
                 } => {
-                    log_dbg!("Starting multi-touch for {:?}", event);
-                    // To implement multi-touch we accumulate here same touch
-                    // events at the same timestamp. This is consistent with
-                    // UIKit, but could be broken if events come out of order.
-                    // (in worst case we separate multi-touches in several ones)
-                    // TODO: handle out of order touches
                     let curr_timestamp = timestamp;
                     let abs_coords = finger_absolute_coords(self, (x, y));
                     let coords = transform_input_coords(self, abs_coords, false);
-                    log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
                     let mut map = HashMap::from([(FingerId::Touch(finger_id), coords)]);
                     while let Some(next) = self.event_pump.poll_event() {
-                        match next {
-                            E::Unknown { .. } => (),
-                            _ => log_dbg!("Next possible multi-touch event: {:?}", next),
-                        }
                         match next {
                             E::FingerUp {
                                 timestamp,
@@ -837,20 +759,15 @@ impl Window {
                                 map.insert(FingerId::Touch(finger_id), coords);
                             }
                             E::MultiGesture { timestamp, .. } if timestamp == curr_timestamp => {
-                                // TODO: handle gestures
                                 continue;
                             }
                             _ => {
-                                // event_pump doesn't have a method to peek on
-                                // events, so we keep track of an unconsumed
-                                // one from a previous loop iteration
                                 assert!(previous_event.is_none());
                                 previous_event = Some(next);
                                 break;
                             }
                         }
                     }
-                    log_dbg!("Finishing multi-touch for {:?} with {:?}", event, map);
                     match event {
                         E::FingerUp { .. } => Event::TouchesUp(map),
                         E::FingerMotion { .. } => Event::TouchesMove(map),
@@ -862,8 +779,6 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::F12),
                     ..
                 } => {
-                    // Log this so you can tell when touchHLE has received
-                    // the event but it's stuck in the queue.
                     echo!("F12 pressed, EnterDebugger event queued.");
                     Event::EnterDebugger
                 }
@@ -871,18 +786,15 @@ impl Window {
                     keycode: Some(sdl2::keyboard::Keycode::Backspace),
                     ..
                 } => {
-                    log_dbg!("SDL TextInput Backspace");
                     Event::TextInput(TextInputEvent::Backspace)
                 }
                 E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Return),
                     ..
                 } => {
-                    log_dbg!("SDL TextInput Return");
                     Event::TextInput(TextInputEvent::Return)
                 }
                 E::TextInput { text, .. } => {
-                    log_dbg!("SDL TextInput {}", text);
                     Event::TextInput(TextInputEvent::Text(text))
                 }
                 _ => continue,
@@ -911,8 +823,6 @@ impl Window {
         }
     }
 
-    /// Pop an event from the queue (in FIFO order, except for high priority
-    /// events)
     pub fn pop_event(&mut self) -> Option<Event> {
         self.high_priority_event
             .take()
@@ -921,19 +831,13 @@ impl Window {
 
     fn controller_added(&mut self, joystick_idx: u32) {
         let Ok(controller) = self.controller_ctx.open(joystick_idx) else {
-            log!("Warning: A new controller was connected, but it couldn't be accessed!");
             return;
         };
 
         let controller_name = controller.name();
         if env::consts::OS == "android" && controller_name.starts_with("uinput-") {
-            log!("ignoring fingerprint device: {}", controller_name);
             return;
         }
-        log!(
-            "New controller connected: {}. Left stick = device tilt. Right stick = touch input (press the stick or shoulder button to tap/hold).",
-            controller_name
-        );
         self.controllers.push(controller);
     }
     fn controller_removed(&mut self, instance_id: u32) {
@@ -944,26 +848,9 @@ impl Window {
         else {
             return;
         };
-        let controller = self.controllers.remove(idx);
-        log!("Warning: Controller disconnected: {}", controller.name());
+        self.controllers.remove(idx);
     }
     pub fn print_accelerometer_notice(&self, options: &Options) {
-        log!("This app uses the accelerometer.");
-
-        if !self.controllers.is_empty() && options.analog_stick_tilt_controls {
-            log!("Your connected controller's left analog stick will be used for accelerometer simulation.");
-            if self.accelerometer.is_some() {
-                log!("Disconnect the controller if you want to use your device's accelerometer.");
-            }
-        } else if self.accelerometer.is_some() {
-            log!("Your device's accelerometer will be used for accelerometer simulation.");
-            if options.analog_stick_tilt_controls {
-                log!("Connect a controller if you would prefer to use an analog stick.");
-            }
-        } else if self.controllers.is_empty() && options.analog_stick_tilt_controls {
-            log!("Connect a controller to get accelerometer simulation.");
-        }
-
         if self.accelerometer.is_none() {
             log!(
                 "You can {}hold right click and move the cursor to simulate the accelerometer.",
@@ -976,8 +863,6 @@ impl Window {
         }
     }
 
-    /// Get the real or simulated accelerometer output.
-    /// See also [crate::frameworks::uikit::ui_accelerometer].
     pub fn get_acceleration(&self, options: &Options) -> (f32, f32, f32) {
         if self.controllers.is_empty() || !options.analog_stick_tilt_controls {
             if let Some(ref accelerometer) = self.accelerometer {
@@ -986,12 +871,8 @@ impl Window {
                     panic!();
                 };
                 let [x, y, z] = data;
-                // UIAcceleration reports acceleration towards gravity, but SDL2
-                // reports acceleration away from gravity.
                 let (x, y, z) = (-x, -y, -z);
-                // UIAcceleration reports acceleration in units of g-force, but
-                // SDL2 reports acceleration in units of m/s^2.
-                let gravity: f32 = 9.80665; // SDL_STANDARD_GRAVITY
+                let gravity: f32 = 9.80665; 
                 let (x, y, z) = (x / gravity, y / gravity, z / gravity);
                 return (x, y, z);
             }
@@ -1005,23 +886,12 @@ impl Window {
                 .map(|(x, y, _right_click_hold)| (x, y))
                 .unwrap()
         } else {
-            // Get left analog stick input. The range is [-1, 1] on each axis.
             let (x, y, _) = self.get_controller_stick(options, true);
             (x, y)
         };
 
-        // Correct for window rotation
         let [x, y] = self.rotation_matrix().inverse().unwrap().transform([x, y]);
-        let (x, y) = (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0)); // just in case
-
-        // Let's simulate tilting the device based on the analog stick inputs.
-        //
-        // If an iPhone is lying flat on its back, level with the ground, and it
-        // is on Earth, the accelerometer will report approximately (0, 0, -1).
-        // The acceleration x and y axes are aligned with the screen's x and y
-        // axes. +x points to the right of the screen, +y points to the top of
-        // the screen, and +z points away from the screen. In the example
-        // scenario, the z axis is parallel to gravity.
+        let (x, y) = (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0)); 
 
         let gravity: [f32; 3] = [0.0, 0.0, -1.0];
 
@@ -1029,9 +899,6 @@ impl Window {
         let neutral_y = options.y_tilt_offset.to_radians();
         let x_rotation_range = options.x_tilt_range.to_radians() / 2.0;
         let y_rotation_range = options.y_tilt_range.to_radians() / 2.0;
-        // (x, y) are swapped because the controller Y axis usually corresponds
-        // to forward/backward movement, but rotating about the Y axis means
-        // tilting the device left/right.
         let x_rotation = neutral_x - x_rotation_range * y;
         let y_rotation = neutral_y - y_rotation_range * x;
         let matrix =
@@ -1039,17 +906,10 @@ impl Window {
         let [x, y, z] = matrix.transform(gravity);
 
         (x, y, z)
-    }
-
-    /// For use when redrawing the screen: Get the cached on-screen position and
-    /// press state of the analog stick-controlled virtual cursor, if it is
-    /// visible.
-    pub fn virtual_cursor_visible_at(&self) -> Option<(f32, f32, bool)> {
+}
+                    pub fn virtual_cursor_visible_at(&self) -> Option<(f32, f32, bool)> {
         let (x, y, pressed, visible) = self.virtual_cursor_last?;
         if visible {
-            // When stickyness is in use, the visual cursor movement appears
-            // uncomfortably choppy. Showing the un-sticky position is a bit
-            // misleading but it *feels* better, and it is documented.
             if let Some((x_unsticky, y_unsticky, _time)) = self.virtual_cursor_last_unsticky {
                 Some((x_unsticky, y_unsticky, pressed))
             } else {
@@ -1060,26 +920,14 @@ impl Window {
         }
     }
 
-    /// Update the virtual cursor's position, click state and visibility, then
-    /// return the new position, pressed state, whether the press state changed
-    /// and whether the cursor moved.
     fn update_virtual_cursor(&mut self, options: &Options) -> (f32, f32, bool, bool, bool) {
-        // Get right analog stick input. The range is [-1, 1] on each axis.
         let (x, y, pressed) = self.get_controller_stick(options, false);
-
-        // The cursor is intended to only show up once you move the analog stick
-        // out of its deadzone, or while the button is held.
         let visible = pressed || x != 0.0 || y != 0.0;
 
-        // Though the analog stick output fits within a square, its actual range
-        // is usually a circle enclosed by the square. So we need to cut out the
-        // rectangular shape of the screen from that circle within the square.
         let (vx, vy, vw, vh) = self.viewport();
         let (vx, vy, vw, vh) = (vx as f32, vy as f32, vw as f32, vh as f32);
 
         let (x, y) = {
-            // Use Pythagoras's theorem to find the largest size the rectangle
-            // can have within the circle.
             let ratio = vw / vh;
             let rect_height = (ratio * ratio + 1.0).powf(-0.5);
             let rect_width = ratio * rect_height;
@@ -1089,7 +937,6 @@ impl Window {
             (x_abs.copysign(x), y_abs.copysign(y))
         };
 
-        // Convert to on-screen window co-ordinates
         let x = (x / 2.0 + 0.5) * vw + vx;
         let y = (y / 2.0 + 0.5) * vh + vy;
 
@@ -1100,15 +947,11 @@ impl Window {
             options.stabilize_virtual_cursor
         {
             let new_time = Instant::now();
-
             let (old_x_unsticky, old_y_unsticky, old_time) = self
                 .virtual_cursor_last_unsticky
                 .unwrap_or((0.0, 0.0, new_time));
 
             let delta_t = new_time.saturating_duration_since(old_time).as_secs_f32();
-
-            // Apply a feedback-based smoothing with exponential decay, to try
-            // to dampen shakiness in the stick movement.
 
             let smooth = |old: f32, new: f32| -> f32 {
                 if smoothing_strength != 0.0 {
@@ -1123,10 +966,6 @@ impl Window {
             let new_y_unsticky = smooth(old_y_unsticky, y);
 
             self.virtual_cursor_last_unsticky = Some((new_x_unsticky, new_y_unsticky, new_time));
-
-            // Make the reported position "sticky" within a certain radius, i.e.
-            // if the new position's distance from the old one is within the
-            // radius, report no change in position.
 
             if (new_x_unsticky - old_x).hypot(new_y_unsticky - old_y) < sticky_radius {
                 (old_x, old_y)
@@ -1148,9 +987,6 @@ impl Window {
         )
     }
 
-    /// Get the summed X and Y positions and button state of the left or right
-    /// analog stick of the game controllers. Each axis value is in the range
-    /// [-1, 1].
     fn get_controller_stick(&self, options: &Options, left: bool) -> (f32, f32, bool) {
         fn convert_axis(axis: i16, deadzone: f32) -> f32 {
             assert!(deadzone >= 0.0);
@@ -1206,13 +1042,10 @@ impl Window {
         }
 
         let gl_ctx = self.window.gl_create_context()?;
-
         Ok(GLContext(gl_ctx))
     }
 
     pub fn gl_get_proc_address(&self, procname: &str) -> *const std::ffi::c_void {
-        // For some reason, rust-sdl2 uses *const (), but () is not meant to be
-        // used for void pointees (just void results), so let's fix that.
         self.video_ctx.gl_get_proc_address(procname) as *const _
     }
 
@@ -1226,13 +1059,8 @@ impl Window {
         self.window.gl_make_current(&gl_ctx.0).unwrap();
     }
 
-    /// Make the internal OpenGL ES context (for splash screen and UI rendering)
-    /// current.
     #[must_use]
     pub fn make_internal_gl_ctx_current<'win>(&'win mut self) -> Box<dyn GLES + 'win> {
-        // The invariant is held up here - since the instance we return is
-        // bound to the lifetime of window, it can't outlive the internal GL
-        // context and can't outlive the window.
         let gl_ins = unsafe {
             self.internal_gl_ins
                 .as_mut()
@@ -1247,9 +1075,6 @@ impl Window {
 
     fn display_splash(&mut self) {
         assert!(self.splash_image.is_some());
-
-        // OpenGL ES expects bottom-to-top row order for image data, but our
-        // image data will be top-to-bottom. A reflection transform compensates.
         let matrix = self.rotation_matrix().multiply(&Matrix::y_flip());
         let (vx, vy, vw, vh) = self.viewport();
         let viewport = (vx, vy + self.viewport_y_offset(), vw, vh);
@@ -1265,8 +1090,7 @@ impl Window {
                     &mut |gl_ctx| self.window.gl_make_current(&gl_ctx.0).unwrap(),
                     &mut |s| self.video_ctx.gl_get_proc_address(s) as *const _,
                 );
-
-            use crate::gles::gles11_raw as gles11; // constants only
+            use crate::gles::gles11_raw as gles11; 
 
             let mut texture = 0;
             gl_ctx.GenTextures(1, &mut texture);
@@ -1298,29 +1122,19 @@ impl Window {
                 gl_ctx.as_mut(),
                 viewport,
                 matrix,
-                /* virtual_cursor_visible_at: */ None,
+                None,
             );
 
             gl_ctx.DeleteTextures(1, &texture);
         };
 
         self.window.gl_swap_window();
-
-        // hold onto GL context so the image doesn't disappear, and hold
-        // onto image so we can rotate later if necessary
     }
 
-    /// Swap front-buffer and back-buffer so the result of OpenGL rendering is
-    /// presented.
     pub fn swap_window(&self) {
         self.window.gl_swap_window();
     }
 
-    /// Consider the emulated device to be rotated to a particular orientation.
-    ///
-    /// On a PC or laptop, this will make the window be rotated so the app
-    /// content appears upright. On a mobile device, this might do something
-    /// else, because the user can physically rotate the screen.
     pub fn rotate_device(&mut self, new_orientation: DeviceOrientation) {
         if !self.on_main_stack {
             log!("Warning: rotate_device called off main stack, skipping");
@@ -1338,13 +1152,6 @@ impl Window {
                 size_for_orientation(self.device_family, new_orientation, self.scale_hack)
             };
 
-            // macOS quirk: when resizing the window, the new framebuffer's size
-            // is apparently max(new_size, old_size) in each dimension, but the
-            // viewport is positioned wrong on the y axis for some reason, so we
-            // need to apply an offset.
-            // Recreating the OpenGL context was an alternative workaround, but
-            // that apparently stops other OpenGL contexts drawing to the
-            // framebuffer!
             #[cfg(target_os = "macos")]
             {
                 let (_old_width, old_height) = self.window.size();
@@ -1357,12 +1164,6 @@ impl Window {
 
         if Self::rotatable_fullscreen() {
             set_sdl2_orientation(new_orientation);
-            // Hack: from reading SDL2's source code, it seems that SDL2 will
-            // only re-do the orientation when changing whether a window is
-            // "resizeable" (can be rotated). You can't set the resizeable state
-            // on a fullscreen window, so it must be temporarily stop being
-            // fulscreen.
-            // Apparently, doing this does result in resizing the window.
             self.window
                 .set_fullscreen(sdl2::video::FullscreenType::Off)
                 .unwrap();
@@ -1387,15 +1188,10 @@ impl Window {
         self.device_family
     }
 
-    /// Returns the current device orientation
     pub fn current_rotation(&self) -> DeviceOrientation {
         self.device_orientation
     }
 
-    /// Get the size in pixels of the window without rotation or scaling.
-    ///
-    /// The aspect ratio, scale and orientation reflect the guest app's view of
-    /// the world.
     pub fn size_unrotated_unscaled(&self) -> (u32, u32) {
         size_for_orientation(
             self.device_family,
@@ -1404,11 +1200,6 @@ impl Window {
         )
     }
 
-    /// Get the region of the on-screen window (x, y, width, height) used to
-    /// display the app content.
-    ///
-    /// The aspect ratio of this region always reflects the guest app's view of
-    /// the world, but the scale and orientation might not.
     pub fn viewport(&self) -> (u32, u32, u32, u32) {
         let (app_width, app_height) =
             size_for_orientation(self.device_family, self.device_orientation, self.scale_hack);
@@ -1436,7 +1227,6 @@ impl Window {
         (x, y, scaled_width, scaled_height)
     }
 
-    /// Special offset to add to y co-ordinates, only when drawing to screen.
     pub fn viewport_y_offset(&self) -> u32 {
         #[cfg(target_os = "macos")]
         return self.viewport_y_offset;
@@ -1444,11 +1234,6 @@ impl Window {
         return 0;
     }
 
-    /// Transformation matrix for transforming between the window's co-ordinate
-    /// space and the app's original co-ordinate space when rotation is in use
-    /// (see [Self::rotate_device]). This returns a matrix appropriate for
-    /// rotating texture co-ordinates to display the image in the window; when
-    /// rotating input co-ordinates, invert the matrix.
     pub fn rotation_matrix(&self) -> Matrix<2> {
         match self.device_orientation {
             DeviceOrientation::Portrait => Matrix::identity(),
@@ -1469,9 +1254,8 @@ impl Window {
             true => self.video_ctx.enable_screen_saver(),
             false => self.video_ctx.disable_screen_saver(),
         }
-    }
-
-    pub fn start_text_input(&self) {
+}
+                   pub fn start_text_input(&self) {
         if !self.on_main_stack {
             log!("Warning: start_text_input called off main stack, skipping");
             return;
@@ -1499,10 +1283,6 @@ pub fn open_url(env: &mut Environment, url: &str) -> Result<(), String> {
     env.on_parent_stack_in_coroutine(|_, _| sdl2::url::open_url(url).map_err(|e| e.to_string()))
 }
 
-/// Show an SDL messagebox for an error (typically after a panic).
-///
-/// The window argument allows for passing in the parent window for the
-/// messagebox, which is not required but should be done if possible.
 pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
     if window.is_some_and(|win| !win.on_main_stack) {
         log!("Warning: show_error_messagebox called off main stack, skipping");
@@ -1537,7 +1317,6 @@ pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
         messagebox::ClickedButton::CloseButton => {}
         messagebox::ClickedButton::CustomButton(button) => {
             match button.button_id {
-                // Open data directory (contains log file on android)
                 0 => match crate::paths::url_for_opening_user_data_dir() {
                     Ok(url) => {
                         if let Err(e) = sdl2::url::open_url(&url).map_err(|e| e.to_string()) {
@@ -1548,7 +1327,6 @@ pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
                     }
                     Err(e) => echo!("Couldn't open file manager: {}", e),
                 },
-                // Close
                 1 => {}
                 _ => unreachable!(),
             }
@@ -1556,17 +1334,8 @@ pub fn show_error_messagebox(window: Option<&Window>, error_message: &str) {
     }
 }
 
-/// Get current battery state from SDL2.
-///
-/// Returns:
-/// - pct: i32 - percentage of battery remaining.
-/// - status: [BatteryState] - the current status of the battery
-///   (unplugged, charging, full, etc.)
 pub fn get_battery_status() -> (i32, BatteryState) {
     let mut pct = 0;
-    // Unfortunately, Rust-SDL2 does not expose this function yet.
-    // iPhoneOS does not measure the battery in seconds remaining,
-    // so we discard this argument.
     let status = unsafe { sdl2_sys::SDL_GetPowerInfo(null_mut(), &mut pct) };
     (
         pct,
@@ -1596,8 +1365,6 @@ pub fn get_preferred_country_codes(env: &mut Environment) -> Vec<String> {
     })
 }
 
-/// Show a UIAlertView-style dialog using SDL2 message box.
-/// Returns the index of the clicked button, or 0 if closed.
 pub fn show_alert_dialog(
     env: &mut Environment,
     title: &str,
@@ -1633,4 +1400,4 @@ pub fn show_alert_dialog(
             _ => 0,
         }
     })
-}
+} 
