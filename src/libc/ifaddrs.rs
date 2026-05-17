@@ -38,8 +38,6 @@ struct sockaddr_in {
 }
 unsafe impl SafeRead for sockaddr_in {}
 
-const AF_INET: u8 = 2;
-
 // ---------------------------------------------------------------------------
 // getifaddrs / freeifaddrs
 // ---------------------------------------------------------------------------
@@ -51,48 +49,12 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         return -1;
     }
 
-    // 1. Properly allocate space for "en0\0" by allocating individual u8 bytes
-    // to bypass the lack of [u8; 4] trait implementations.
-    let fake_name_ptr = env.mem.alloc_and_write(b'e');
-    let _n = env.mem.alloc_and_write(b'n');
-    let _0 = env.mem.alloc_and_write(b'0');
-    let _null = env.mem.alloc_and_write(0u8);
-    
-    // 2. Flags: UP | RUNNING | BROADCAST | LOOPBACK
-    let active_flags: u32 = 0x1 | 0x2 | 0x4 | 0x40;
-
-    // 3. Create a mock sockaddr structure for an IP address (127.0.0.1)
-    let fake_addr = env.mem.alloc_and_write(sockaddr_in {
-        sin_len: std::mem::size_of::<sockaddr_in>() as u8,
-        sin_family: AF_INET,
-        sin_port: 0,
-        sin_addr: 0x0100007F, // 127.0.0.1 in network byte order
-        sin_zero: [0; 8],
-    });
-
-    let fake_netmask = env.mem.alloc_and_write(sockaddr_in {
-        sin_len: std::mem::size_of::<sockaddr_in>() as u8,
-        sin_family: AF_INET,
-        sin_port: 0,
-        sin_addr: 0x00FFFFFF, // 255.255.255.0
-        sin_zero: [0; 8],
-    });
-
-    // 4. Create the final ifaddrs struct linking the mock properties
-    let fake_if = env.mem.alloc_and_write(ifaddrs {
-        ifa_next: MutPtr::null(),
-        ifa_name: fake_name_ptr.cast_const(),
-        ifa_flags: active_flags,
-        ifa_addr: fake_addr.to_bits(),
-        ifa_netmask: fake_netmask.to_bits(),
-        ifa_broadaddr: MutPtr::<u8>::null().to_bits(),
-        ifa_data: 0,
-    });
-
-    // 5. Update the pointer provided by the game
-    env.mem.write(ifap, fake_if);
-    log!("getifaddrs(): Provided stable fake interface en0 at {:?}", fake_if);
-    0 
+    // Force the emulator to report a standard network subsystem error (-1).
+    // This tells the guest game that there are absolutely no network hardware
+    // configurations available, bypassing ad overlay loads.
+    log!("getifaddrs(): Faking completely offline state to bypass ad overlays.");
+    set_errno(env, ENXIO);
+    -1
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
@@ -106,25 +68,15 @@ fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
 
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
     let name = env.mem.cstr_at_utf8(ifname).unwrap_or("<invalid>");
-    log!("if_nametoindex(\"{}\") – returning 1 for en0", name);
-    1
+    log!("if_nametoindex(\"{}\") – returning 0 (No device found)", name);
+    0
 }
 
-fn if_indextoname(env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> MutPtr<u8> {
-    if ifindex == 1 && !ifname.is_null() {
-        log!("if_indextoname({}) – writing 'en0'", ifindex);
-        
-        // Write the string sequentially to the target memory buffer pointer using + operator
-        env.mem.write(ifname, b'e');
-        env.mem.write(ifname + 1, b'n');
-        env.mem.write(ifname + 2, b'0');
-        env.mem.write(ifname + 3, 0u8);
-        ifname
-    } else {
-        log!("if_indextoname({}) – returning NULL", ifindex);
-        set_errno(env, ENXIO);
-        MutPtr::null()
-    }
+fn if_indextoname(env: &mut Environment, ifindex: u32, _ifname: MutPtr<u8>) -> MutPtr<u8> {
+    // Return NULL to keep network queries completely isolated and empty
+    log!("if_indextoname({}) – offline mode active, returning NULL", ifindex);
+    set_errno(env, ENXIO);
+    MutPtr::null()
 }
 
 #[allow(non_camel_case_types)]
