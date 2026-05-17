@@ -12,6 +12,7 @@ pub mod ad_banner_view;
 pub mod fb_session; 
 pub mod gk_leaderboard_view_controller;
 pub mod gk_local_player;
+pub mod gk_matchmaker; // Added our new matchmaker module
 mod gk_score;
 mod gk_session;
 
@@ -34,6 +35,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         fb_session::CLASSES, 
         gk_leaderboard_view_controller::CLASSES,
         gk_local_player::CLASSES,
+        gk_matchmaker::CLASSES, // Registered matchmaker classes here
         gk_score::CLASSES,
         gk_session::CLASSES,
     ],
