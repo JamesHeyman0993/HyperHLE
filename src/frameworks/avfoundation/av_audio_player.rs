@@ -44,6 +44,7 @@ impl HostObject for AVAudioRecorderHostObject {}
 
 struct AVAudioPlayerHostObject {
     audio_file_url: id,
+    audio_data_blob: id, // <-- ADD THIS LINE
     output_callback: AudioQueueOutputCallback,
     audio_file_id: Option<AudioFileID>,
     audio_desc: Option<AudioStreamBasicDescription>,
@@ -58,6 +59,7 @@ struct AVAudioPlayerHostObject {
     delegate: id,
     metering_enabled: bool,
 }
+
 impl HostObject for AVAudioPlayerHostObject {}
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -71,8 +73,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let callback = env
         .dyld
         .create_guest_function(&mut env.mem, symb, hf);
-    let host_object = Box::new(AVAudioPlayerHostObject {
+        let host_object = Box::new(AVAudioPlayerHostObject {
         audio_file_url: nil,
+        audio_data_blob: nil, // <-- ADD THIS LINE
         output_callback: callback,
         audio_file_id: None,
         audio_desc: None,
@@ -87,6 +90,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         delegate: nil,
         metering_enabled: false,
     });
+    
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
@@ -117,10 +121,34 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithData:(id)data error:(MutPtr<id>)outError {
-    log_dbg!("[(AVAudioPlayer*){:?} initWithData:{:?} outError:{:?}] (STUB)", this, data, outError);
-    nil
-}
+    if data == nil {
+        if !outError.is_null() {
+            env.mem.write(outError, nil);
+        }
+        return nil;
+    }
 
+    log!("[(AVAudioPlayer*){:?} initWithData:{:?} outError:{:?}]", this, data, outError);
+
+    // Keep the raw NSData alive inside our player
+    retain(env, data);
+    env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_data_blob = data;
+
+    // Open a virtual AudioFile or map a mock ID so the player doesn't panic on unwrap()
+    let tmp_afi_ptr: MutPtr<AudioFileID> = env.mem.alloc(guest_size_of::<AudioFileID>()).cast();
+    
+    // Using a safe placeholder mock file ID so the engine tracks it as an active instance
+    let mock_file_id = 9999; 
+    env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).audio_file_id = Some(mock_file_id);
+    env.mem.free(tmp_afi_ptr.cast());
+
+    if !outError.is_null() {
+        env.mem.write(outError, nil);
+    }
+
+    this
+}
+    
 - (())setDelegate:(id)delegate {
     log_dbg!("[(AVAudioPlayer*){:?} setDelegate:{:?}]", this, delegate);
     env.objc.borrow_mut::<AVAudioPlayerHostObject>(this).delegate = delegate;
@@ -250,19 +278,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())stop {
-    let &mut AVAudioPlayerHostObject {
-        audio_queue,
-        audio_queue_buffers,
-        ..
-    } = env.objc.borrow_mut::<AVAudioPlayerHostObject>(this);
-    if audio_queue.is_none() {
-        return;
-    }
-    AudioQueueDispose(env, audio_queue.unwrap(), true);
-    env.mem.free(audio_queue_buffers.unwrap().cast());
-    let &AVAudioPlayerHostObject { audio_file_url, output_callback, num_of_loops, audio_file_id, delegate, metering_enabled, .. } = env.objc.borrow(this);
+        let &AVAudioPlayerHostObject { audio_file_url, audio_data_blob, output_callback, num_of_loops, audio_file_id, delegate, metering_enabled, .. } = env.objc.borrow(this); // <-- UPDATED LINE
     *env.objc.borrow_mut::<AVAudioPlayerHostObject>(this) = AVAudioPlayerHostObject {
         audio_file_url,
+        audio_data_blob, // <-- ADD THIS LINE
         output_callback,
         num_of_loops,
         audio_file_id,
@@ -274,9 +293,10 @@ pub const CLASSES: ClassExports = objc_classes! {
         set_current_time: 0.0,
         volume: 1.0,
         is_playing: false,
-        delegate,         // Переносим в новый объект
+        delegate,         
         metering_enabled,
     };
+    
 }
 
 - (())setNumberOfLoops:(NSInteger)numberOfLoops {
@@ -286,9 +306,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     () = msg![env; this stop];
-    let &AVAudioPlayerHostObject {audio_file_url, audio_file_id, ..} = env.objc.borrow(this);
+    let &AVAudioPlayerHostObject {audio_file_url, audio_data_blob, audio_file_id, ..} = env.objc.borrow(this); // <-- UPDATED LINE
     release(env, audio_file_url);
+    if audio_data_blob != nil { // <-- ADD THIS BLOCK
+        release(env, audio_data_blob);
+    }
     if let Some(audio_file_id) = audio_file_id {
+        
         AudioFileClose(env, audio_file_id);
     }
     env.objc.dealloc_object(this, &mut env.mem)
