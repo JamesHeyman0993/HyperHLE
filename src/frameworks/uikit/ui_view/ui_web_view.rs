@@ -154,34 +154,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         String::new()
     };
-    log!("UIWebView loadRequest: {}", url_string);
+    
+    // Short-circuited to bypass ad-wrapper execution loops and subprocess stalls.
+    log!("UIWebView loadRequest intercept: Skipping background processing for URL -> {}", url_string);
 
-    let frame: CGRect = msg![env; this frame];
-    render_url_to_layer(env, this, &url_string, frame);
-
-    // Push current URL onto back stack before navigating.
-    let old_url = env.objc.borrow::<UIWebViewHostObject>(this).current_url;
-    if old_url != nil {
-        retain(env, old_url);
-        env.objc.borrow_mut::<UIWebViewHostObject>(this).back_stack.push(old_url);
-        // Clear forward stack on new navigation.
-        let fwd: Vec<id> = std::mem::take(
-            &mut env.objc.borrow_mut::<UIWebViewHostObject>(this).forward_stack
-        );
-        for u in fwd { release(env, u); }
-    }
-    release(env, old_url);
-    let ns_url = ns_string::from_rust_string(env, url_string.clone());
-    {
-        let host = env.objc.borrow_mut::<UIWebViewHostObject>(this);
-        host.current_url = ns_url;
-        host.loading = true;
-    }
-
-    // Fire webViewDidStartLoad: delegate callback. Use `register_host_selector`
-    // rather than `lookup_selector(...).unwrap()` so that we don't panic if the
-    // app never references this delegate selector (e.g. Minecraft PE 0.8.0
-    // doesn't implement the UIWebViewDelegate protocol callbacks).
+    // Fire webViewDidStartLoad: delegate callback safely to satisfy structural setup expectations
     let delegate = env.objc.borrow::<UIWebViewHostObject>(this).delegate;
     if delegate != nil {
         let sel = env.objc.register_host_selector(
@@ -194,7 +171,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    // Since we don't actually load anything, immediately fire didFinishLoad:.
+    // Instantly finalize loading flag state bounds to keep layout calculations unfrozen
     env.objc.borrow_mut::<UIWebViewHostObject>(this).loading = false;
     let delegate = env.objc.borrow::<UIWebViewHostObject>(this).delegate;
     if delegate != nil {
