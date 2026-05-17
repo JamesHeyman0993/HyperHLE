@@ -109,7 +109,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     
     // Check if the point actually falls within the window bounds boundary
-    let bounds: CGRect = msg![env; this bounds];
     let point_inside: bool = msg![env; this pointInside:point withEvent:event];
     if !point_inside {
         return nil;
@@ -122,14 +121,11 @@ pub const CLASSES: ClassExports = objc_classes! {
         
         if hit != nil { 
             let class_name: id = msg![env; hit class];
-            log!("Hit detected on object: {:?} (Class: {:?}) at {:?}", hit, class_name, sub_point);
+            log_dbg!("Hit detected on object: {:?} (Class: {:?}) at {:?}", hit, class_name, sub_point);
             return hit; 
         }
     }
     
-    // FIX: Instead of returning `this` blindly, return the window only if it is the intended recipient.
-    // If no view matches, returning `this` can block underneath elements, but returning `nil` breaks background taps.
-    // Returning `this` is correct ONLY if window has a fallback layer, otherwise pass safely.
     this
 }
     
