@@ -114,11 +114,11 @@ fn if_indextoname(env: &mut Environment, ifindex: u32, ifname: MutPtr<u8>) -> Mu
     if ifindex == 1 && !ifname.is_null() {
         log!("if_indextoname({}) – writing 'en0'", ifindex);
         
-        // Write the string sequentially to the target memory buffer pointer
+        // Write the string sequentially to the target memory buffer pointer using + operator
         env.mem.write(ifname, b'e');
-        env.mem.write(ifname.offset(1), b'n');
-        env.mem.write(ifname.offset(2), b'0');
-        env.mem.write(ifname.offset(3), 0u8);
+        env.mem.write(ifname + 1, b'n');
+        env.mem.write(ifname + 2, b'0');
+        env.mem.write(ifname + 3, 0u8);
         ifname
     } else {
         log!("if_indextoname({}) – returning NULL", ifindex);
