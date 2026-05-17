@@ -628,6 +628,16 @@ impl Dyld {
                 mem.write(fn_ptr + 1, encode_a32_trap());
                 log_dbg!("Stubbed dyld_stub_binder at {:?}", fn_ptr);
                 fn_ptr.cast().cast_const()
+                
+                  //  PUT THIS UNDERNEATH IT 
+            } else if name == "___dynamic_cast" {
+                let trampoline_ptr = self
+                    .create_proc_address_no_inval(mem, "___dynamic_cast")
+                    .unwrap()
+                    .to_ptr();
+                log_dbg!("Redirected ___dynamic_cast symbol resolver to pass-through trampoline at {:?}", trampoline_ptr);
+                trampoline_ptr
+                
             } else if name == "__NSConcreteGlobalBlock" || name == "__NSConcreteStackBlock" {
                 // Blocks runtime class descriptor. Allocate a small dummy
                 // object in guest memory so isa != NULL. All sites for the
@@ -1235,6 +1245,18 @@ impl Dyld {
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
+
+        // PUT THIS UNDERNEATH THE OPENING BRACE 
+        if symbol == "___dynamic_cast" {
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get("___dynamic_cast") {
+                return Ok(cached_fn);
+            }
+            let f: HostFunction = &(touchHLE_dynamic_cast as fn(&mut Environment, u32, u32, u32, i32) -> u32);
+            let function_ptr = self.create_guest_function(mem, "___dynamic_cast", f);
+            self.non_lazy_host_functions.insert("___dynamic_cast", function_ptr);
+            return Ok(function_ptr);
+        }
+        
         // Нативно обрабатываем рудимент ленивой загрузки Apple:
         if symbol == "dyld_stub_binder" || symbol == "_dyld_stub_binder" {
             // Используем "dyld_stub_binder" (это &'static str), а не переменную
@@ -1283,6 +1305,17 @@ impl Dyld {
 
 fn dyld_stub_binder(_env: &mut Environment, _arg: u32) {
     panic!("dyld_stub_binder was called! Under HLE, all lazy symbols are bound eagerly, making this unreachable.");
+}
+
+// --- PLACE IT DIRECTLY HERE ---
+/// Host fallback handler for `___dynamic_cast` when the real C++ RTTI 
+/// runtime isn't fully resolved. Instead of returning 0 (which causes a NULL dereference),
+/// we safely return the original object pointer back to the guest engine.
+fn touchHLE_dynamic_cast(_env: &mut Environment, sub_ptr: u32, _src_type: u32, _dst_type: u32, _offset_hint: i32) -> u32 {
+    if sub_ptr == 0 {
+        return 0;
+    }
+    sub_ptr
 }
 
 /// Generic fallback stub for functions referenced by the guest binary but
