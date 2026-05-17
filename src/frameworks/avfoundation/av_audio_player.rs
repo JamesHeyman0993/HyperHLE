@@ -207,18 +207,21 @@ pub const CLASSES: ClassExports = objc_classes! {
         env, audio_file_id, kAudioFilePropertyDataFormat, tmp_size_ptr, tmp_data_ptr.cast()
     );
     
-    let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
+        let audio_desc = if status != 0 && audio_file_id.to_bits() == 9999 {
         // Fallback: provide a standard structural description for raw SFX streams (PCM/16-bit/Stereo/44.1kHz)
-        let mut default_desc = crate::frameworks::core_audio_types::AudioStreamBasicDescription::default();
-        default_desc.sample_rate = 44100.0;
-        default_desc.format_id = touchHLE_gl_bindings::gles11::GL_NONE as _;
-        default_desc.channels_per_frame = 2;
-        default_desc.frames_per_packet = 1;
-        default_desc.bytes_per_packet = 4;
-        default_desc.bytes_per_frame = 4;
-        default_desc.bits_per_channel = 16;
-        default_desc
+        crate::frameworks::core_audio_types::AudioStreamBasicDescription {
+            sample_rate: 44100.0,
+            format_id: 0, // 0 maps safely to a general/none/unspecified format indicator
+            format_flags: 0,
+            bytes_per_packet: 4,
+            frames_per_packet: 1,
+            bytes_per_frame: 4,
+            channels_per_frame: 2,
+            bits_per_channel: 16,
+            reserved: 0,
+        }
     } else {
+            
         assert_eq!(status, 0, "AudioFileGetProperty failed with status: {}", status);
         assert_eq!(size, env.mem.read(tmp_size_ptr));
         env.mem.read(tmp_data_ptr)
@@ -680,22 +683,24 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
     env.mem.write(num_packets_ptr, num_packets_to_read);
     let mut audio_queue_buffer = env.mem.read(in_buf);
 
-        if audio_file_id.unwrap().to_bits() == 9999 {
+            let mut status = 0; // Create a mutable status variable accessible throughout the function scope
+
+    if audio_file_id.to_bits() == 9999 {
         // If it's a mock audio stream, simulate EOF (End of File)
         env.mem.write(num_packets_ptr, 0);
         env.mem.write(num_bytes_ptr, 0);
     } else {
-        let _status = AudioFileReadPackets(
+        status = AudioFileReadPackets(
             env,
-            audio_file_id.unwrap(),
+            audio_file_id,
             false,
             num_bytes_ptr,
             Ptr::null(),
             current_packet,
             num_packets_ptr,
             audio_queue_buffer.audio_data,
-        );
-        }
+        ) as i32; // or whatever concrete integer type status matches in your project environment
+    }
     
     let num_packets = env.mem.read(num_packets_ptr);
     let num_bytes = env.mem.read(num_bytes_ptr);
