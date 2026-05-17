@@ -449,7 +449,7 @@ pub fn AudioFileReadPackets(
             env.mem.write(out_num_bytes, count * 4);
         }
         if !out_buffer.is_null() && count > 0 {
-            let buffer_slice = env.mem.bytes_at_mut(out_buffer.cast(), (count * 4) as usize);
+            let buffer_slice = env.mem.bytes_at_mut(out_buffer.cast(), count * 4);
             for b in buffer_slice.iter_mut() { *b = 0; }
         }
         return kAudioFileSuccess;
