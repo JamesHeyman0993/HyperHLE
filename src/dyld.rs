@@ -499,7 +499,7 @@ impl Dyld {
     /// straight to the external function.
     ///
     /// These stubs already exist in the binary, but they need to be rewritten
-    /// so that they will invoke our dynamic linker.
+ /// so that they will invoke our dynamic linker.
     fn setup_lazy_linking(&self, bin: &MachO, mem: &mut Mem) {
         let Some(stubs) = bin.get_section(SectionType::SymbolStubs) else {
             return;
@@ -629,7 +629,7 @@ impl Dyld {
                 log_dbg!("Stubbed dyld_stub_binder at {:?}", fn_ptr);
                 fn_ptr.cast().cast_const()
                 
-                  //  PUT THIS UNDERNEATH IT 
+            //  PUT THIS UNDERNEATH IT 
             } else if name == "___dynamic_cast" {
                 let trampoline_ptr = self
                     .create_proc_address_no_inval(mem, "___dynamic_cast")
@@ -638,7 +638,9 @@ impl Dyld {
                 log_dbg!("Redirected ___dynamic_cast symbol resolver to pass-through trampoline at {:?}", trampoline_ptr);
                 trampoline_ptr
 
-                            } else if name == "_sqlite3_prepare_v2"
+            } else if name == "_sqlite3_prepare_v2"
+                || name == "_sqlite3_step"
+                || name == "_sqlite3_errmsg"
                 || name == "__dyld_get_image_header"
                 || name == "__dyld_register_func_for_add_image"
                 || name == "__dyld_register_func_for_remove_image"
@@ -649,8 +651,7 @@ impl Dyld {
                     .to_ptr();
                 log_dbg!("HyperHLE: Redirected {} symbol resolver to custom pass-through handler.", name);
                 trampoline_ptr
-                
-            } else if name == "__NSConcreteGlobalBlock" || name == "__NSConcreteStackBlock" {
+                 } else if name == "__NSConcreteGlobalBlock" || name == "__NSConcreteStackBlock" {
                 // Blocks runtime class descriptor. Allocate a small dummy
                 // object in guest memory so isa != NULL. All sites for the
                 // same symbol share one address (cached above).
@@ -853,8 +854,7 @@ impl Dyld {
                     dummy.to_bits()
                 );
                 continue;
-            }
-
+                }
             // C++ / ObjC exception handling symbols. If these are
             // NULL the C++ unwinder crashes when any @try block is
             // entered or any ObjC exception is thrown, producing
@@ -879,7 +879,7 @@ impl Dyld {
                 continue;
             }
             
-// --- PATCH: Stub missing NSMetadata external constants for Batman Arkham City ---
+            // --- PATCH: Stub missing NSMetadata external constants for Batman Arkham City ---
             if symbol == "_NSMetadataItemFSNameKey" 
                 || symbol == "_NSMetadataItemURLKey" 
                 || symbol == "_NSMetadataQueryDidFinishGatheringNotification" 
@@ -897,7 +897,7 @@ impl Dyld {
                       
             // --- PATCH: Stub missing Network and CoreText constants for Sonic Racing ---
             if symbol == "_in6addr_any" 
-                || symbol == "_in6addr_loopback" 
+                || symbol == "_in6addr_loopback"
                 || symbol == "_kCFStreamErrorDomainNetDB" 
                 || symbol == "_NSURLErrorFailingURLStringErrorKey"
                 || symbol == "_MPMovieDurationAvailableNotification"
@@ -1020,9 +1020,8 @@ impl Dyld {
                 Some(f)
             }
         }
-    }
-
-    fn do_lazy_link(
+}
+ fn do_lazy_link(
         &mut self,
         bins: &[MachO],
         mem: &mut Mem,
@@ -1097,6 +1096,21 @@ impl Dyld {
         assert!(offset.is_multiple_of(info.entry_size));
         let idx = (offset / info.entry_size) as usize;
         let symbol = info.indirect_undef_symbols[idx].as_deref().unwrap();
+        
+        // --- LAZY DYNAMIC CAST INTERCEPT ---
+        if symbol == "___dynamic_cast" {
+            let addr = self.create_proc_address_no_inval(mem, "___dynamic_cast").unwrap();
+            let (stub_function_ptr, la_symbol_ptr) = link_by_restoring_stub(
+                mem,
+                cpu,
+                addr.addr_with_thumb_bit(),
+                svc_pc,
+                info.entry_size,
+                pic_offset,
+            );
+            log_dbg!("HyperHLE: Bound lazy ___dynamic_cast fallback safely.");
+            return None;
+        }
         
         // --- START OF FIX ---
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
@@ -1193,7 +1207,7 @@ impl Dyld {
             return Some(f);
         }
 
-                // Fallback: Check guest dylibs ONE MORE TIME before giving up
+        // Fallback: Check guest dylibs ONE MORE TIME before giving up
         for dylib in bins.iter() {
             if let Some(&addr) = dylib.exported_symbols.get(symbol) {
                 let (stub_ptr, la_ptr) = link_by_restoring_stub(mem, cpu, addr, svc_pc, info.entry_size, pic_offset);
@@ -1201,8 +1215,7 @@ impl Dyld {
                 return None;
             }
         }
-
-        // If it's REALLY not there, then and only then, install the stub
+     // If it's REALLY not there, then and only then, install the stub
         log!(
             "Warning: call to unimplemented function {} at {:#x}; installing return-0 stub",
             symbol,
@@ -1269,13 +1282,33 @@ impl Dyld {
             return Ok(function_ptr);
         }
 
-                if symbol == "_sqlite3_prepare_v2" {
+        if symbol == "_sqlite3_prepare_v2" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get("_sqlite3_prepare_v2") {
                 return Ok(cached_fn);
             }
             let f: HostFunction = &(touchhle_sqlite3_prepare_v2 as fn(&mut Environment, u32, u32, i32, u32, u32) -> i32);
             let function_ptr = self.create_guest_function(mem, "_sqlite3_prepare_v2", f);
             self.non_lazy_host_functions.insert("_sqlite3_prepare_v2", function_ptr);
+            return Ok(function_ptr);
+        }
+
+        if symbol == "_sqlite3_step" {
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get("_sqlite3_step") {
+                return Ok(cached_fn);
+            }
+            let f: HostFunction = &(touchhle_sqlite3_step as fn(&mut Environment, u32) -> i32);
+            let function_ptr = self.create_guest_function(mem, "_sqlite3_step", f);
+            self.non_lazy_host_functions.insert("_sqlite3_step", function_ptr);
+            return Ok(function_ptr);
+        }
+
+        if symbol == "_sqlite3_errmsg" {
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get("_sqlite3_errmsg") {
+                return Ok(cached_fn);
+            }
+            let f: HostFunction = &(touchhle_sqlite3_errmsg as fn(&mut Environment, u32) -> u32);
+            let function_ptr = self.create_guest_function(mem, "_sqlite3_errmsg", f);
+            self.non_lazy_host_functions.insert("_sqlite3_errmsg", function_ptr);
             return Ok(function_ptr);
         }
 
@@ -1298,7 +1331,7 @@ impl Dyld {
             self.non_lazy_host_functions.insert("__dyld_register_func_for_add_image", function_ptr);
             return Ok(function_ptr);
         }
-
+        
         if symbol == "__dyld_register_func_for_remove_image" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get("__dyld_register_func_for_remove_image") {
                 return Ok(cached_fn);
@@ -1325,7 +1358,6 @@ impl Dyld {
                 .insert(symbol_name, function_ptr);
             return Ok(function_ptr);
         }
-
         let &(symbol, f) = search_host_dylibs(|dylib| dylib.function_exports, symbol).ok_or(())?;
         if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol) {
             return Ok(cached_fn);
@@ -1389,6 +1421,14 @@ fn touchhle_sqlite3_prepare_v2(_env: &mut Environment, _db: u32, _z_sql: u32, _n
         log_dbg!("HyperHLE: Hooked _sqlite3_prepare_v2, stubbing out statement pointer.");
     }
     0 // SQLITE_OK
+}
+
+fn touchhle_sqlite3_step(_env: &mut Environment, _stmt: u32) -> i32 {
+    101 // SQLITE_DONE (Signals to the game engine that the query finished successfully)
+}
+
+fn touchhle_sqlite3_errmsg(_env: &mut Environment, _db: u32) -> u32 {
+    0 // Return NULL string pointer safely for error messages
 }
 
 /// Allows tracking frameworks to think images are loading successfully.
