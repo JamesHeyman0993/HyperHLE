@@ -654,14 +654,9 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
     in_buf: AudioQueueBufferRef,
 ) {
     let av_audio_player: id = in_user_data.cast();
-    let class: Class = msg![env; av_audio_player class];
 
-    log_dbg!(
-        "_touchHLE_AVAudioPlayerOutputBufferHelper on object of class: {}",
-        env.objc.get_class_name(class)
-    );
-
-        let &AVAudioPlayerHostObject {
+    // 1. Extract the host object data first so we can check our virtual file marker
+    let &AVAudioPlayerHostObject {
         audio_file_id,
         audio_queue,
         num_packets_to_read,
@@ -670,16 +665,24 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
         ..
     } = env.objc.borrow(av_audio_player);
 
-    // Only enforce strict Objective-C subclass validation if this isn't our virtual mock sound stream
+    // 2. Only perform strict Objective-C subclass validation if this isn't our virtual mock sound stream
     if audio_file_id.map_or(0, |id| id.to_bits()) != 9999 {
+        let class: Class = msg![env; av_audio_player class];
+        log_dbg!(
+            "_touchHLE_AVAudioPlayerOutputBufferHelper on object of class: {}",
+            env.objc.get_class_name(class)
+        );
+
         let expected_class = env.objc.get_known_class("AVAudioPlayer", &mut env.mem);
         assert!(
             env.objc.class_is_subclass_of(class, expected_class),
             "Object in audio callback must be a subclass of AVAudioPlayer"
         );
+    } else {
+        log_dbg!("_touchHLE_AVAudioPlayerOutputBufferHelper skipping validation for mock sound stream.");
     }
     
-    // Safely exit the callback if the queue wrapper isn't populated yet
+    // 3. Continue with safety verification of the audio queue layout
     let aq = match audio_queue {
         Some(queue) => queue,
         None => return,
@@ -689,7 +692,7 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
     if !is_playing {
         return;
     }
-
+    
     let num_bytes_ptr: MutPtr<u32> = env.mem.alloc(guest_size_of::<u32>()).cast();
     let num_packets_ptr: MutPtr<u32> = env.mem.alloc(guest_size_of::<u32>()).cast();
     env.mem.write(num_packets_ptr, num_packets_to_read);
