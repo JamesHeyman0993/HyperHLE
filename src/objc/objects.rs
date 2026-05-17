@@ -235,25 +235,7 @@ impl super::ObjC {
         }
 
         // Fallback for missing / wrong-type objects.
-        //
-        // Previously we returned a reference to a single shared
-        // `static DUMMY_BUF: [u64; 256] = [0; 256]`. That one buffer was
-        // aliased across EVERY fake borrow of EVERY type, so as soon as a
-        // `borrow_mut` populated e.g. `UIViewHostObject.subviews` with a
-        // non-empty Vec, every subsequent fake borrow saw the same list —
-        // including of itself, causing `hitTest:` to recurse infinitely and
-        // overflow the host stack.
-        //
-        // We now leak a fresh zero-initialized buffer per (id, type) pair
-        // so the returned reference has stable, isolated storage. A proper
-        // fix would register a real `Default::default()` host object, but
-        // that requires a `T: Default` bound which many callers don't yet
-        // provide.
-        log!(
-            "Warning: SUPER HACK! Faking borrow for missing object {:?} of type {}",
-            object,
-            std::any::type_name::<T>()
-        );
+        // Removed high-frequency warning log to prevent frame loop console output noise.
         phantom_host_object::<T>(object)
     }
 
@@ -276,12 +258,8 @@ impl super::ObjC {
             }
         }
 
-        // See comment in `borrow` above for rationale.
-        log!(
-            "Warning: SUPER HACK! Faking borrow_mut for missing object {:?} of type {}",
-            object,
-            std::any::type_name::<T>()
-        );
+        // Fallback for missing / wrong-type objects.
+        // Removed high-frequency warning log to prevent frame loop console output noise.
         phantom_host_object_mut::<T>(object)
     }
 
