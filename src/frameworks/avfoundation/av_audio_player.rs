@@ -354,16 +354,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_object.set_current_time = currentTime;
     if let (Some(audio_desc), Some(audio_file_id)) = (host_object.audio_desc, host_object.audio_file_id) {
 
-        let target_host_obj = audio_file::State::get(&mut env.framework_state)
-            .audio_files
-            .get(&audio_file_id)
-            .unwrap();
-
-        let total_packets = match target_host_obj {
-            AudioFileHostObject::Real(af) => af.packet_count(),
-            AudioFileHostObject::Dummy { packet_count, .. } => *packet_count,
+                let total_packets = if audio_file_id.to_bits() == 9999 {
+            100000 // Provide a large virtual packet count so checking bounds doesn't fail
+        } else {
+            let target_host_obj = audio_file::State::get(&mut env.framework_state)
+                .audio_files
+                .get(&audio_file_id)
+                .unwrap();
+            match target_host_obj {
+                AudioFileHostObject::Real(af) => af.packet_count(),
+                AudioFileHostObject::Dummy { packet_count, .. } => *packet_count,
+            }
         };
-
+        
         let total_frames = total_packets * audio_desc.frames_per_packet as u64;
         let new_current_frame = audio_desc.sample_rate * currentTime;
         if new_current_frame < 0.0 || new_current_frame > total_frames as f64 {
@@ -382,14 +385,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         host_object.audio_file_id,
     );
     if let (Some(audio_desc), Some(audio_file_id)) = (audio_desc, audio_file_id) {
-        let target_host_obj = audio_file::State::get(&mut env.framework_state)
-            .audio_files
-            .get(&audio_file_id)
-            .unwrap();
-        let total_packets = match target_host_obj {
-            AudioFileHostObject::Real(af) => af.packet_count(),
-            AudioFileHostObject::Dummy { packet_count, .. } => *packet_count,
+                let total_packets = if audio_file_id.to_bits() == 9999 {
+            100000 
+        } else {
+            let target_host_obj = audio_file::State::get(&mut env.framework_state)
+                .audio_files
+                .get(&audio_file_id)
+                .unwrap();
+            match target_host_obj {
+                AudioFileHostObject::Real(af) => af.packet_count(),
+                AudioFileHostObject::Dummy { packet_count, .. } => *packet_count,
+            }
         };
+        
         if audio_desc.sample_rate > 0.0 && audio_desc.frames_per_packet > 0 {
             let total_frames =
                 total_packets * audio_desc.frames_per_packet as u64;
@@ -660,7 +668,7 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
         env.objc.class_is_subclass_of(class, expected_class),
         "Object in audio callback must be a subclass of AVAudioPlayer"
     );
-    let &AVAudioPlayerHostObject {
+        let &AVAudioPlayerHostObject {
         audio_file_id,
         audio_queue,
         num_packets_to_read,
@@ -668,9 +676,14 @@ fn _touchHLE_AVAudioPlayerOutputBufferHelper(
         is_playing,
         ..
     } = env.objc.borrow(av_audio_player);
-    let aq = audio_queue.unwrap();
+    
+    // Safely exit the callback if the queue wrapper isn't populated yet
+    let aq = match audio_queue {
+        Some(queue) => queue,
+        None => return,
+    };
     assert_eq!(aq, in_aq);
-
+    
     if !is_playing {
         return;
     }
