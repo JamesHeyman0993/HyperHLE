@@ -440,6 +440,21 @@ pub fn AudioFileReadPackets(
         );
     }
 
+        // Intercept our virtual sound engine handle
+    if in_audio_file.to_bits() == 9999 {
+        let packets_to_read = env.mem.read(io_num_packets);
+        let count = packets_to_read.min(1);
+        env.mem.write(io_num_packets, count);
+        if !out_num_bytes.is_null() {
+            env.mem.write(out_num_bytes, count * 4);
+        }
+        if !out_buffer.is_null() && count > 0 {
+            let buffer_slice = env.mem.bytes_at_mut(out_buffer.cast(), (count * 4) as usize);
+            for b in buffer_slice.iter_mut() { *b = 0; }
+        }
+        return kAudioFileSuccess;
+    }
+
     let host_object = match State::get(&mut env.framework_state)
         .audio_files
         .get_mut(&in_audio_file)
@@ -452,7 +467,7 @@ pub fn AudioFileReadPackets(
         AudioFileHostObject::Real(audio_file) => audio_file.packet_size_fixed(),
         AudioFileHostObject::Dummy { format, .. } => format.bytes_per_packet,
     };
-
+    
     let packets_to_read = env.mem.read(io_num_packets);
     if packet_size == 0 || packets_to_read == 0 {
         env.mem.write(io_num_packets, 0);
@@ -616,8 +631,36 @@ pub fn AudioFileGetProperty(
         return kAudioFileBadPropertySizeError;
     }
 
-    env.mem.write(io_data_size, required_size);
+        env.mem.write(io_data_size, required_size);
     if out_property_data.is_null() {
+        return kAudioFileSuccess;
+    }
+
+    // Intercept our virtual sound engine handle to populate structural parameters
+    if in_audio_file.to_bits() == 9999 {
+        match in_property_id {
+            kAudioFilePropertyDataFormat => {
+                let desc = AudioStreamBasicDescription {
+                    sample_rate: 44100.0,
+                    format_id: 0x6c70636d, // 'lpcm'
+                    format_flags: 0xC,     // Packed Signed Integer
+                    bytes_per_packet: 4,
+                    frames_per_packet: 1,
+                    bytes_per_frame: 4,
+                    channels_per_frame: 2,
+                    bits_per_channel: 16,
+                    _reserved: 0,
+                };
+                env.mem.write(out_property_data.cast(), desc);
+            }
+            kAudioFilePropertyAudioDataByteCount => env.mem.write(out_property_data.cast(), 400000u64),
+            kAudioFilePropertyAudioDataPacketCount => env.mem.write(out_property_data.cast(), 100000u64),
+            kAudioFilePropertyPacketSizeUpperBound | kAudioFilePropertyMaximumPacketSize => env.mem.write(out_property_data.cast(), 4u32),
+            kAudioFilePropertyEstimatedDuration => env.mem.write(out_property_data.cast(), 10.0f64),
+            kAudioFilePropertyPacketToFrame => env.mem.write(out_property_data.cast(), 1.0f64),
+            kAudioFilePropertyFileFormat => env.mem.write(out_property_data.cast(), kAudioFileCAFType),
+            _ => return kAudioFileUnsupportedPropertyError,
+        }
         return kAudioFileSuccess;
     }
 
@@ -628,7 +671,7 @@ pub fn AudioFileGetProperty(
         Some(obj) => obj,
         None => return kAudioFileNotOpenError,
     };
-
+    
     match host_object {
         AudioFileHostObject::Real(audio_file) => {
             match in_property_id {
