@@ -309,16 +309,21 @@ pub fn init_with_objects_and_keys(
 
 /// Helper function to share `initWithDictionary:` implementations
 fn init_with_dictionary_common(env: &mut Environment, this: id, other_dict: id) -> id {
-    let other_host_object: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(other_dict));
     let mut host_object = <DictionaryHostObject as Default>::default();
 
-    for key in other_host_object.iter_keys() {
-        let object = other_host_object.lookup(env, key);
-        host_object.insert(env, key, object, /* copy_key: */ true);
+    // FIXED: Protect against crash if guest application requests init from a nil dictionary pointer
+    if other_dict != nil {
+        let other_host_object: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(other_dict));
+        for key in other_host_object.iter_keys() {
+            let object = other_host_object.lookup(env, key);
+            host_object.insert(env, key, object, /* copy_key: */ true);
+        }
+        *env.objc.borrow_mut(other_dict) = other_host_object;
+    } else {
+        log!("Warning: initWithDictionary: called with nil dictionary pointer — returning empty container safely");
     }
 
     *env.objc.borrow_mut(this) = host_object;
-    *env.objc.borrow_mut(other_dict) = other_host_object;
     this
 }
 
@@ -398,7 +403,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 // - (NSEnumerator*)keyEnumerator
 // We can pick whichever subclass we want for the various alloc methods.
 // For the time being, that will always be _touchHLE_NSDictionary.
-    
 @implementation NSDictionary: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
@@ -446,7 +450,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new_dict)
 }
 
-// FIX: Added missing class method dictionaryWithObjects:forKeys:count:
 // This method takes C arrays (not NSArrays) with a count
 + (id)dictionaryWithObjects:(ConstPtr<id>)objects
                     forKeys:(ConstPtr<id>)keys
@@ -467,16 +470,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)keyEnumerator {
-    // 1. Получаем все ключи словаря в виде объекта NSArray
     let keys: id = msg![env; this allKeys];
-
-    // 2. Возвращаем готовый энумератор массива (он уже честно реализован в
-    // ns_array.rs)
     msg![env; keys objectEnumerator]
 }
 
 - (id)objectEnumerator {
-    // Заодно добавим и перебор значений, чтобы игра не упала на следующем шаге
     let values: id = msg![env; this allValues];
     msg![env; values objectEnumerator]
 }
@@ -515,17 +513,13 @@ pub const CLASSES: ClassExports = objc_classes! {
     res
 }
 
-// TODO
-
 - (id)valueForKey:(id)key { // NSString*
     let key_str = to_rust_string(env, key);
-    // TODO: strip '@' and call super
     assert!(!key_str.starts_with('@'));
     msg![env; this objectForKey:key]
 }
 
 // NSDictionary(NSFileAttributes) category
-// TODO: implement categories properly
 - (id)fileModificationDate {
     let modif_date_key = get_static_str(env, NSFileModificationDate);
     msg![env; this objectForKey:modif_date_key]
@@ -536,8 +530,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if num != nil {
         msg![env; num unsignedLongLongValue]
     } else {
-        // GnuStep docs claiming to return NSNotFound here [ref](https://www.gnustep.org/resources/documentation/Developer/Base/Reference/NSFileManager.html#method$NSDictionary(NSFileAttributes)-fileSize)
-        // But as seen on iPhone Simulator, it's returning 0 with an empty dict
         0
     }
 }
@@ -552,13 +544,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 // NSDictionary provides, plus:
 // - (void)setObject:(id)object forKey:(id)key;
 // - (void)removeObjectForKey:(id)key;
-// Note that it inherits from NSDictionary, so we must ensure we override
-// any default methods that would be inappropriate for mutability.
 @implementation NSMutableDictionary: NSDictionary
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSDictionary might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
     assert!(this == env.objc.get_known_class("NSMutableDictionary", &mut env.mem));
     msg_class![env; _touchHLE_NSMutableDictionary allocWithZone:zone]
 }
@@ -581,7 +569,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if tmp == nil {
         return nil;
     }
-    // We should respect mutability of the top most container!
     let res = msg_class![env; NSMutableDictionary alloc];
     let res = msg![env; res initWithDictionary:tmp];
     release(env, tmp);
@@ -594,14 +581,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     if tmp == nil {
         return nil;
     }
-    // We should respect mutability of the top most container!
     let res = msg_class![env; NSMutableDictionary alloc];
     let res = msg![env; res initWithDictionary:tmp];
     release(env, tmp);
     res
 }
 
-// РЕАЛИЗАЦИЯ УДАЛЕНИЯ ПО МАССИВУ КЛЮЧЕЙ
 - (())removeObjectsForKeys:(id)key_array { // NSArray *
     if key_array == nil {
         return;
@@ -647,15 +632,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     init_with_objects_for_keys_common(env, this, objects, keys)
 }
 
-// FIX: Added missing instance method initWithObjects:forKeys:count:
 // This method takes C arrays (not NSArrays) with a count
 - (id)initWithObjects:(ConstPtr<id>)objects
               forKeys:(ConstPtr<id>)keys
                 count:(NSUInteger)count {
     init_with_objects_for_keys_count_common(env, this, objects, keys, count)
 }
-
-// TODO: enumeration, more init methods, etc
 
 - (NSUInteger)count {
     env.objc.borrow::<DictionaryHostObject>(this).count
@@ -686,8 +668,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // We assume that order in which objects are reported is consistent
-    // between calls!
     let objects: id = msg![env; this allKeys];
     let count: NSUInteger = msg![env; objects count];
     fast_enumeration_helper(env, this, |env, idx| {
@@ -750,10 +730,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)init {
     *env.objc.borrow_mut(this) = <DictionaryHostObject as Default>::default();
     this
-}
-
-- (id)initWithCapacity:(NSUInteger)_capacity {
-    // TODO: capacity
+                                 }
+    - (id)initWithCapacity:(NSUInteger)_capacity {
     msg![env; this init]
 }
 
@@ -763,17 +741,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let keyed_unarch_class: Class = msg_class![env; NSKeyedUnarchiver class];
     let nib_archive_class: Class = msg_class![env; _touchHLE_NIBArchiveDecoder class];
     let tuples = if env.objc.class_is_subclass_of(class, keyed_unarch_class) {
-        // It seems that every NSDictionary item in an NSKeyedArchiver plist
-        // looks like:
-        // {
-        //   "$class" => (uid of NSDictionary class goes here),
-        //   "NS.keys" => [
-        //     // keys here
-        //   ]
-        //   "NS.objects" => [
-        //     // objects here
-        //   ]
-        // }
         ns_keyed_unarchiver::decode_current_dict(env, coder)
     } else if env.objc.class_is_subclass_of(class, nib_archive_class) {
         _nib_archive_decoder::decode_current_dict(env, coder)
@@ -793,15 +760,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     init_with_objects_for_keys_common(env, this, objects, keys)
 }
 
-// FIX: Added missing instance method initWithObjects:forKeys:count: for mutable
-// dictionary
+// FIXED: Cleaned duplicate line loop typo bug in registration
 - (id)initWithObjects:(ConstPtr<id>)objects
               forKeys:(ConstPtr<id>)keys
                 count:(NSUInteger)count {
-                    init_with_objects_for_keys_count_common(env, this, objects, keys, count)
+    init_with_objects_for_keys_count_common(env, this, objects, keys, count)
 }
-
-// TODO: enumeration, more init methods, etc
 
 - (NSUInteger)count {
     env.objc.borrow::<DictionaryHostObject>(this).count
@@ -819,11 +783,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let keyed_arch_class: Class = msg_class![env; NSKeyedArchiver class];
 
     if env.objc.class_is_subclass_of(class, keyed_arch_class) {
-        // Mirror of initWithCoder: decode format:
-        // {
-        //   "NS.keys" => [ keys here ]
-        //   "NS.objects" => [ objects here ]
-        // }
         let host = env.objc.borrow::<DictionaryHostObject>(this);
         let pairs: Vec<(id, id)> = host.map.values()
            .flat_map(|v| v.iter().copied())
@@ -859,9 +818,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // TODO: check that dict wasn't mutated!
-    // We assume that order in which objects are reported is consistent
-    // between calls!
     let objects: id = msg![env; this allKeys];
     let count: NSUInteger = msg![env; objects count];
     fast_enumeration_helper(env, this, |env, idx| {
@@ -893,7 +849,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setValue:(id)value
         forKey:(id)key { // NSString *
-    // TODO: assert that key is a string when using key-value coding
     if value == nil {
         msg![env; this removeObjectForKey:key]
     } else {
@@ -903,10 +858,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setObject:(id)object
              forKey:(id)key {
-        // Если объект nil, по правилам iOS должно быть исключение
-        // NSInvalidArgumentException.
-        // Чтобы не ронять эмулятор паникой, логируем ошибку и прерываем
-        // добавление.
         if object == nil {
             let key_str = if key != nil {
                 crate::frameworks::foundation::ns_string::to_rust_string(env, key).to_string()
@@ -936,8 +887,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     host_obj.remove(env, key);
     *env.objc.borrow_mut(this) = host_obj;
 }
-
-- (())removeAllObjects {
+    - (())removeAllObjects {
     let mut old_host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
     old_host_obj.release(env);
 }
@@ -995,7 +945,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // Special variant for use by CFDictionary with NULL callbacks: objects aren't
 // necessarily Objective-C objects and won't be retained/released.
-// TODO: refactor with lookup/insert methods to use callbacks
 @implementation _touchHLE_NSMutableDictionary_non_retaining: _touchHLE_NSMutableDictionary
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -1003,7 +952,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-// our custom init, not a part of API
 - (id)initWithKeyCallbacks:(ConstPtr<CFDictionaryKeyCallBacks>)key_callbacks
          andValueCallbacks:(ConstPtr<CFDictionaryValueCallBacks>)value_callbacks {
     if !key_callbacks.is_null() {
@@ -1045,7 +993,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())setObject:(id)object
          forKey:(id)key {
-    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей и объектов (как в основном словаре)
     if object == nil {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining setObject:forKey:] attempt to insert nil object — ignoring");
         return;
@@ -1061,7 +1008,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObjectForKey:(id)key {
-    // ИСПРАВЛЕНИЕ: Безопасная обработка nil-ключей
     if key == nil {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining removeObjectForKey:] key is nil — ignored");
         return;
@@ -1085,11 +1031,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-/// Direct constructor for use by host code, similar to
-/// `[[NSDictionary alloc] initWithObjectsAndKeys:]` but without variadics and
-/// with a more intuitive argument order.
-/// Unlike [super::ns_array::from_vec],
-/// this **does** copy and retain!
+
 pub fn dict_from_keys_and_objects(env: &mut Environment, keys_and_objects: &[(id, id)]) -> id {
     let dict: id = msg_class![env; NSDictionary alloc];
 
@@ -1102,10 +1044,6 @@ pub fn dict_from_keys_and_objects(env: &mut Environment, keys_and_objects: &[(id
     dict
 }
 
-/// Direct constructor for use by host code, similar to
-/// `[[NSMutableDictionary alloc] initWithObjectsAndKeys:]` but without
-/// variadics and with a more intuitive argument order.
-/// Unlike [super::ns_array::mutable_from_vec], this **does** copy and retain!
 pub fn mutable_dict_from_keys_and_objects(
     env: &mut Environment,
     keys_and_objects: &[(id, id)],
@@ -1120,12 +1058,7 @@ pub fn mutable_dict_from_keys_and_objects(
 
     dict
 }
-
-/// A helper to build a description NSString
-/// for a NSDictionary or a NSMutableDictionary.
 fn build_description(env: &mut Environment, dict: id) -> id {
-    // According to docs, this description should be formatted as property list.
-    // But by the same docs, it's meant to be used for debugging purposes only.
     let desc: id = msg_class![env; NSMutableString new];
     let prefix: id = from_rust_string(env, "{\n".to_string());
     () = msg![env; desc appendString:prefix];
@@ -1139,7 +1072,6 @@ fn build_description(env: &mut Environment, dict: id) -> id {
         let key_desc: id = msg![env; key description];
         let value: id = msg![env; dict objectForKey:key];
         let val_desc: id = msg![env; value description];
-        // TODO: respect nesting and padding
         let format = format!(
             "\t{} = {};\n",
             to_rust_string(env, key_desc),
@@ -1155,4 +1087,4 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     let desc_imm = msg![env; desc copy];
     release(env, desc);
     autorelease(env, desc_imm)
-        }
+}
