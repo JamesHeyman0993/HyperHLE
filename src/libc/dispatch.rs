@@ -546,38 +546,33 @@ fn dispatch_main(_env: &mut Environment) {
 // MARK: - Helpers
 
 /// Invoke a GCD block (`void (^)(void)`).
-/// On ARM32 a block is a struct whose second word is the invoke function
-//pointer.
+/// On ARM32 a block is a struct whose second word is the invoke function pointer.
 /// Layout: [isa, flags, reserved, invoke, descriptor, captures...]
 fn call_void_block(env: &mut Environment, block: dispatch_block_t) {
     if block.is_null() {
         return;
     }
 
-    // 1. Ensure the block pointer itself is aligned and safely within mapped guest space
     let block_bits = block.to_bits();
+    // 1. Blocks must be aligned to 4 bytes in a 32-bit guest architecture.
     if block_bits % 4 != 0 {
         log!("call_void_block: Trapped unaligned block pointer address: 0x{:08X}", block_bits);
         return;
     }
 
-    // 2. Calculate target invocation function pointer address securely
+    // 2. Prevent top-of-memory structural overflows (e.g., Unity passing 0xfffff3ac).
+    // Adding 12 bytes (3 * 4-byte offsets) must reside below standard system text boundaries.
+    let (target_offset_bits, overflow) = block_bits.overflowing_add(12);
+    if overflow || target_offset_bits >= 0xFFFF_F000 {
+        log!("call_void_block: Trapped block pointer near virtual memory boundary ceiling: 0x{:08X}", block_bits);
+        return;
+    }
+
     let target_offset_ptr = block.cast::<u32>() + 3u32;
-    
-    // Explicit dereference: (*env.mem) forces Rust inside the NullableBox
-    if !(*env.mem).is_mapped(target_offset_ptr.to_bits(), 4) {
-        log!("call_void_block: Trapped unmapped block metadata address at 0x{:08X}", target_offset_ptr.to_bits());
-        return;
-    }
-
     let invoke_ptr = env.mem.read(target_offset_ptr);
-    if invoke_ptr == 0 {
-        return;
-    }
-
-    // 3. Ensure destination function memory area is valid before executing execution hook
-    if !(*env.mem).is_mapped(invoke_ptr & !1, 2) { // Strip Thumb bit for validation check
-        log!("call_void_block: Block points to invalid code segment target 0x{:08X}", invoke_ptr);
+    
+    // 3. Ensure destination machine code address target isn't also a garbage/wrapped pointer.
+    if invoke_ptr == 0 || invoke_ptr >= 0xFFFF_F000 {
         return;
     }
 
@@ -611,7 +606,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(dispatch_after_f(_, _, _, _)),
     // time
     export_c_func!(dispatch_time(_, _)),
-    export_c_func!(dispatch_walltime(_, _)),
+    export_c_func!(export_c_func!(dispatch_walltime(_, _)),
     // group
     export_c_func!(dispatch_group_create()),
     export_c_func!(dispatch_group_async(_, _, _)),
@@ -654,3 +649,4 @@ pub const FUNCTIONS: FunctionExports = &[
     // main
     export_c_func!(dispatch_main()),
 ];
+    
