@@ -18,6 +18,7 @@ struct NSNumberFormatterHostObject {
     minimum_fraction_digits: NSUInteger,
     maximum_fraction_digits: NSUInteger,
     positive_format: id, // Added to track custom formatting strings
+    formatter_behavior: NSUInteger, // FIXED: Track behavior state to prevent freezes
 }
 impl HostObject for NSNumberFormatterHostObject {}
 
@@ -40,6 +41,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         minimum_fraction_digits: 0,
         maximum_fraction_digits: 0,
         positive_format: nil,
+        formatter_behavior: 0, // FIXED: Initialize behavior
     };
     env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
 }
@@ -56,9 +58,15 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-// FIX: Added to satisfy Gumball's setup phase
+// FIXED: Returns the behavior state when the game verifies the configuration setup
+- (NSUInteger)formatterBehavior {
+    env.objc.borrow::<NSNumberFormatterHostObject>(this).formatter_behavior
+}
+
+// FIXED: Actively saves the formatter behavior value to the host object memory
 - (())setFormatterBehavior:(NSUInteger)behavior {
-    log!("Stub: [NSNumberFormatter setFormatterBehavior:{}]", behavior);
+    log!("NSNumberFormatter setting behavior to: {}", behavior);
+    env.objc.borrow_mut::<NSNumberFormatterHostObject>(this).formatter_behavior = behavior;
 }
 
 // FIX: Added support for positiveFormat
@@ -126,11 +134,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let val: f64 = msg![env; number doubleValue];
     let host_obj = env.objc.borrow::<NSNumberFormatterHostObject>(this);
     let style = host_obj.number_style;
+    let min_digits = host_obj.minimum_fraction_digits as usize;
 
     let rust_string: String;
 
-    // 0 = NoStyle, 1 = DecimalStyle, 2 = CurrencyStyle, 3 = PercentStyle, 4 =
-    // ScientificStyle
+    // 0 = NoStyle, 1 = DecimalStyle, 2 = CurrencyStyle, 3 = PercentStyle, 4 = ScientificStyle
     if style == 2 {
         rust_string = format!("${:.2}", val);
     } else if style == 3 {
@@ -138,7 +146,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else if style == 4 {
         rust_string = format!("{:e}", val);
     } else {
-        rust_string = format!("{}", val);
+        // FIXED: Respect minimum_fraction_digits if requested, preventing formatting loop lockups
+        if min_digits > 0 {
+            rust_string = format!("{:.1$}", val, min_digits);
+        } else {
+            rust_string = format!("{}", val);
+        }
     }
 
     from_rust_string(env, rust_string)
