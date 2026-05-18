@@ -111,6 +111,15 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIApplicationLaunchOptionsLocalNotificationKey",
         HostConstant::NSString("UIApplicationLaunchOptionsLocalNotificationKey"),
     ),
+    // FIXED: Added missing launch option option dictionary constant mappings
+    (
+        "_UIApplicationLaunchOptionsLocationKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsLocationKey"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsNewsstandDownloadsKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsNewsstandDownloadsKey"),
+    ),
     (
         "_UIWindowLevelNormal",
         HostConstant::Custom(ui_window_level_normal),
@@ -235,7 +244,6 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
                 echo!("User requested quit, exiting.");
                 ui_application::exit(env);
             }
-            // MODIFIED: Included Event::TouchesCancel fallback variant alongside standard inputs
             Event::TouchesDown(..) | Event::TouchesMove(..) | Event::TouchesUp(..) | Event::TouchesCancel(..) => {
                 ui_touch::handle_event(env, event)
             }
@@ -245,7 +253,6 @@ pub fn handle_events(env: &mut Environment) -> Option<Instant> {
             }
             Event::AppWillTerminate => {
                 log!("Handling app-will-terminate event: ignoring to prevent exit.");
-                // MODIFIED: Added explicit continue block to intercept termination thread fallthroughs
                 continue;
             }
             Event::EnterDebugger => {
