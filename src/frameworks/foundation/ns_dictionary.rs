@@ -498,7 +498,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)writeToFile:(id)path // NSString*
          atomically:(bool)atomically {
     let error_desc: MutPtr<id> = Ptr::null();
-    let data: id = msg_class![env; NSPropertyListSerialization
+let data: id = msg_class![env; NSPropertyListSerialization
             dataFromPropertyList:this
                           format:NSPropertyListBinaryFormat_v1_0
                 errorDescription:error_desc];
@@ -538,12 +538,35 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this objectForKey:file_type_key]
 }
 
+- (())enumerateKeysAndObjectsUsingBlock:(id)block {
+    if block.is_null() {
+        return;
+    }
+    let block_impl: crate::mem::ConstVoidPtr = env.mem.read(block + 12);
+    if block_impl.to_ptr().is_null() {
+        return;
+    }
+
+    let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let pairs: Vec<(id, id)> = host_obj.map.values().flatten().copied().collect();
+    *env.objc.borrow_mut(this) = host_obj;
+
+    let mut stop: bool = false;
+    let stop_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
+    
+    for (k, v) in pairs {
+        env.mem.write(stop_ptr, false);
+        let _: () = crate::abi::CallFromHost::call_from_host(&block_impl, env, (block, k, v, stop_ptr));
+        stop = env.mem.read(stop_ptr);
+        if stop {
+            break;
+        }
+    }
+}
+
 @end
 
-// NSMutableDictionary is an abstract class. A subclass must provide everything
-// NSDictionary provides, plus:
-// - (void)setObject:(id)object forKey:(id)key;
-// - (void)removeObjectForKey:(id)key;
+// MUTABLE DICTIONARY SEGMENT
 @implementation NSMutableDictionary: NSDictionary
 
 + (id)allocWithZone:(NSZonePtr)zone {
@@ -754,8 +777,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, dict);
     mut_dict
 }
-
-- (id)initWithObjects:(id)objects //NSArray *
+    - (id)initWithObjects:(id)objects //NSArray *
               forKeys:(id)keys { //NSArray *
     init_with_objects_for_keys_common(env, this, objects, keys)
 }
@@ -939,6 +961,31 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)objectEnumerator { // NSEnumerator*
     let values: id = msg![env; this allValues];
     msg![env; values objectEnumerator]
+}
+    - (())enumerateKeysAndObjectsUsingBlock:(id)block {
+    if block.is_null() {
+        return;
+    }
+    let block_impl: crate::mem::ConstVoidPtr = env.mem.read(block + 12);
+    if block_impl.to_ptr().is_null() {
+        return;
+    }
+
+    let host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
+    let pairs: Vec<(id, id)> = host_obj.map.values().flatten().copied().collect();
+    *env.objc.borrow_mut(this) = host_obj;
+
+    let mut stop: bool = false;
+    let stop_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
+    
+    for (k, v) in pairs {
+        env.mem.write(stop_ptr, false);
+        let _: () = crate::abi::CallFromHost::call_from_host(&block_impl, env, (block, k, v, stop_ptr));
+        stop = env.mem.read(stop_ptr);
+        if stop {
+            break;
+        }
+    }
 }
 
 @end
