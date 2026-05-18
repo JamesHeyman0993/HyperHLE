@@ -24,6 +24,8 @@ pub struct State {
 pub const CONSTANTS: crate::dyld::ConstantExports = &[
     ("_kCMTimeZero", HostConstant::NSString("kCMTimeZero")),
     ("_AVPlayerItemDidPlayToEndTimeNotification", HostConstant::NSString("AVPlayerItemDidPlayToEndTimeNotification")),
+    // FIXED: Added missing tracking symbol requested during Gumball's media setup phase
+    ("_AVMediaCharacteristicAudible", HostConstant::NSString("AVMediaCharacteristicAudible")),
 ];
 
 // --- MOCK FOR AVURLAsset ---
