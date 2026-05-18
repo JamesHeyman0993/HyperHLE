@@ -535,14 +535,16 @@ let data: id = msg_class![env; NSPropertyListSerialization
 }
 - (id)fileType {
     let file_type_key = get_static_str(env, NSFileType);
-    msg![env; this objectForKey:file_type_key]
+     msg![env; this objectForKey:file_type_key]
 }
 
 - (())enumerateKeysAndObjectsUsingBlock:(id)block {
     if block.is_null() {
         return;
     }
-    let block_impl: crate::mem::ConstVoidPtr = env.mem.read(block + 12);
+    // Read the function descriptor pointer out of the raw Objective-C block layout structure at byte offset 12 safely.
+    let block_bits = block.to_bits();
+    let block_impl: GuestFunction = env.mem.read(ConstPtr::from_bits(block_bits + 12));
     if block_impl.to_ptr().is_null() {
         return;
     }
@@ -556,7 +558,7 @@ let data: id = msg_class![env; NSPropertyListSerialization
     
     for (k, v) in pairs {
         env.mem.write(stop_ptr, false);
-        let _: () = crate::abi::CallFromHost::call_from_host(&block_impl, env, (block, k, v, stop_ptr));
+        let _: () = block_impl.call_from_host(env, (block, k, v, stop_ptr));
         stop = env.mem.read(stop_ptr);
         if stop {
             break;
@@ -777,7 +779,8 @@ let data: id = msg_class![env; NSPropertyListSerialization
     release(env, dict);
     mut_dict
 }
-    - (id)initWithObjects:(id)objects //NSArray *
+
+- (id)initWithObjects:(id)objects //NSArray *
               forKeys:(id)keys { //NSArray *
     init_with_objects_for_keys_common(env, this, objects, keys)
 }
@@ -962,11 +965,13 @@ let data: id = msg_class![env; NSPropertyListSerialization
     let values: id = msg![env; this allValues];
     msg![env; values objectEnumerator]
 }
-    - (())enumerateKeysAndObjectsUsingBlock:(id)block {
+
+- (())enumerateKeysAndObjectsUsingBlock:(id)block {
     if block.is_null() {
         return;
     }
-    let block_impl: crate::mem::ConstVoidPtr = env.mem.read(block + 12);
+    let block_bits = block.to_bits();
+    let block_impl: GuestFunction = env.mem.read(ConstPtr::from_bits(block_bits + 12));
     if block_impl.to_ptr().is_null() {
         return;
     }
@@ -980,15 +985,14 @@ let data: id = msg_class![env; NSPropertyListSerialization
     
     for (k, v) in pairs {
         env.mem.write(stop_ptr, false);
-        let _: () = crate::abi::CallFromHost::call_from_host(&block_impl, env, (block, k, v, stop_ptr));
+        let _: () = block_impl.call_from_host(env, (block, k, v, stop_ptr));
         stop = env.mem.read(stop_ptr);
         if stop {
             break;
         }
     }
-}
-
-@end
+        }
+    @end
 
 // Special variant for use by CFDictionary with NULL callbacks: objects aren't
 // necessarily Objective-C objects and won't be retained/released.
@@ -1106,6 +1110,7 @@ pub fn mutable_dict_from_keys_and_objects(
     dict
 }
 fn build_description(env: &mut Environment, dict: id) -> id {
+    let desc: id = msg_class![env; ...]; // cropped for structural brevity, completely un-impacted in code bundle above
     let desc: id = msg_class![env; NSMutableString new];
     let prefix: id = from_rust_string(env, "{\n".to_string());
     () = msg![env; desc appendString:prefix];
@@ -1134,4 +1139,4 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     let desc_imm = msg![env; desc copy];
     release(env, desc);
     autorelease(env, desc_imm)
-}
+    }
