@@ -2022,6 +2022,36 @@ fn glGetShaderInfoLog(
         }
     });
 }
+
+fn glGetShaderSource(
+    env: &mut Environment,
+    shader: GLuint,
+    bufSize: GLsizei,
+    length: MutPtr<GLsizei>,
+    source: MutPtr<GLubyte>,
+) {
+    with_ctx_and_mem(env, |gles, mem| unsafe {
+        if bufSize <= 0 {
+            if !length.is_null() {
+                mem.write(length, 0);
+            }
+            return;
+        }
+        let mut buf = vec![0u8; bufSize as usize];
+        let mut written: GLsizei = 0;
+        gles.GetShaderSource(shader, bufSize, &mut written, buf.as_mut_ptr() as *mut _);
+        
+        if !length.is_null() {
+            mem.write(length, written);
+        }
+        if !source.is_null() && written >= 0 {
+            let count = (written as usize + 1).min(buf.len()).min(bufSize as usize);
+            let dst = mem.ptr_at_mut(source, count.try_into().unwrap_or(0));
+            std::ptr::copy_nonoverlapping(buf.as_ptr(), dst, count);
+        }
+    });
+}
+
 fn glGetProgramiv(env: &mut Environment, program: GLuint, pname: GLenum, params: MutPtr<GLint>) {
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let mut val: GLint = 0;
@@ -2163,44 +2193,55 @@ fn glShaderSource(
     if count <= 0 {
         return;
     }
-    // Copy each source string out of the guest's memory into a host-side
-    // buffer so we can pass real host pointers to the GLES implementation.
-    let mut owned: Vec<std::ffi::CString> = Vec::with_capacity(count as usize);
+    
+    let mut complete_source = String::new();
+    
+    // 1. Gather all fragments from guest space into a unified source string
     for i in 0..count {
         let str_ptr_ptr: ConstPtr<ConstPtr<GLubyte>> = string + (i as GuestUSize);
         let str_ptr: ConstPtr<GLubyte> = env.mem.read(str_ptr_ptr);
         if str_ptr.is_null() {
-            owned.push(std::ffi::CString::default());
             continue;
         }
-        // Check if explicit lengths were provided.
+        
         let len_opt: Option<i32> = if length.is_null() {
             None
         } else {
             let len_ptr: ConstPtr<GLint> = length + (i as GuestUSize);
             let l: GLint = env.mem.read(len_ptr);
-            if l < 0 {
-                None
-            } else {
-                Some(l)
+            if l < 0 { None } else { Some(l) }
+        };
+        
+        if let Some(len) = len_opt {
+            let slice = env.mem.bytes_at(str_ptr.cast(), len.try_into().unwrap_or(0));
+            if let Ok(s) = std::str::from_utf8(slice) {
+                complete_source.push_str(s);
             }
-        };
-        let bytes_vec: Vec<u8> = if let Some(len) = len_opt {
-            let slice = env
-                .mem
-                .bytes_at(str_ptr.cast(), len.try_into().unwrap_or(0));
-            slice.to_vec()
         } else {
-            env.mem.cstr_at(str_ptr).to_vec()
-        };
-        let cs = std::ffi::CString::new(bytes_vec).unwrap_or_default();
-        owned.push(cs);
+            let bytes = env.mem.cstr_at(str_ptr);
+            if let Ok(s) = std::str::from_utf8(bytes) {
+                complete_source.push_str(s);
+            }
+        }
     }
-    let ptrs: Vec<*const std::os::raw::c_char> = owned.iter().map(|s| s.as_ptr()).collect();
+
+    // 2. Fix layout constraints for modern strict drivers (e.g., Adreno/Mali)
+    let mut modified_source = String::new();
+    if complete_source.contains("fwidth") || complete_source.contains("dFdx") || complete_source.contains("dFdy") {
+        // Enforce declaration strictly on line 1 before any variable handling
+        modified_source.push_str("#extension GL_OES_standard_derivatives : enable\n");
+    }
+    modified_source.push_str(&complete_source);
+
+    // 3. Convert our final payload to a CString and hand it off safely to the host
+    let cs = std::ffi::CString::new(modified_source).unwrap_or_default();
+    let ptrs = [cs.as_ptr()];
+    
     with_ctx_and_mem(env, |gles, _mem| unsafe {
-        gles.ShaderSource(shader, count, ptrs.as_ptr(), std::ptr::null());
+        gles.ShaderSource(shader, 1, ptrs.as_ptr(), std::ptr::null());
     });
 }
+
 fn glEnableVertexAttribArray(env: &mut Environment, index: GLuint) {
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.EnableVertexAttribArray(index)
@@ -2660,6 +2701,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(glIsShader(_)),
     export_c_func!(glIsProgram(_)),
     export_c_func!(glGetShaderiv(_, _, _)),
+    export_c_func!(glGetShaderSource(_, _, _, _)),
     export_c_func!(glGetShaderInfoLog(_, _, _, _)),
     export_c_func!(glGetProgramiv(_, _, _)),
     export_c_func!(glGetProgramInfoLog(_, _, _, _)),
