@@ -121,14 +121,15 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
 
     // --- NEW INTERCEPT ZONE FOR GHOST TOASTERS ---
     // If Unity requests these specific third-party functions, substitute the lookup
-    // with a built-in common stub name that always safely returns to the guest engine.
+    // with our custom dummy function that safely ignores the pointer arguments entirely.
     if symbol_str == "IAPLoadProducts" || symbol_str == "_IAPLoadProducts" ||
        symbol_str == "kontagentApplicationAdded" || symbol_str == "_kontagentApplicationAdded" ||
        symbol_str == "kontagentStartSessionNew" || symbol_str == "_kontagentStartSessionNew" {
         log!("dlsym: Intercepted missing Unity plugin '{}'. Re-routing to safe system stub.", symbol_str);
-        // Swapping to an existing, fully exported host function signature ensures 
-        // a safe procedure layout translation without panicking the dyld linker.
-        symbol_str = "dispatch_release"; 
+        
+        // Rerouting to our neutral zero stub completely absorbs the call without 
+        // passing raw guest object pointers to GCD tracking structures.
+        symbol_str = "dispatch_dummy_zero_stub"; 
     }
     // --- END OF INTERCEPT ZONE ---
 
