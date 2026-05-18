@@ -540,7 +540,6 @@ fn dispatch_set_target_queue(
 
 fn dispatch_main(_env: &mut Environment) {
     log!("dispatch_main: stubbed (returning immediately)");
-    // Cannot spin forever here since GuestRet requires (). Just return.
 }
 
 // MARK: - Helpers
