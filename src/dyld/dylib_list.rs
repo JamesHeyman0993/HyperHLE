@@ -37,13 +37,8 @@ pub const MOBILE_CORE_SERVICES: super::HostDylib = super::HostDylib {
 };
 
 // CoreMedia
-pub const CORE_MEDIA: super::HostDylib = super::HostDylib {
-    path: "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
-    aliases: &[],
-    class_exports: &[],
-    constant_exports: &[],
-    function_exports: &[frameworks::core_media::FUNCTIONS],
-};
+// FIXED: Linked directly to your framework file configuration block so your new constants register
+pub const CORE_MEDIA: super::HostDylib = frameworks::core_media::DYLIB;
 
 // MapKit
 pub const MAP_KIT: super::HostDylib = super::HostDylib {
