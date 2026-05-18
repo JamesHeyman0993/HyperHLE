@@ -8,11 +8,22 @@
 mod sk_payment_queue;
 mod sk_product;
 
+use crate::dyld::{ConstantExports, HostConstant};
+
+// FIXED: Initialized constant configuration map block
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_SKStoreProductParameterITunesItemIdentifier",
+        HostConstant::NSString("SKStoreProductParameterITunesItemIdentifier"),
+    ),
+];
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/StoreKit.framework/StoreKit",
     aliases: &[],
     class_exports: &[sk_payment_queue::CLASSES, sk_product::CLASSES],
-    constant_exports: &[],
+    // FIXED: Mounted the array reference slice to expose the parameters safely
+    constant_exports: &[CONSTANTS],
     function_exports: &[],
 };
 
