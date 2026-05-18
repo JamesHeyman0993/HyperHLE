@@ -26,6 +26,20 @@
 //! dylib they were declared under, so the binding still resolves correctly
 //! whether the app links CoreMedia or CoreVideo.
 
-use crate::dyld::FunctionExports;
+use crate::dyld::{FunctionExports, HostConstant};
+
+// FIXED: Populated missing symbol mapping table for structural time constraints
+pub const CONSTANTS: crate::dyld::ConstantExports = &[
+    ("_kCMTimeInvalid", HostConstant::NSString("kCMTimeInvalid")),
+];
 
 pub const FUNCTIONS: FunctionExports = &[];
+
+// FIXED: Created export object wrapper assembly layout so dylib_list can map it
+pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
+    path: "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
+    aliases: &[],
+    class_exports: &[],
+    constant_exports: CONSTANTS,
+    function_exports: FUNCTIONS,
+};
