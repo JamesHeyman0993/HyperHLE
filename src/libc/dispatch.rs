@@ -550,10 +550,37 @@ fn dispatch_main(_env: &mut Environment) {
 //pointer.
 /// Layout: [isa, flags, reserved, invoke, descriptor, captures...]
 fn call_void_block(env: &mut Environment, block: dispatch_block_t) {
-    let invoke_ptr = env.mem.read(block.cast::<u32>() + 3u32);
+    if block.is_null() {
+        return;
+    }
+
+    // 1. Ensure the block pointer itself is aligned and safely within mapped guest space
+    let block_bits = block.to_bits();
+    if block_bits % 4 != 0 {
+        log!("call_void_block: Trapped unaligned block pointer address: 0x{:08X}", block_bits);
+        return;
+    }
+
+    // 2. Calculate target invocation function pointer address securely
+    let target_offset_ptr = block.cast::<u32>() + 3u32;
+    
+    // Validate memory bounds before reading to avoid SEGV_MAPERR
+    if !env.mem.is_mapped(target_offset_ptr.to_bits(), 4) {
+        log!("call_void_block: Trapped unmapped block metadata address at 0x{:08X}", target_offset_ptr.to_bits());
+        return;
+    }
+
+    let invoke_ptr = env.mem.read(target_offset_ptr);
     if invoke_ptr == 0 {
         return;
     }
+
+    // 3. Ensure destination function memory area is valid before executing execution hook
+    if !env.mem.is_mapped(invoke_ptr & !1, 2) { // Strip Thumb bit for validation check
+        log!("call_void_block: Block points to invalid code segment target 0x{:08X}", invoke_ptr);
+        return;
+    }
+
     let invoke = GuestFunction::from_addr_with_thumb_bit(invoke_ptr);
     let _: () = invoke.call_from_host(env, (block,));
 }
