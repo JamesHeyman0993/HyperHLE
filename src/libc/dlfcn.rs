@@ -13,20 +13,12 @@ use crate::dyld::{export_c_func, FunctionExports};
 use crate::mem::{ConstPtr, MutVoidPtr, Ptr};
 use crate::Environment;
 
-/// Псевдо-дескриптор для доступа к глобальной области видимости символов (main
-//executable).
-/// В операционных системах семейства Darwin/iOS RTLD_DEFAULT традиционно равен
-//(void*)-2.
+/// Псевдо-дескриптор для доступа к глобальной области видимости символов (main executable).
+/// В операционных системах семейства Darwin/iOS RTLD_DEFAULT традиционно равен (void*)-2.
 const RTLD_DEFAULT: MutVoidPtr = Ptr::from_bits(-2 as _);
-/// A generic safe stub used to satisfy dlsym lookups for missing third-party plugins.
-fn unity_plugin_generic_stub(_env: &mut Environment) {
-    // We intentionally do nothing here except prevent a guest crash.
-    log_dbg!("Unity third-party plugin stub was executed safely.");
-}
-
 
 /// Проверяет, является ли запрашиваемая библиотека известной эмулятору
-//(присутствует в статическом списке DYLIB_LIST).
+/// (присутствует в статическом списке DYLIB_LIST).
 fn is_known_library(path: &str) -> bool {
     crate::dyld::DYLIB_LIST
         .iter()
@@ -34,10 +26,8 @@ fn is_known_library(path: &str) -> bool {
 }
 
 /// Реализация функции `dlopen` стандарта POSIX.
-/// Загружает динамическую библиотеку в адресное пространство процесса (или
-//симулирует этот процесс в HLE).
-/// Возвращает дескриптор загруженной библиотеки или NULL в случае отсутствия
-//файла или ошибки чтения.
+/// Загружает динамическую библиотеку в адресное пространство процесса (или симулирует этот процесс в HLE).
+/// Возвращает дескриптор загруженной библиотеки или NULL в случае отсутствия файла или ошибки чтения.
 fn dlopen(env: &mut Environment, path: ConstPtr<u8>, _mode: i32) -> MutVoidPtr {
     // В соответствии со стандартом POSIX, вызов dlopen(NULL) возвращает
     // дескриптор главной программы.
@@ -88,15 +78,40 @@ fn dlopen(env: &mut Environment, path: ConstPtr<u8>, _mode: i32) -> MutVoidPtr {
 }
 
 /// Реализация функции `dlsym` стандарта POSIX.
-/// Выполняет поиск адреса экспортированного символа (функции или переменной) в
-//загруженном модуле.
+/// Выполняет поиск адреса экспортированного символа (функции или переменной) в загруженном модуле.
 fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> MutVoidPtr {
-    // ... Keep your existing safety validation checks for handle and symbol ...
-    if handle != RTLD_DEFAULT { /* ... existing handle code ... */ }
-    if symbol.is_null() { /* ... existing check ... */ }
+    // БЕЗОПАСНОСТЬ: Валидация переданного дескриптора.
+    // Если дескриптор не является RTLD_DEFAULT, мы пытаемся разыменовать его
+    // как суррогатный указатель на строку пути.
+    if handle != RTLD_DEFAULT {
+        let handle_path_ptr: ConstPtr<u8> = handle.cast().cast_const();
+        let handle_str = match env.mem.cstr_at_utf8(handle_path_ptr) {
+            Ok(s) => s,
+            Err(_) => {
+                log!("Warning: dlsym() returning NULL due to invalid or corrupted handle pointer (possible UAF)");
+                return Ptr::null();
+            }
+        };
 
-    // Read the symbol string from guest memory
-    let symbol_str = match env.mem.cstr_at_utf8(symbol) {
+        // Если дескриптор указывает на строку, не являющуюся известной
+        // библиотекой, запрос отклоняется.
+        if !is_known_library(handle_str) {
+            log!(
+                "Warning: dlsym() returning NULL due to an unknown library handle: {}",
+                handle_str
+            );
+            return Ptr::null();
+        }
+    }
+
+    // БЕЗОПАСНОСТЬ: Защита от передачи NULL в качестве имени искомого символа.
+    if symbol.is_null() {
+        log!("Warning: dlsym() called with a NULL symbol pointer");
+        return Ptr::null();
+    }
+
+    // БЕЗОПАСНОСТЬ: Чтение строкового имени символа из гостевой памяти.
+    let mut symbol_str = match env.mem.cstr_at_utf8(symbol) {
         Ok(s) => s,
         Err(_) => {
             log!("Warning: dlsym() returning NULL due to invalid symbol string pointer in guest memory");
@@ -105,30 +120,26 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
     };
 
     // --- NEW INTERCEPT ZONE FOR GHOST TOASTERS ---
-    // If Unity requests these specific third-party functions, bypass dyld 
-    // and manufacture a valid procedure address pointing to our safe stub.
-    match symbol_str {
-        "_IAPLoadProducts" | "IAPLoadProducts" |
-        "_kontagentApplicationAdded" | "kontagentApplicationAdded" |
-        "_kontagentStartSessionNew" | "kontagentStartSessionNew" => {
-            log!("dlsym: Intercepted missing plugin symbol '{}'. Redirecting to safe stub.", symbol_str);
-            
-            // Generate a callable guest-space wrapper address for our host-side function
-            match env.dyld.create_proc_address_from_host_fn(&mut env.mem, &mut env.cpu, unity_plugin_generic_stub) {
-                Ok(addr) => return Ptr::from_bits(addr.addr_with_thumb_bit()),
-                Err(_) => {
-                    log!("Warning: Failed to create proc address for plugin stub.");
-                    return Ptr::null();
-                }
-            }
-        }
-        _ => {} // Not a target plugin, fall through to regular processing
+    // If Unity requests these specific third-party functions, substitute the lookup
+    // with a built-in common stub name that always safely returns to the guest engine.
+    if symbol_str == "IAPLoadProducts" || symbol_str == "_IAPLoadProducts" ||
+       symbol_str == "kontagentApplicationAdded" || symbol_str == "_kontagentApplicationAdded" ||
+       symbol_str == "kontagentStartSessionNew" || symbol_str == "_kontagentStartSessionNew" {
+        log!("dlsym: Intercepted missing Unity plugin '{}'. Re-routing to safe system stub.", symbol_str);
+        // Swapping to an existing, fully exported host function signature ensures 
+        // a safe procedure layout translation without panicking the dyld linker.
+        symbol_str = "dispatch_release"; 
     }
     // --- END OF INTERCEPT ZONE ---
 
-    // Proceed with regular Mach-O underscore lookup formatting
+    // В бинарном формате Mach-O (платформы Apple) C-символы компилируются с
+    // префиксом подчеркивания.
     let symbol_formatted = format!("_{}", symbol_str);
 
+    // Попытка разрешить адрес через подсистему динамического загрузчика
+    // эмулятора (dyld).
+    // Функция create_proc_address безопасно вернет Err, если функция-заглушка
+    // еще не реализована в эмуляторе.
     match env
         .dyld
         .create_proc_address(&mut env.mem, &mut env.cpu, &symbol_formatted)
@@ -146,7 +157,7 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
 
 /// Реализация функции `dlclose` стандарта POSIX.
 /// В HLE архитектуре выступает в роли заглушки, но строго соблюдает семантику
-//возврата кодов ошибок.
+/// возврата кодов ошибок.
 fn dlclose(env: &mut Environment, handle: MutVoidPtr) -> i32 {
     if handle == RTLD_DEFAULT {
         return 0; // Операция успешна
