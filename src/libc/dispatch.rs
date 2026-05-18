@@ -606,7 +606,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(dispatch_after_f(_, _, _, _)),
     // time
     export_c_func!(dispatch_time(_, _)),
-    export_c_func!(export_c_func!(dispatch_walltime(_, _)),
+    export_c_func!(dispatch_walltime(_, _)),
     // group
     export_c_func!(dispatch_group_create()),
     export_c_func!(dispatch_group_async(_, _, _)),
