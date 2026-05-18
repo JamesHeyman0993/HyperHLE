@@ -86,8 +86,10 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
     }
 
     // БЕЗОПАСНОСТЬ: Чтение строкового имени символа из гостевой памяти.
+    // ОФОРМЛЕНИЕ ИСПРАВЛЕНИЯ BORROW CHECKER: .to_owned() преобразует временный &str 
+    // в независимый String, сбрасывая неизменяемое заимствование (immutable borrow) с env.mem.
     let symbol_str = match env.mem.cstr_at_utf8(symbol) {
-        Ok(s) => s,
+        Ok(s) => s.to_owned(),
         Err(_) => {
             log!("Warning: dlsym() returning NULL due to invalid symbol string pointer in guest memory");
             return Ptr::null();
@@ -105,8 +107,7 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
         Ok(addr) => Ptr::from_bits(addr.addr_with_thumb_bit()),
         Err(_) => {
             // --- AUTOMATED WILDCARD INTERCEPT FALLBACK ---
-            // If the core runtime cannot resolve the function, look for common third-party framework patterns.
-            // This captures all variant configurations of IAP, Kontagent, Flurry, Playhaven, etc. automatically.
+            // Теперь lower_sym безопасно читает из выделенной строки без конфликтов заимствования.
             let lower_sym = symbol_str.to_lowercase();
             if lower_sym.contains("iap") || 
                lower_sym.contains("kontagent") || 
@@ -115,7 +116,7 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
                lower_sym.contains("analytics") {
                 log!("dlsym: Intercepted missing Unity native plugin hook '{}'. Re-routing to zero-stub safely.", symbol_str);
                 
-                // Override target to our safe dummy handler
+                // Перенаправляем цель вызова на нашу безопасную пустую заглушку
                 symbol_formatted = "_dispatch_dummy_zero_stub".to_string();
                 if let Ok(addr) = env.dyld.create_proc_address(&mut env.mem, &mut env.cpu, &symbol_formatted) {
                     return Ptr::from_bits(addr.addr_with_thumb_bit());
