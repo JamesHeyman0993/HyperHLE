@@ -545,6 +545,13 @@ fn dispatch_main(_env: &mut Environment) {
 
 // MARK: - Helpers
 
+/// A zero-operation system stub to absorb unsupported plugin configuration hooks
+/// without referencing or destabilizing unmapped guest allocations.
+fn dispatch_dummy_zero_stub(_env: &mut Environment, _arg: MutVoidPtr) -> i32 {
+    log_dbg!("dispatch_dummy_zero_stub: Safely absorbed missing plugin execution hook.");
+    0
+}
+
 /// Invoke a GCD block (`void (^)(void)`).
 /// On ARM32 a block is a struct whose second word is the invoke function pointer.
 /// Layout: [isa, flags, reserved, invoke, descriptor, captures...]
@@ -648,5 +655,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(dispatch_set_target_queue(_, _)),
     // main
     export_c_func!(dispatch_main()),
+    // safe injection hook
+    export_c_func!(dispatch_dummy_zero_stub(_)),
 ];
     
