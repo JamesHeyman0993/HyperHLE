@@ -30,6 +30,9 @@ pub const CONSTANTS: ConstantExports = &[
     ("_kCFNull", HostConstant::NullPtr),
     ("_kCFNumberNaN", HostConstant::NullPtr),
     ("_kCFCoreFoundationVersionNumber", HostConstant::NullPtr),
+    // FIXED: Added missing infinity constants requested by Gumball layout engine
+    ("_kCFNumberNegativeInfinity", HostConstant::NullPtr),
+    ("_kCFNumberPositiveInfinity", HostConstant::NullPtr),
 ];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
