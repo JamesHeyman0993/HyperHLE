@@ -28,18 +28,18 @@
 
 use crate::dyld::{FunctionExports, HostConstant};
 
-// FIXED: Populated missing symbol mapping table for structural time constraints
+// Populated missing symbol mapping table for structural time constraints
 pub const CONSTANTS: crate::dyld::ConstantExports = &[
     ("_kCMTimeInvalid", HostConstant::NSString("kCMTimeInvalid")),
 ];
 
 pub const FUNCTIONS: FunctionExports = &[];
 
-// FIXED: Created export object wrapper assembly layout so dylib_list can map it
+// FIXED: Wrapped CONSTANTS and FUNCTIONS in reference slices `&[...]` to satisfy the expected double-reference type dimension
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
     aliases: &[],
     class_exports: &[],
-    constant_exports: CONSTANTS,
-    function_exports: FUNCTIONS,
+    constant_exports: &[CONSTANTS], // Wrapped here
+    function_exports: &[FUNCTIONS], // Wrapped here
 };
