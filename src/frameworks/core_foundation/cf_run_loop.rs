@@ -179,8 +179,8 @@ fn CFRunLoopRunInMode(
     _return_after_source_handled: bool,
 ) -> i32 {
     if !is_known_mode(env, mode) {
-        log!("CFRunLoopRunInMode: unknown mode, skipping");
-        return kCFRunLoopRunFinished;
+        let mode_str = ns_string::to_rust_string(env, mode);
+        log!("CFRunLoopRunInMode: encountered unique mode [{}], continuing execution safety fallback", mode_str);
     }
     let current = CFRunLoopGetCurrent(env);
     if seconds == 0.0 {
@@ -510,4 +510,3 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CFRunLoopTimerDoesRepeat(_)),
     export_c_func!(CFRunLoopTimerGetOrder(_)),
 ];
-        
