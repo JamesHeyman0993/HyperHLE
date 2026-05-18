@@ -564,8 +564,8 @@ fn call_void_block(env: &mut Environment, block: dispatch_block_t) {
     // 2. Calculate target invocation function pointer address securely
     let target_offset_ptr = block.cast::<u32>() + 3u32;
     
-    // Validate memory bounds before reading to avoid SEGV_MAPERR
-    if !env.mem.is_mapped(target_offset_ptr.to_bits(), 4) {
+    // Explicit dereference: (*env.mem) forces Rust inside the NullableBox
+    if !(*env.mem).is_mapped(target_offset_ptr.to_bits(), 4) {
         log!("call_void_block: Trapped unmapped block metadata address at 0x{:08X}", target_offset_ptr.to_bits());
         return;
     }
@@ -576,7 +576,7 @@ fn call_void_block(env: &mut Environment, block: dispatch_block_t) {
     }
 
     // 3. Ensure destination function memory area is valid before executing execution hook
-    if !env.mem.is_mapped(invoke_ptr & !1, 2) { // Strip Thumb bit for validation check
+    if !(*env.mem).is_mapped(invoke_ptr & !1, 2) { // Strip Thumb bit for validation check
         log!("call_void_block: Block points to invalid code segment target 0x{:08X}", invoke_ptr);
         return;
     }
