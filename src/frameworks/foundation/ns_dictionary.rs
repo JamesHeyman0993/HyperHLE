@@ -535,14 +535,13 @@ let data: id = msg_class![env; NSPropertyListSerialization
 }
 - (id)fileType {
     let file_type_key = get_static_str(env, NSFileType);
-     msg![env; this objectForKey:file_type_key]
+    msg![env; this objectForKey:file_type_key]
 }
 
 - (())enumerateKeysAndObjectsUsingBlock:(id)block {
     if block.is_null() {
         return;
     }
-    // Read the function descriptor pointer out of the raw Objective-C block layout structure at byte offset 12 safely.
     let block_bits = block.to_bits();
     let block_impl: GuestFunction = env.mem.read(ConstPtr::from_bits(block_bits + 12));
     if block_impl.to_ptr().is_null() {
@@ -923,9 +922,8 @@ let data: id = msg_class![env; NSPropertyListSerialization
         () = msg![env; this setObject:(*v) forKey:(*k)];
     }
     *env.objc.borrow_mut(other) = host_obj;
-}
-
-- (id)description {
+        }
+    - (id)description {
     build_description(env, this)
 }
 
@@ -991,8 +989,9 @@ let data: id = msg_class![env; NSPropertyListSerialization
             break;
         }
     }
-        }
-    @end
+}
+
+@end
 
 // Special variant for use by CFDictionary with NULL callbacks: objects aren't
 // necessarily Objective-C objects and won't be retained/released.
@@ -1110,7 +1109,6 @@ pub fn mutable_dict_from_keys_and_objects(
     dict
 }
 fn build_description(env: &mut Environment, dict: id) -> id {
-    let desc: id = msg_class![env; ...]; // cropped for structural brevity, completely un-impacted in code bundle above
     let desc: id = msg_class![env; NSMutableString new];
     let prefix: id = from_rust_string(env, "{\n".to_string());
     () = msg![env; desc appendString:prefix];
@@ -1139,4 +1137,4 @@ fn build_description(env: &mut Environment, dict: id) -> id {
     let desc_imm = msg![env; desc copy];
     release(env, desc);
     autorelease(env, desc_imm)
-    }
+}
