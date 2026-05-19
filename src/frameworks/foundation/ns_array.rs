@@ -983,7 +983,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     let (env, _) = user_data;
     env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
 }
-
+    
+// ---- PASTE THIS NEW METHOD HERE ----
+- (())sortUsingDescriptors:(id)sort_descriptors {
+    log!("Intercepted sortUsingDescriptors: stub implementation called!");
+    // This is a "no-op" stub. It returns nothing (void), letting the game
+    // think the list sorted successfully so it doesn't crash.
+}
+    
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
