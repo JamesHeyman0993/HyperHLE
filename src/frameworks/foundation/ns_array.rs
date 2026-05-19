@@ -990,6 +990,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     // This is a "no-op" stub. It returns nothing (void), letting the game
     // think the list sorted successfully so it doesn't crash.
 }
+
+    // ---- PASTE THESE TWO NEW STUBS HERE ----
+- (())advanceTime:(f64)time {
+    log!("Intercepted advanceTime: stub called!");
+    // Accepts a time increment step but does nothing
+}
+
+- (bool)isComplete {
+    log!("Intercepted isComplete stub called! Returning true.");
+    // We return true so the game thinks this step is finished 
+    // and breaks out of the loop
+    true 
+}
     
 // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
