@@ -885,26 +885,31 @@ fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, po
         let new_start_ptr = (*env.mem).alloc(new_capacity);
         let new_start = new_start_ptr.to_bits();
         
-        let prefix_bytes = position_iterator.saturating_sub(start);
-        if prefix_bytes > 0 {
-            let data = (*env.mem).read_bytes(start, prefix_bytes as usize);
-            (*env.mem).write_bytes(new_start, &data);
+        // Loop copy for prefix elements (before insertion point)
+        let mut offset = 0;
+        while start + offset < position_iterator {
+            let val: u32 = env.mem.read(Ptr::from_bits(start + offset));
+            env.mem.write(Ptr::from_bits(new_start + offset), val);
+            offset += 4;
         }
             
-        (*env.mem).write(Ptr::from_bits(new_start + prefix_bytes), matrix_ptr_val);
+        // Write the newly inserted matrix pointer element
+        env.mem.write(Ptr::from_bits(new_start + offset), matrix_ptr_val);
         
-        let suffix_bytes = finish.saturating_sub(position_iterator);
-        if suffix_bytes > 0 {
-            let data = (*env.mem).read_bytes(position_iterator, suffix_bytes as usize);
-            (*env.mem).write_bytes(new_start + prefix_bytes + 4, &data);
+        // Loop copy for suffix elements (after insertion point)
+        let mut suffix_offset = 0;
+        while position_iterator + suffix_offset < finish {
+            let val: u32 = env.mem.read(Ptr::from_bits(position_iterator + suffix_offset));
+            env.mem.write(Ptr::from_bits(new_start + offset + 4 + suffix_offset), val);
+            suffix_offset += 4;
         }
             
         (*env.mem).write(vec_ptr + 0, new_start);
         (*env.mem).write(vec_ptr + 1, new_start + current_size + 4);
         (*env.mem).write(vec_ptr + 2, new_start + new_capacity);
     }
-} // <--- This was the missing closing brace that broke the file!
-    
+}
+  
 fn touchhle_sqlite3_prepare_v2(_env: &mut Environment, _db: u32, _z_sql: u32, _n_byte: i32, pp_stmt: u32, _pz_tail: u32) -> i32 {
     0 
 }
