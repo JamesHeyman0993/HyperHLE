@@ -74,11 +74,7 @@ macro_rules! try_get_context {
             .get_mut(&state.current_ctx)
             .map(|ctx| ctx.make_current(&mut $env.openal_manager))
         else {
-            log_dbg!(
-                "Попытка получить контекст, но текущий активный контекст {:?} недействителен, пропускаем!",
-                State::get($env).current_ctx
-            );
-            // TODO: установить ошибку
+            log!("CRITICAL WARNING: OpenAL context is missing or invalid! Forcing early return.");
             return;
         };
     };
@@ -89,15 +85,11 @@ macro_rules! try_get_context {
             .get_mut(&state.current_ctx)
             .map(|ctx| ctx.make_current(&mut $env.openal_manager))
         else {
-            log_dbg!(
-                "Попытка получить контекст, но текущий активный контекст {:?} недействителен, пропускаем!",
-                State::get($env).current_ctx
-            );
-            // TODO: установить ошибку
+            log!("CRITICAL WARNING: OpenAL context is missing or invalid! Forcing default value return.");
             return $rval;
         };
     };
-}
+    }
 
 // === alc.h ===
 
