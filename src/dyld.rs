@@ -869,7 +869,7 @@ fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, po
         // If there is existing padding headroom, push the memory block over by 4 bytes (1 pointer size)
         let mut current = finish;
         while current > position_iterator {
-            let prev_val: u32 = env.mem.read(Ptr::from_bits(current - 4));
+            let prev_val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(current - 4));
             env.mem.write(Ptr::from_bits(current), prev_val);
             current -= 4;
         }
@@ -888,7 +888,7 @@ fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, po
         // Loop copy for prefix elements (before insertion point)
         let mut offset = 0;
         while start + offset < position_iterator {
-            let val: u32 = env.mem.read(Ptr::from_bits(start + offset));
+            let val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(start + offset));
             env.mem.write(Ptr::from_bits(new_start + offset), val);
             offset += 4;
         }
@@ -899,7 +899,7 @@ fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, po
         // Loop copy for suffix elements (after insertion point)
         let mut suffix_offset = 0;
         while position_iterator + suffix_offset < finish {
-            let val: u32 = env.mem.read(Ptr::from_bits(position_iterator + suffix_offset));
+            let val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(position_iterator + suffix_offset));
             env.mem.write(Ptr::from_bits(new_start + offset + 4 + suffix_offset), val);
             suffix_offset += 4;
         }
