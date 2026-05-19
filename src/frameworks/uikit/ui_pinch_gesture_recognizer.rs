@@ -139,14 +139,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.borrow::<UIPinchGestureRecognizerHostObject>(this).scale
 }
 
-- (())setScale:(CGFloat)scale {
+- ((()))setScale:(CGFloat)scale {
     env.objc.borrow_mut::<UIPinchGestureRecognizerHostObject>(this).scale = scale;
 }
 
-- (CGFloat)velocity {
+- (((CGFloat)))velocity {
     env.objc.borrow::<UIPinchGestureRecognizerHostObject>(this).velocity
 }
 
+@end
+
+// =========================================================================
+// MARK: - UISwipeGestureRecognizer & UIRotationGestureRecognizer Stubs
+// =========================================================================
+
+@implementation UISwipeGestureRecognizer: UIGestureRecognizer
+// Automatically inherits allocWithZone: and initWithTarget:action: from UIGestureRecognizer
+@end
+
+@implementation UIRotationGestureRecognizer: UIGestureRecognizer
+// Automatically inherits allocWithZone: and initWithTarget:action: from UIGestureRecognizer
 @end
 
 };
