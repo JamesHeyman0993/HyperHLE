@@ -5,7 +5,7 @@
  */
 //! `MPMediaLibrary`.
 
-use crate::objc::{id, nil, objc_classes, ClassExports};
+use crate::objc::{autorelease, id, msg, objc_classes, ClassExports};
 
 pub const CLASSES: ClassExports = objc_classes! {
 
@@ -14,8 +14,14 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation MPMediaLibrary: NSObject
 
 + (id)defaultMediaLibrary {
-    log!("TODO: [MPMediaLibrary defaultMediaLibrary] (not implemented yet)");
-    nil
+    log!("Intercepted [MPMediaLibrary defaultMediaLibrary]: Creating a fake media library instance.");
+    
+    // Allocate a fake instance of the MPMediaLibrary class so the game gets a valid pointer
+    let fake_library: id = msg![env; this alloc];
+    let fake_library: id = msg![env; fake_library init];
+    
+    // Autorelease it to handle memory management correctly
+    autorelease(env, fake_library)
 }
 
 @end
