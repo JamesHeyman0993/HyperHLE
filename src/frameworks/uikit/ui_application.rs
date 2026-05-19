@@ -290,9 +290,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     
     let delegate: id = msg![env; this delegate];
     if delegate != nil {
-        // Create an explicit SEL handle using touchHLE's structural syntax
-        let sel = env.objc.get_selector("application:didFailToRegisterForRemoteNotificationsWithError:");
-        
         if env.objc.object_has_method_named(&env.mem, delegate, "application:didFailToRegisterForRemoteNotificationsWithError:") {
             log!("Forwarding notification failure to app delegate to satisfy memory layout.");
             // We pass nil as the error parameter to act as a generic failure payload
@@ -302,7 +299,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 }
-     
+        
 - (())unregisterForRemoteNotifications {
     log!("UIApplication unregisterForRemoteNotifications: stubbed");
 }
