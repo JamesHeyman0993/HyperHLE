@@ -220,12 +220,24 @@ pub fn AudioQueueNewOutput(
 
     ns_run_loop::add_audio_queue(env, in_callback_run_loop, aq_ref);
 
-    log_if_broken_audio_format(&format);
+        log_if_broken_audio_format(&format);
 
     if !is_supported_audio_format(&format) {
-        log!("Warning: Audio queue {:?} will be ignored because its format is still not supported: {:#?}", aq_ref, format);
+        log!("HACK: Audio queue {:?} format is not supported ({:#?}). Normalizing to silent Linear PCM fallback format.", aq_ref, format);
+        
+        format = AudioStreamBasicDescription {
+            sample_rate: 44100.0,
+            format_id: kAudioFormatLinearPCM,
+            format_flags: kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger,
+            bytes_per_packet: 4,
+            frames_per_packet: 1,
+            bytes_per_frame: 4,
+            channels_per_frame: 2,
+            bits_per_channel: 16,
+            _reserved: 0,
+        };
     }
-
+    
     log_dbg!(
         "AudioQueueNewOutput() for format {:#?}, new audio queue handle: {:?}",
         format,
@@ -1264,7 +1276,7 @@ pub fn AudioQueueNewInput(
 
     let mut format = env.mem.read(in_format);
 
-    // FIFA 11 Hack: Must apply here too if the game creates an Input queue
+        // FIFA 11 Hack: Must apply here too if the game creates an Input queue
     if format.format_id == kAudioFormatLinearPCM 
         && format.channels_per_frame == 2 
         && format.bits_per_channel == 16 
@@ -1273,6 +1285,21 @@ pub fn AudioQueueNewInput(
         log!("Applying FIFA 11 hack to AudioQueueNewInput: Correcting format.");
         format.bytes_per_frame = 4;
         format.bytes_per_packet = 4;
+    }
+
+    if !is_supported_audio_format(&format) {
+        log!("HACK: AudioQueueNewInput format is not supported. Normalizing to silent Linear PCM fallback format.");
+        format = AudioStreamBasicDescription {
+            sample_rate: 44100.0,
+            format_id: kAudioFormatLinearPCM,
+            format_flags: kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger,
+            bytes_per_packet: 4,
+            frames_per_packet: 1,
+            bytes_per_frame: 4,
+            channels_per_frame: 2,
+            bits_per_channel: 16,
+            _reserved: 0,
+        };
     }
 
     let host_object = AudioQueueHostObject {
@@ -1292,7 +1319,7 @@ pub fn AudioQueueNewInput(
         is_input: true, // Set this to true for Input
         input_delay: 0,
     };
-
+    
     let aq_ref = env.mem.alloc_and_write(OpaqueAudioQueue { _filler: 0 });
     State::get(&mut env.framework_state)
         .audio_queues
