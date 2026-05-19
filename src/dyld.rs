@@ -652,20 +652,65 @@ impl Dyld {
             return None;
         }
         
-               // --- FIXED CRITICAL MATH INTERCEPT ---
+                       // --- FIXED CRITICAL MATH INTERCEPT ---
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
         if symbol == vector_math_mangled {
              log!("HyperHLE: Catching unmapped vector routine: {}. Allocating host adapter bridge.", symbol);
              
-             // Instead of an infinite loop return-None loop, intercept it and build a clean host-side execution binding.
              let addr = self.create_proc_address_no_inval(mem, vector_math_mangled).unwrap();
              let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
              
-             // Return the allocated host procedure runner so emulation handles the tick instantly
              let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
+        
+        // =========================================================================
+        // --- HYPERHLE: SYSTEM & CORE FRAMEWORK ROUTING PATCHES ---
+        // =========================================================================
+        
+        // Patch 1: Force guest library routing for C++ Container allocations (Regular Show / Agent Dash)
+        if symbol == "___dynamic_cast" || symbol.starts_with("__ZNSt11_Deque_base") {
+            log!("HyperHLE: Forcing guest dylib resolution for C++ container/cast: {}", symbol);
+            for dylib in bins.iter() {
+                if let Some(&addr) = dylib.exported_symbols.get(symbol) {
+                    let _ = link_by_restoring_stub(mem, cpu, addr, svc_pc, info.entry_size, pic_offset);
+                    return None; 
+                }
+            }
+        }
 
+        // Patch 2: Intercept core engine primitives before they hit return-0 stubs
+        let critical_system_symbols = [
+            "_memcpy", "_memset", "_calloc", "_strcmp", "_strstr",
+            "_pthread_mutex_lock", "_pthread_mutex_unlock", "_pthread_mutex_init",
+            "_objc_msgSend", "_UIApplicationMain"
+        ];
+
+        if critical_system_symbols.contains(&symbol) {
+            log!("HyperHLE: Intercepted core framework/C symbol '{}'. Resolving via Host Shims.", symbol);
+            
+            // First check non-lazy maps
+            if let Some(&addr) = self.non_lazy_host_functions.get(symbol) {
+                let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
+                return None;
+            }
+            
+            // Force fallback scan straight to host dylibs table
+            if let Some(&(sym, f)) = search_host_dylibs(|d| d.function_exports, symbol) {
+                let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+                let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+                if info.entry_size == 4 {
+                    svc |= Self::SVC_LAZY_LINK_RET_FLAG;
+                }
+                self.linked_host_functions.push((sym, f));
+                let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+                mem.write(stub_function_ptr, encode_a32_svc(svc));
+                cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+                return Some(f);
+            }
+        }
+        // =========================================================================
+        
         // --- START OF NEW GUEST C++ ROUTINE BYPASS ---
         if symbol == "___dynamic_cast" || symbol.starts_with("__ZNSt11_Deque_base") {
             log!("HyperHLE: Forcing guest dylib resolution for: {}", symbol);
