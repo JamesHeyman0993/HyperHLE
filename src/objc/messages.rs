@@ -222,7 +222,7 @@ fn objc_msgSend_inner(
     // Traverse the chain of superclasses to find the method implementation.
     let mut class = orig_class;
     loop {
-        if class == nil {
+                if class == nil {
             assert!(class != orig_class);
             let class_host_object = env.objc.get_host_object(orig_class).unwrap();
             let &super::ClassHostObject {
@@ -231,8 +231,18 @@ fn objc_msgSend_inner(
                 ..
             } = class_host_object.as_any().downcast_ref().unwrap();
 
-            // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: заменили panic! на log! (мягкий фейл
-            // форка) ---
+            let sel_str = selector.as_str(&env.mem);
+
+            // --- HACK: Intercept intersectsRectangle: for Sparrow framework components ---
+            if sel_str == "intersectsRectangle:" {
+                log!("HACK: Intercepted custom selector \"{}\" for class \"{}\". Returning YES (1).", sel_str, name);
+                
+                // Set the low 32 bits (r0/r1 register space) to 1 (Objective-C YES / true)
+                env.cpu.regs_mut()[0] = 1; 
+                env.cpu.regs_mut()[1] = 0;
+                return;
+            }
+
             log!(
                 "Warning: {} {:?} ({}class \"{}\", {:?}){} does not respond to selector \"{}\"! Returning 0.",
                 if is_metaclass { "Class" } else { "Object" },
@@ -245,15 +255,14 @@ fn objc_msgSend_inner(
                 } else {
                     ""
                 },
-                selector.as_str(&env.mem),
+                sel_str,
             );
 
             // Имитируем возврат nil/0, чтобы приложение продолжило работу
             env.cpu.regs_mut()[0..2].fill(0);
             return;
-            // ------------------------------------------------------------
-        }
-
+                }
+        
         let Some(host_object) = env.objc.get_host_object(class) else {
             log_dbg!(
                 "Warning: class {:?} in superclass chain of {:?} has no host object — stopping dispatch",
