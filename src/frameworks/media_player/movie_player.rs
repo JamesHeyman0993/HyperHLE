@@ -226,7 +226,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     ensure_background_view(env, this);
 
     // Act as if loading immediately completed (Spore Origins waits for this).
-    // Retain this so the object stays alive until handle_players fires.
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerContentPreloadDidFinishNotification,
@@ -235,10 +234,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     ));
 
     // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
-    // Если игра не может вызвать `play` (например, из-за наших заглушек в
-    // ns_object),
-    // этот код все равно сымитирует конец видеоролика, чтобы игра загрузила
-    // главное меню.
+    // Это дает игре время зарегистрировать свои наблюдатели уведомлений (NSNotificationCenter observers).
     retain(env, this);
     State::get(env).pending_notifications.push_back((
         MPMoviePlayerPlaybackDidFinishNotification,
@@ -366,6 +362,10 @@ UIColor blackColor] // TODO
     todo_objc_setter!(this, use_session);
 }
 
+- (bool)isFullscreen {
+    false
+}
+
 - (())setFullscreen:(bool)fullscreen {
     todo_objc_setter!(this, fullscreen);
 }
@@ -381,8 +381,6 @@ UIColor blackColor] // TODO
 
 // --- View ---
 
-// Returns the player's backing view. Created lazily if initWithContentURL:
-// somehow failed to allocate it, so this always returns a non-nil UIView.
 - (id)view {
     ensure_view(env, this)
 }
@@ -403,7 +401,7 @@ UIColor blackColor] // TODO
 }
 
 - (f64)currentPlaybackTime {
-    1.0 // Return non-zero dummy time
+    1.0 
 }
 - (())setCurrentPlaybackTime:(f64)time {
     todo_objc_setter!(this, time);
@@ -421,7 +419,7 @@ UIColor blackColor] // TODO
 }
 
 - (f64)duration {
-    1.0 // Return non-zero to prevent division by zero in game engines
+    1.0 
 }
 - (f64)playableDuration {
     1.0
@@ -435,38 +433,20 @@ UIColor blackColor] // TODO
 
 - (())prepareToPlay {
     // Act as if we are immediately prepared;
-    // no real playback yet.
 }
 
-// Apparently an undocumented, private API, but Spore Origins uses it.
 - (())setMovieControlMode:(NSInteger)_mode {
-    // As this is undocumented and we don't have real video playback yet, let's
-    // ignore it.
 }
 
-// Another undocumented one! But some apps may still use it :/
-// https://stackoverflow.com/a/1390079/2241008
 - (())setOrientation:(UIDeviceOrientation)_orientation animated:(bool)_animated {
 }
 
 // MPMediaPlayback implementation
-// NEW CODE (Forces immediate skip and progress)
 - (())play {
-    log!("HACK: Skipping video [(MPMoviePlayerController*){:?} play] and sending finish notification", this);
-    
-    let host_object = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-    host_object.playback_state = MPMoviePlaybackStateStopped;
-
-    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
-    
-    // Create the userInfo dictionary with the "Finish Reason"
-    // reason 0 = PlaybackEnded
-    let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
-    let reason_key = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
-    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
-
-    let _: () = msg![env; center postNotificationName:name object:this userInfo:user_info];
+    log!("HACK: Video sequence execution [(MPMoviePlayerController*){:?} play]", this);
+    env.objc
+        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
+        .playback_state = MPMoviePlaybackStatePlaying;
 }
            
 - (())pause {
@@ -497,32 +477,21 @@ UIColor blackColor] // TODO
 @implementation MPMoviePlayerViewController: UIViewController
 
 - (id)initWithContentURL:(id)url {
-    // 1. Standard initialization
     let this: id = msg![env; this init];
 
-    // 2. Create a REAL controller and store it in the active_player state
+    // Create the underlying player instance
     let player: id = msg_class![env; MPMoviePlayerController alloc];
     let player: id = msg![env; player initWithContentURL:url];
     
-    // We store this player globally in the state so moviePlayer can find it
+    // Store it globally inside framework state context
     State::get(env).active_player = Some(player);
 
-    // 3. Post notification immediately with the CORRECT objects and userInfo payload
-    let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-    let name = crate::frameworks::foundation::ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
-    
-    // Build the userInfo map (Reason 0 = Playback Ended) so game logic doesn't crash on a null check
-    let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
-    let reason_key = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
-    let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
-
-    // CRITICAL: Send 'player' as the object, NOT 'this'
-    let _: () = msg![env; center postNotificationName:name object:player userInfo:user_info];
+    // REMOVED: Immediate out-of-order notification dispatch. 
+    // The player's deferred 150ms event queue handles this loop cycle safely now.
 
     this
 }
      
-// 4. Return the player we just created
 - (id)moviePlayer {
     if let Some(player) = State::get(env).active_player {
         player
@@ -552,8 +521,6 @@ pub(super) fn handle_players(env: &mut Environment) {
     }
 
     for (name_str, object) in notifs_to_run {
-        // Update playback state before posting so that any handler which
-        // checks [player playbackState] sees Stopped immediately.
         if name_str == MPMoviePlayerPlaybackDidFinishNotification {
             env.objc
                 .borrow_mut::<MPMoviePlayerControllerHostObject>(object)
@@ -563,27 +530,15 @@ pub(super) fn handle_players(env: &mut Environment) {
         let name = ns_string::get_static_str(env, name_str);
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         if name_str == MPMoviePlayerPlaybackDidFinishNotification {
-            // Many apps (including NFSU) read
-            // MPMoviePlayerPlaybackDidFinishReasonUserInfoKey from the
-            // notification's userInfo.
-            // Without it the game dereferences nil
-            // at offset 0x10, causing a NULL-PAGE READ crash.
             // MPMovieFinishReasonPlaybackEnded = 0
-            let reason_num: id = msg_class![env;
-NSNumber numberWithInt:0i32];
+            let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
             let reason_key =
                 ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishReasonUserInfoKey);
-            let user_info: id = msg_class![env; NSDictionary
-                dictionaryWithObject:reason_num
-                forKey:reason_key];
-            let _: () = msg![env; center postNotificationName:name
-                                                       object:object
-
-              userInfo:user_info];
+            let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
+            
+            let _: () = msg![env; center postNotificationName:name object:object userInfo:user_info];
         } else {
-            let _: () = msg![env;
-center postNotificationName:name
-                                                       object:object];
+            let _: () = msg![env; center postNotificationName:name object:object];
         }
 
         // Release the retain we took when queuing this notification.
