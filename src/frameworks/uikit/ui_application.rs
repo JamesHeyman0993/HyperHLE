@@ -302,7 +302,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 }
-    
+     
 - (())unregisterForRemoteNotifications {
     log!("UIApplication unregisterForRemoteNotifications: stubbed");
 }
