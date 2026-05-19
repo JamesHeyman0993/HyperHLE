@@ -566,19 +566,18 @@ fn call_void_block(env: &mut Environment, block: dispatch_block_t) {
         return;
     }
 
-    // 2. Prevent top-of-memory structural overflows (e.g., Unity passing 0xfffff3ac).
-    // Adding 12 bytes (3 * 4-byte offsets) must reside below standard system text boundaries.
+    // 2. Modified safety check: Let valid high pointers execute instead of trapping.
     let (target_offset_bits, overflow) = block_bits.overflowing_add(12);
-    if overflow || target_offset_bits >= 0xFFFF_F000 {
-        log!("call_void_block: Trapped block pointer near virtual memory boundary ceiling: 0x{:08X}", block_bits);
+    if overflow {
+        log!("call_void_block: Trapped absolute structural overflow: 0x{:08X}", block_bits);
         return;
     }
 
     let target_offset_ptr = block.cast::<u32>() + 3u32;
     let invoke_ptr = env.mem.read(target_offset_ptr);
     
-    // 3. Ensure destination machine code address target isn't also a garbage/wrapped pointer.
-    if invoke_ptr == 0 || invoke_ptr >= 0xFFFF_F000 {
+    // 3. Ensure destination machine code address target isn't empty or invalid.
+    if invoke_ptr == 0 {
         return;
     }
 
