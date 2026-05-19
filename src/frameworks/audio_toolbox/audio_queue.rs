@@ -625,16 +625,18 @@ pub fn decode_buffer(
 ) -> (ALenum, ALsizei, Vec<u8>) {
     let data_slice = mem.bytes_at(audio_data, audio_data_byte_size);
 
-    if !is_supported_audio_format(format) {
-    log!("HACK: Skipping unsupported audio format to prevent panic.");
-    // FIFA 11 might be doing math based on these values. 
-    // Let's return a valid frequency and a non-empty data vector.
-    return (
-        al::AL_FORMAT_MONO16, // Use a standard 16-bit format
-        44100,                // Standard frequency
-        vec![0; 512]         // Give it a larger "silent" buffer (512 bytes)
-    );
-    }
+        if !is_supported_audio_format(format) {
+        log!("HACK: Skipping unsupported audio format to prevent panic. Enforcing standardized Stereo16 buffer.");
+        
+        // Match the fallback layout used in AudioQueueNewOutput exactly 
+        // to prevent mismatch panic down the chain.
+        let silent_buffer_size = if audio_data_byte_size == 0 { 4096 } else { audio_data_byte_size as usize };
+        return (
+            al::AL_FORMAT_STEREO16, 
+            44100,                  
+            vec![0; silent_buffer_size] 
+        );
+        }
     
     match format.format_id {
         kAudioFormatAppleIMA4 => {
