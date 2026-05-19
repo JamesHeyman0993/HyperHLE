@@ -28,28 +28,65 @@ pub const CONSTANTS: crate::dyld::ConstantExports = &[
     ("_AVMediaCharacteristicAudible", HostConstant::NSString("AVMediaCharacteristicAudible")),
 ];
 
-// --- MOCK FOR AVURLAsset ---
+// --- MOCK FOR AVFOUNDATION MEDIA CONTROLS ---
 pub const MOCK_CLASSES: ClassExports = objc_classes! {
     (env, this, _cmd);
 
     @implementation AVURLAsset: NSObject
-
-        + (id)allocWithZone:(NSZonePtr)_zone {
-        // Create an empty dummy structure to act as the host object layout wrapper
+    + (id)allocWithZone:(NSZonePtr)_zone {
         struct DummyAsset;
         impl crate::objc::HostObject for DummyAsset {}
-
         env.objc.alloc_object(this, Box::new(DummyAsset), &mut env.mem)
-        }
+    }
     
     + (id)URLAssetWithURL:(id)url options:(id)options {
         log!("HACK: Mocking [AVURLAsset URLAssetWithURL:] to prevent null path crash.");
-        
         let asset: id = msg_class![env; AVURLAsset alloc];
         let asset: id = msg![env; asset init];
         asset
     }
+    @end
 
+    @implementation AVPlayer: NSObject
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        struct DummyPlayer;
+        impl crate::objc::HostObject for DummyPlayer {}
+        env.objc.alloc_object(this, Box::new(DummyPlayer), &mut env.mem)
+    }
+
+    + (id)playerWithURL:(id)_url {
+        log!("HACK: Intercepted [AVPlayer playerWithURL:]. Creating a safe mock player instance.");
+        let player: id = msg_class![env; AVPlayer alloc];
+        let player: id = msg![env; player init];
+        player
+    }
+
+    - (())play {
+        log!("HACK: Intercepted [AVPlayer play]. Swallowing video stream call safely.");
+    }
+
+    - (())pause {
+        log!("HACK: Intercepted [AVPlayer pause].");
+    }
+    @end
+
+    @implementation AVPlayerLayer: NSObject
+    + (id)allocWithZone:(NSZonePtr)_zone {
+        struct DummyLayer;
+        impl crate::objc::HostObject for DummyLayer {}
+        env.objc.alloc_object(this, Box::new(DummyLayer), &mut env.mem)
+    }
+
+    + (id)playerLayerWithPlayer:(id)_player {
+        log!("HACK: Intercepted [AVPlayerLayer playerLayerWithPlayer:]. Simulating faked canvas layer.");
+        let layer: id = msg_class![env; AVPlayerLayer alloc];
+        let layer: id = msg![env; layer init];
+        layer
+    }
+
+    - (())setFrame:(crate::frameworks::core_graphics::CGRect)_frame {
+        // Absorbs layout configuration requests safely without crashing
+    }
     @end
 };
 
