@@ -1018,10 +1018,10 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     let gles_ctx = super::get_thread_context(
     &mut env.framework_state.opengles,
     &mut env.objc,
-    &mut env.window, // Added the missing Window parameter
+    env.window.as_mut().unwrap(), // Safely converts &mut Option<Box<Window>> to &mut Window
     env.current_thread,
 );
-    
+     
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();
 
