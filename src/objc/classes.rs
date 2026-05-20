@@ -367,8 +367,8 @@ fn substitute_classes(
         || name.starts_with("Tapjoy")
         || name.starts_with("UA")
         || name.starts_with("GAD")
-        || name.starts_with("iSimulate"))
-    // <-- ДОБАВЛЕНО ЗДЕСЬ
+        || name.starts_with("iSimulate")
+        || name == "GCController") // <-- FIXED HACK FOR COCOS2DX / CONTROLLERS
     {
         // TODO : try to remove when sqlite3 is supported.
         if (bundle.bundle_identifier() == "com.chillingo.defenderchronicles")
@@ -490,7 +490,7 @@ impl ObjC {
                     .unwrap_or(nil),
                 self,
             ));
-                        } else {
+        } else {
             // ЗДЕСЬ ДОБАВЛЕНА ЛОГИКА ДЛЯ ДИНАМИЧЕСКИХ КЛАССОВ (GAD и др.)
             let is_fake = name.starts_with("AdMob")
                 || name.starts_with("AltAds")
@@ -508,7 +508,8 @@ impl ObjC {
                 || name.starts_with("PlayHaven")   // Prevents PlayHaven crash
                 || name == "NSArray"               // Handles explicit array lookups
                 || name == "NSMutableArray"        // Handles explicit array lookups
-                || name == "ns_array_class!";      // Intercepts the macro literal string typo
+                || name == "ns_array_class!"       // Intercepts the macro literal string typo
+                || name == "GCController";         // FIXED HACK: Prevents Game Controller frameworks crash
 
             if !use_placeholder && !is_fake {
                 panic!("Missing implementation for class {name}!");
@@ -1133,8 +1134,8 @@ pub fn class_getInstanceSize(env: &mut crate::Environment, cls: Class, name: SEL
 
     let mut curr = cls;
     while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(curr) {
-            if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
+        if let Some(host_obj) = env.objc.get_host_object(cuurr) {
+             if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
                 if class_obj.methods.contains_key(&name) {
                     return curr.cast_const().cast();
                 }
@@ -1295,7 +1296,7 @@ pub fn class_replaceMethod(env: &mut crate::Environment, cls: Class, name: SEL) 
             break;
         }
         curr = next;
-    }
+            }
     ConstVoidPtr::null()
 }
 
@@ -1332,4 +1333,4 @@ pub fn ___objc_personality_v0(
     );
     // _URC_FATAL_PHASE1_ERROR
     3
-}
+}                     
