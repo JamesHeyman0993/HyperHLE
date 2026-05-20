@@ -42,7 +42,7 @@ impl State {
 }
 
 fn sync_context<'objc, 'win: 'objc>(
-    state: &mut State,
+    state: &'objc mut State,
     objc: &'objc mut crate::objc::ObjC,
     window: &'win mut crate::window::Window,
     current_thread: crate::ThreadId,
@@ -52,7 +52,7 @@ fn sync_context<'objc, 'win: 'objc>(
 }
 
 pub(crate) fn get_thread_context<'objc>(
-    state: &mut State,
+    state: &'objc mut State,
     objc: &'objc mut crate::objc::ObjC,
     window: &mut crate::window::Window,
     current_thread: crate::ThreadId,
