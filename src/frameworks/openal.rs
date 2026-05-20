@@ -38,7 +38,9 @@ pub struct State {
     contexts: HashMap<MutPtr<GuestALCcontext>, OpenALContext>,
     strings_cache: HashMap<ALenum, ConstPtr<u8>>,
     current_ctx: MutPtr<GuestALCcontext>,
+    pub mixer_output_rate: Option<ALdouble>, // <-- ADD THIS LINE
 }
+
 impl State {
     fn get(env: &mut Environment) -> &mut Self {
         &mut env.framework_state.openal
@@ -900,16 +902,19 @@ fn alBufferDataStatic(
 }
 
 // Специфичное расширение Apple для OpenAL
-fn alcMacOSXMixerOutputRate(_env: &mut Environment, value: ALdouble) {
+fn alcMacOSXMixerOutputRate(env: &mut Environment, value: ALdouble) {
     log!(
         "Приложение хочет установить частоту дискретизации микшера на {} Гц",
         value
     );
+    State::get(env).mixer_output_rate = Some(value);
 }
-fn alcMacOSXGetMixerOutputRate(_env: &mut Environment) -> ALdouble {
-    // Значение по умолчанию было проверено на iPhone 3GS, iOS 4.0.1
-    log!("Приложение хочет получить частоту дискретизации микшера, возвращаем 0 по умолчанию");
-    0.0
+
+fn alcMacOSXGetMixerOutputRate(env: &mut Environment) -> ALdouble {
+    // Если игра установила значение, возвращаем его. Иначе отдаем стандартные 44100.0 Гц вместо 0.0
+    let rate = State::get(env).mixer_output_rate.unwrap_or(44100.0);
+    log_dbg!("Приложение хочет получить частоту дискретизации микшера, возвращаем {} Гц", rate);
+    rate
 }
 
 fn alDopplerFactor(env: &mut Environment, value: ALfloat) {
