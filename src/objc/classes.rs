@@ -1134,7 +1134,7 @@ pub fn class_getInstanceSize(env: &mut crate::Environment, cls: Class, name: SEL
 
     let mut curr = cls;
     while !curr.is_null() {
-        if let Some(host_obj) = env.objc.get_host_object(cuurr) {
+        if let Some(host_obj) = env.objc.get_host_object(curr) {
              if let Some(class_obj) = host_obj.as_any().downcast_ref::<ClassHostObject>() {
                 if class_obj.methods.contains_key(&name) {
                     return curr.cast_const().cast();
