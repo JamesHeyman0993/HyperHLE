@@ -253,7 +253,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Warning: setValue:forKey: key {:?} is empty or non-ASCII — calling setValue:forUndefinedKey:", key_string);
         // SAFE FIX: Fallback to placeholder instead of register_selector
         let sel = env.objc.lookup_selector("setValue:forUndefinedKey:")
-            .unwrap_or_else(|| SEL::from_bits(0));
+            .unwrap_or_else(|| SEL(crate::mem::Ptr::null()));
         if !sel.is_null() {
             let _: () = msg_send(env, (this, sel, value, key));
         }
@@ -277,7 +277,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
         // SAFE FIX: Fallback to placeholder instead of register_selector
         let sel = env.objc.lookup_selector("setNilValueForKey:")
-            .unwrap_or_else(|| SEL::from_bits(0));
+            .unwrap_or_else(|| SEL(crate::mem::Ptr::null()));
         if !sel.is_null() {
             let _: () = msg_send(env, (this, sel, key));
         }
@@ -327,7 +327,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // SAFE FIX: Fallback to placeholder instead of register_selector
     let undef_sel = env.objc.lookup_selector("setValue:forUndefinedKey:")
-        .unwrap_or_else(|| SEL::from_bits(0));
+        .unwrap_or_else(|| SEL(crate::mem::Ptr::null()));
     if !undef_sel.is_null() {
         let _: () = msg_send(env, (this, undef_sel, value, key));
     }
@@ -431,7 +431,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // SAFE FIX: Fallback to placeholder instead of register_selector
     let selector = env.objc.lookup_selector("_touchHLE_timerFireMethod:")
-        .unwrap_or_else(|| SEL::from_bits(0));
+        .unwrap_or_else(|| SEL(crate::mem::Ptr::null()));
     let timer:id = msg_class![env;
         NSTimer timerWithTimeInterval:delay
                                target:this
@@ -509,7 +509,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     
     // SAFE FIX: Fallback to placeholder instead of register_selector
     let sel = env.objc.lookup_selector(&sel_str)
-        .unwrap_or_else(|| SEL::from_bits(0));
+        .unwrap_or_else(|| SEL(crate::mem::Ptr::null()));
 
     let arg_key: id = get_static_str(env, "arg");
     let arg: id = msg![env; dict objectForKey:arg_key];
@@ -575,11 +575,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     if let Some(sel) = env.objc.lookup_selector(&get_sel_name) {
         if env.objc.object_has_method(&env.mem, this, sel) {
             return msg_send(env, (this, sel));
-        }
+            }
     }
 
     // 2. Чтение реальных ivars
-    let class = msg![env; this class];
+let class = msg![env; this class];
     if let Some(access_sel) = env.objc.lookup_selector("accessInstanceVariablesDirectly") {
         if env.objc.class_has_method(class, access_sel) {
             let access_ivars: bool = msg_send(env, (class, access_sel));
