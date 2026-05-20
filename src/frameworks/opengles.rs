@@ -43,6 +43,18 @@ fn sync_context<'objc, 'win: 'objc>(
     window: &'win mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> Box<dyn crate::gles::GLES + 'objc> {
+    // Check if there's an active thread context identifier
+    if let Some(ctx_id) = *state.current_ctx_for_thread(current_thread) {
+        let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(ctx_id);
+        
+        // Check if the underlying host GLES engine has been bound yet
+        if host_obj.gles_ctx.is_none() {
+            log!("Warning: sync_context found an uninitialized host GLES context. Bypassing execution safely.");
+            // Return an empty/dummy container wrapper so the app skips this draw phase without crashing
+            return Box::new(crate::gles::MockGLES::default()); 
+        }
+    }
+
     let gles_ctx = get_thread_context(state, objc, current_thread);
     gles_ctx.make_current(window)
 }
