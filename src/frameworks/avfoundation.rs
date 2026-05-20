@@ -70,7 +70,7 @@ pub const MOCK_CLASSES: ClassExports = objc_classes! {
     }
     @end
 
-        @implementation AVPlayerLayer: NSObject
+    @implementation AVPlayerLayer: NSObject
     + (id)allocWithZone:(NSZonePtr)_zone {
         struct DummyLayer;
         impl crate::objc::HostObject for DummyLayer {}
@@ -99,7 +99,8 @@ pub const MOCK_CLASSES: ClassExports = objc_classes! {
         // Absorbs layout configuration requests safely without crashing
     }
     @end
-    
+};
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
     aliases: &[],
