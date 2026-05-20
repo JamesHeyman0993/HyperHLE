@@ -43,37 +43,35 @@ fn sync_context<'objc, 'win: 'objc>(
     window: &'win mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> Box<dyn crate::gles::GLES + 'objc> {
-    let gles_ctx = get_thread_context(state, objc, current_thread);
+    // Pass window down so we can initialize the context if needed
+    let gles_ctx = get_thread_context(state, objc, window, current_thread);
     gles_ctx.make_current(window)
 }
 
 fn get_thread_context<'objc>(
     state: &mut State,
     objc: &'objc mut crate::objc::ObjC,
+    window: &mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> &'objc mut dyn crate::gles::GLESContext {
     let current_ctx = state.current_ctx_for_thread(current_thread);
+    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(current_ctx.unwrap());
     
-    // Safety check 1: Ensure context option contains an ID
-    let ctx_unwrap = match current_ctx {
-        Some(id) => *id,
-        None => panic!("get_thread_context called on a thread with no associated active context ID."),
-    };
-
-    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(ctx_unwrap);
-    
-    // SURGICAL WORKAROUND: Instead of .unwrap() which crashes on line 56/69,
-    // if the context is uninitialized, we return the host object itself or fall back gracefully.
+    // If the underlying host GLES context hasn't been initialized yet, do it now!
     if host_obj.gles_ctx.is_none() {
-        log!("Warning: get_thread_context encountered an uninitialized GLES wrapper context. Forcing initialization tracking layout.");
+        log!("Warning: get_thread_context found an uninitialized context. Initializing GLES2NativeContext on demand.");
         
-        // Let's create an operational fallback path using a safe memory address layout conversion 
-        // to return a valid context reference signature instead of crashing the process
-        unsafe {
-            let raw_ptr: *mut eagl::EAGLContextHostObject = host_obj;
-            return &mut *raw_ptr;
+        // Call the trait's new() constructor using the native ES2 context type
+        match crate::gles::GLES2NativeContext::new(window) {
+            Ok(ctx) => {
+                host_obj.gles_ctx = Some(Box::new(ctx));
+            }
+            Err(e) => {
+                panic!("Failed to late-initialize GLES2NativeContext for worker thread: {}", e);
+            }
         }
     }
 
-    host_obj.gles_ctx.as_deref_mut().unwrap()
+    let gles_ctx = host_obj.gles_ctx.as_deref_mut().unwrap();
+    gles_ctx
 }
