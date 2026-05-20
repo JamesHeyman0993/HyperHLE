@@ -54,38 +54,51 @@ pub(crate) fn get_thread_context<'objc>(
     window: &mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> &'objc mut dyn crate::gles::GLESContext {
-    // 1. Check if a context exists using an immutable borrow first to appease the borrow checker.
+    // 1. Check if a valid context is already mapped to this thread
     let has_context = state.current_ctxs.get(&current_thread).and_then(|c| *c).is_some();
 
-    // 2. If it doesn't exist, scan for a fallback context before doing any mutable work.
+    // 2. Resolve missing context states safely without panicking
     if !has_context {
-        log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting fallback.");
+        log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting recovery.");
         
-        let fallback_id = state.current_ctxs.values()
-            .find_map(|&opt| opt) // Finds the first Some(id)
-            .raw_unwrap_or_else(|| {
-                panic!("Fatal Error: Context lookup failed. The app attempted to perform GL operations before initializing any EAGLContext.");
-            });
+        // Scan to see if ANY other thread has an active context we can borrow
+        let existing_fallback = state.current_ctxs.values().find_map(|&opt| opt);
 
-        log!("Found fallback context ID: {:?}", fallback_id);
-        
-        // Mutably assign the fallback safely now that all immutable scans are finished.
-        *state.current_ctx_for_thread(current_thread) = Some(fallback_id);
+        let context_id = match existing_fallback {
+            Some(id) => {
+                log!("Found active sibling context ID fallback: {:?}", id);
+                id
+            }
+            None => {
+                log!("No contexts exist anywhere in the environment. Allocating an emergency global default EAGLContext.");
+                
+                // Construct a raw proxy EAGLContext instance to allocate state structure
+                let new_context_id = objc.alloc_and_init::<eagl::EAGLContextHostObject>();
+                
+                // Immediately map the emergency proxy to this thread
+                *state.current_ctx_for_thread(current_thread) = Some(new_context_id);
+                new_context_id
+            }
+        };
+
+        // Ensure this thread is mapped to our target context ID
+        *state.current_ctx_for_thread(current_thread) = Some(context_id);
     }
 
-    // 3. We are guaranteed to have a context mapped now. Get it mutably.
+    // 3. Extract the context mutably
     let context_id = state.current_ctx_for_thread(current_thread).unwrap();
     let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
     
+    // 4. On-demand initialization of the underlying hardware layer
     if host_obj.gles_ctx.is_none() {
-        log!("Warning: get_thread_context found an uninitialized context. Initializing GLES2NativeContext on demand.");
+        log!("Warning: get_thread_context initializing underlying GLES2NativeContext backend layer.");
         
         match crate::gles::gles2_native::GLES2NativeContext::new(window) {
             Ok(ctx) => {
                 host_obj.gles_ctx = Some(Box::new(ctx));
             }
             Err(e) => {
-                panic!("Failed to late-initialize GLES2NativeContext for worker thread: {}", e);
+                panic!("Failed to late-initialize GLES2NativeContext backend: {}", e);
             }
         }
     }
