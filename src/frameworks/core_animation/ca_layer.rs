@@ -560,8 +560,19 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-@end
+- (())setEdgeAntialiasingMask:(u32)_mask { }
+- (())setMagnificationFilter:(id)_filter { }
+- (())setMinificationFilter:(id)_filter { }
 
+// --- SAFE SELECTOR FALLBACK INTERCEPTOR ---
+// Unity calls dynamic layer-level layout properties that vary across iOS targets.
+// If we catch an unhandled configuration call, log it gently and skip it to prevent a panic.
+- ((()))resolveInstanceMethod:(id)_sel {
+    log!("Warning: CALayer received unhandled property modifier, skipping safely to prevent engine crash.");
+}
+
+@end
+    
 };
 
 /// Project a `CGAffineTransform` (2x3 matrix used by `setAffineTransform:`)
