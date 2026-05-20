@@ -2225,48 +2225,30 @@ fn glShaderSource(
         }
     }
 
-    // 2. Fix layout constraints for modern strict drivers (e.g., Adreno/Mali)
-    // Clean out any existing misplaced extension lines first
-    let mut cleaned_lines = Vec::new();
-    let mut needs_derivatives = false;
+    // 2. Fix layout constraints surgically without breaking preprocessor structure
+    let mut modified_source = complete_source;
 
-    for line in complete_source.lines() {
-        if line.contains("GL_OES_standard_derivatives") {
-            needs_derivatives = true;
-            // Skip this line to remove it from its illegal position down below
-            continue; 
-        }
-        if line.contains("fwidth") || line.contains("dFdx") || line.contains("dFdy") {
-            needs_derivatives = true;
-        }
-        cleaned_lines.push(line);
-    }
+    // Check if the shader actually requires standard derivatives
+    if modified_source.contains("fwidth") || modified_source.contains("dFdx") || modified_source.contains("dFdy") || modified_source.contains("GL_OES_standard_derivatives") {
+        
+        // Strip out the old downstream directive to avoid duplicate definitions
+        modified_source = modified_source.replace("#extension GL_OES_standard_derivatives : enable", "");
+        modified_source = modified_source.replace("#extension GL_OES_standard_derivatives : require", "");
 
-    // Reconstruct the shader text, inserting the extension cleanly after a #version statement
-    let mut modified_source = String::new();
-    let mut extension_inserted = false;
+        let target_extension = "\n#extension GL_OES_standard_derivatives : enable\n";
 
-    if needs_derivatives {
-        for line in cleaned_lines {
-            modified_source.push_str(line);
-            modified_source.push('\n');
-            
-            // If we hit the version directive, instantly inject the extension right after it
-            if !extension_inserted && line.trim_start().starts_with("#version") {
-                modified_source.push_str("#extension GL_OES_standard_derivatives : enable\n");
-                extension_inserted = true;
+        // Inject cleanly relative to the version directive if present
+        if let Some(version_idx) = modified_source.find("#version") {
+            // Find the end of the version line so we insert directly after it
+            if let Some(line_end) = modified_source[version_idx..].find('\n') {
+                let insert_pos = version_idx + line_end + 1;
+                modified_source.insert_str(insert_pos, target_extension);
+            } else {
+                modified_source.push_str(target_extension);
             }
-        }
-
-        // If there was no #version tag in the shader at all, prepend it to the top safely
-        if !extension_inserted {
-            modified_source = format!("#extension GL_OES_standard_derivatives : enable\n{}", modified_source);
-        }
-    } else {
-        // If derivatives aren't used, just rebuild with the stripped/original layout
-        for line in cleaned_lines {
-            modified_source.push_str(line);
-            modified_source.push('\n');
+        } else {
+            // No version statement found; prepend directly to the absolute top
+            modified_source = format!("{}{}", target_extension, modified_source);
         }
     }
 
