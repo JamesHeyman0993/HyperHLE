@@ -203,14 +203,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         });
     }
 
+    // SAFE GUARD: Protect against unwrap panics if any stored dynamic pointers are bad/garbage memory
     for val_bits in to_release {
         let val: id = unsafe { std::mem::transmute(val_bits) };
-        let _: () = msg![env; val release];
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _: () = msg![env; val release];
+        }));
     }
 
     env.objc.dealloc_object(this, &mut env.mem)
 }
-
+    
 - (Class)class {
     ObjC::read_isa(this, &env.mem)
 }
@@ -336,7 +339,10 @@ pub const CLASSES: ClassExports = objc_classes! {
             if entry.0 == target_bits && entry.1 == key_string {
                 if entry.2 != 0 {
                     let old_val: id = std::mem::transmute(entry.2);
-                    let _: () = msg![env; old_val release];
+                    // SAFE GUARD: Protect against unwrap panics if old_val is garbage memory
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _: () = msg![env; old_val release];
+                    }));
                 }
                 entry.2 = value.to_bits();
                 found = true;
@@ -348,7 +354,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 }
-
+    
 - (bool)respondsToSelector:(SEL)selector {
     env.objc.object_has_method(&env.mem, this, selector)
 }
