@@ -15,6 +15,9 @@ mod gles_guest;
 use touchHLE_gl_bindings::gles11::types::GLenum;
 use crate::mem::ConstPtr;
 
+// Bring the context trait into scope so that `new()` is available on implementations
+use crate::gles::gles_generic::GLESContext;
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/OpenGLES.framework/OpenGLES",
     aliases: &[],
@@ -31,7 +34,8 @@ pub struct State {
 }
 
 impl State {
-    fn current_ctx_for_thread(&mut self, thread: crate::ThreadId) -> &mut Option<crate::objc::id> {
+    // Made pub(crate) so it is cleanly accessible inside submodules like eagl.rs
+    pub(crate) fn current_ctx_for_thread(&mut self, thread: crate::ThreadId) -> &mut Option<crate::objc::id> {
         self.current_ctxs.entry(thread).or_insert(None);
         self.current_ctxs.get_mut(&thread).unwrap()
     }
@@ -48,21 +52,40 @@ fn sync_context<'objc, 'win: 'objc>(
     gles_ctx.make_current(window)
 }
 
-fn get_thread_context<'objc>(
+// Added pub(crate) so eagl.rs can access this utility directly
+pub(crate) fn get_thread_context<'objc>(
     state: &mut State,
     objc: &'objc mut crate::objc::ObjC,
     window: &mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> &'objc mut dyn crate::gles::GLESContext {
-    let current_ctx = state.current_ctx_for_thread(current_thread);
-    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(current_ctx.unwrap());
+    let current_ctx_option = state.current_ctx_for_thread(current_thread);
+    
+    // Safety check: Avoid calling .unwrap() blindly. If a background worker thread
+    // executes a GL invocation before setting its current context, attempt to fall back
+    // to any active context to prevent an immediate game crash.
+    let context_id = match *current_ctx_option {
+        Some(id) => id,
+        None => {
+            log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting fallback.");
+            if let Some(Some(fallback_id)) = state.current_ctxs.values().find(|c| c.is_some()) {
+                log!("Found fallback context ID: {:?}", fallback_id);
+                *current_ctx_option = Some(*fallback_id);
+                *fallback_id
+            } else {
+                panic!("Fatal Error: Context lookup failed. The app attempted to perform GL operations before initializing any EAGLContext.");
+            }
+        }
+    };
+
+    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
     
     // If the underlying host GLES context hasn't been initialized yet, do it now!
     if host_obj.gles_ctx.is_none() {
         log!("Warning: get_thread_context found an uninitialized context. Initializing GLES2NativeContext on demand.");
         
-        // Call the trait's new() constructor using the native ES2 context type
-        match crate::gles::GLES2NativeContext::new(window) {
+        // Routed via explicit submodule path to bypass the private visibility restriction
+        match crate::gles::gles2_native::GLES2NativeContext::new(window) {
             Ok(ctx) => {
                 host_obj.gles_ctx = Some(Box::new(ctx));
             }
@@ -72,6 +95,5 @@ fn get_thread_context<'objc>(
         }
     }
 
-    let gles_ctx = host_obj.gles_ctx.as_deref_mut().unwrap();
-    gles_ctx
+    host_obj.gles_ctx.as_deref_mut().unwrap()
 }
