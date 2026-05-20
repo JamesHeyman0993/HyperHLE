@@ -213,8 +213,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     if delegate != nil {
         retain(env, delegate);
         
-        // Check if this object is a genuine connection object, or a TrivialHostObject fallback
-        if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+        // FIXED: Using standard borrow_mut extraction check to safe-test layout alignment
+        let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
+        })).is_ok();
+
+        if is_valid_connection {
             let mut host = env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
             host.delegate  = delegate;
             host.cancelled = false;
@@ -233,7 +237,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())start {
     log!("NSURLConnection start: faking successful completion");
 
-    let delegate = if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+    let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.objc.borrow::<NSURLConnectionHostObject>(this);
+    })).is_ok();
+
+    let delegate = if is_valid_connection {
         env.objc.borrow::<NSURLConnectionHostObject>(this).delegate
     } else {
         let key = crate::frameworks::foundation::ns_string::get_static_str(env, "delegate");
@@ -272,7 +280,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())cancel {
     log_dbg!("NSURLConnection cancel");
-    if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+    let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
+    })).is_ok();
+
+    if is_valid_connection {
         env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
     }
 }
@@ -281,7 +293,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())dealloc {
     log_dbg!("NSURLConnection dealloc");
-    if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+    let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        env.objc.borrow::<NSURLConnectionHostObject>(this);
+    })).is_ok();
+
+    if is_valid_connection {
         let delegate = env.objc.borrow::<NSURLConnectionHostObject>(this).delegate;
         release(env, delegate);
     }
