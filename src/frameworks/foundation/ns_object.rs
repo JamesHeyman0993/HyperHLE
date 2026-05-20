@@ -251,7 +251,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let key_string = to_rust_string(env, key);
     if key_string.is_empty() || !key_string.is_ascii() {
         log!("Warning: setValue:forKey: key {:?} is empty or non-ASCII — calling setValue:forUndefinedKey:", key_string);
-        let sel = env.objc.lookup_selector("setValue:forUndefinedKey:").unwrap();
+        // FIXED: Register selector dynamically if missing instead of panicking on unwrap()
+        let sel = env.objc.lookup_selector("setValue:forUndefinedKey:")
+            .unwrap_or_else(|| env.objc.register_selector("setValue:forUndefinedKey:"));
         let _: () = msg_send(env, (this, sel, value, key));
         return;
     }
@@ -271,7 +273,9 @@ pub const CLASSES: ClassExports = objc_classes! {
                 return;
             }
         }
-        let sel = env.objc.lookup_selector("setNilValueForKey:").unwrap();
+        // FIXED: Register selector dynamically if missing instead of panicking on unwrap()
+        let sel = env.objc.lookup_selector("setNilValueForKey:")
+            .unwrap_or_else(|| env.objc.register_selector("setNilValueForKey:"));
         let _: () = msg_send(env, (this, sel, key));
         return;
     }
@@ -299,22 +303,28 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    let access_sel = env.objc.lookup_selector("accessInstanceVariablesDirectly").unwrap();
-    let access_ivars: bool = msg_send(env, (class, access_sel));
-    if access_ivars {
-        if let Some(ivar_ptr) = env.objc
-            .object_lookup_ivar(&env.mem, this, &format!("_{key_string}"))
-            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("_is{camel_case_key_string}")))
-            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("{key_string}")))
-            .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("is{camel_case_key_string}")))
-        {
-            retain(env, value);
-            env.mem.write(ivar_ptr.cast(), value);
-            return;
+    // FIXED: Safely verify lookup_selector is Some instead of unwrap()
+    if let Some(access_sel) = env.objc.lookup_selector("accessInstanceVariablesDirectly") {
+        if env.objc.class_has_method(class, access_sel) {
+            let access_ivars: bool = msg_send(env, (class, access_sel));
+            if access_ivars {
+                if let Some(ivar_ptr) = env.objc
+                    .object_lookup_ivar(&env.mem, this, &format!("_{key_string}"))
+                    .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("_is{camel_case_key_string}")))
+                    .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("{key_string}")))
+                    .or_else(|| env.objc.object_lookup_ivar(&env.mem, this, &format!("is{camel_case_key_string}")))
+                {
+                    retain(env, value);
+                    env.mem.write(ivar_ptr.cast(), value);
+                    return;
+                }
+            }
         }
     }
 
-    let undef_sel = env.objc.lookup_selector("setValue:forUndefinedKey:").unwrap();
+    // FIXED: Register selector dynamically if missing instead of panicking on unwrap()
+    let undef_sel = env.objc.lookup_selector("setValue:forUndefinedKey:")
+        .unwrap_or_else(|| env.objc.register_selector("setValue:forUndefinedKey:"));
     let _: () = msg_send(env, (this, undef_sel, value, key));
 }
 
@@ -414,7 +424,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let arg_key: id = get_static_str(env, "arg");
     let dict = dict_from_keys_and_objects(env, &[(sel_key, sel_str), (arg_key, arg)]);
 
-    let selector = env.objc.lookup_selector("_touchHLE_timerFireMethod:").unwrap();
+    let selector = env.objc.lookup_selector("_touchHLE_timerFireMethod:").unwrap_or_else(|| env.objc.register_selector("_touchHLE_timerFireMethod:"));
     let timer:id = msg_class![env;
         NSTimer timerWithTimeInterval:delay
                                target:this
@@ -447,16 +457,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     if env.bundle.bundle_identifier().starts_with("com.gameloft.Ferrari") && wait {
-        if sel == env.objc.lookup_selector("initTextInput:").unwrap() ||
-           sel == env.objc.lookup_selector("removeTextField:").unwrap() {
-            log!("Applying game-specific hack for Ferrari GT: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel_name, env.current_thread);
-            () = msg_send(env, (this, sel, arg));
-            return;
+        if let Some(target_sel) = env.objc.lookup_selector("initTextInput:") {
+            if sel == target_sel {
+                log!("Applying game-specific hack for Ferrari GT: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel_name, env.current_thread);
+                () = msg_send(env, (this, sel, arg));
+                return;
+            }
+        }
+        if let Some(target_sel) = env.objc.lookup_selector("removeTextField:") {
+            if sel == target_sel {
+                log!("Applying game-specific hack for Ferrari GT: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel_name, env.current_thread);
+                () = msg_send(env, (this, sel, arg));
+                return;
+            }
         }
     }
 
     if env.bundle.bundle_identifier().starts_with("com.gameloft.HOS2") && wait {
-        if sel == env.objc.lookup_selector("sendGameInfo").unwrap() || sel == env.objc.lookup_selector("setStatusBar:").unwrap() {
+        let is_target = env.objc.lookup_selector("sendGameInfo").map_or(false, |s| sel == s) || 
+                        env.objc.lookup_selector("setStatusBar:").map_or(false, |s| sel == s);
+        if is_target {
             log!("Applying game-specific hack for HOS2: performing performSelectorOnMainThread:SEL({}) waitUntilDone:true on thread {}", sel_name, env.current_thread);
             if sel_name.ends_with(':') {
                 () = msg_send(env, (this, sel, arg));
@@ -479,7 +499,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let sel_key: id = get_static_str(env, "SEL");
     let sel_str_id: id = msg![env; dict objectForKey:sel_key];
     let sel_str = to_rust_string(env, sel_str_id);
-    let sel = env.objc.lookup_selector(&sel_str).unwrap();
+    let sel = env.objc.lookup_selector(&sel_str).unwrap_or_else(|| env.objc.register_selector(&sel_str));
 
     let arg_key: id = get_static_str(env, "arg");
     let arg: id = msg![env; dict objectForKey:arg_key];
@@ -549,7 +569,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     // 2. Чтение реальных ivars
-    let class = msg![env; this class];
+   let class = msg![env; this class];
     if let Some(access_sel) = env.objc.lookup_selector("accessInstanceVariablesDirectly") {
         if env.objc.class_has_method(class, access_sel) {
             let access_ivars: bool = msg_send(env, (class, access_sel));
