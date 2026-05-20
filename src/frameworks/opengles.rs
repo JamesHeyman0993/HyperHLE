@@ -72,8 +72,8 @@ pub(crate) fn get_thread_context<'objc>(
             None => {
                 log!("No contexts exist anywhere in the environment. Allocating an emergency global default EAGLContext.");
                 
-                // Construct a raw proxy EAGLContext instance to allocate state structure
-                let new_context_id = objc.alloc_and_init::<eagl::EAGLContextHostObject>();
+                // FIXED: Using standard touchHLE ObjC framework allocation strategy
+                let new_context_id = objc.new_instance::<eagl::EAGLContextHostObject>();
                 
                 // Immediately map the emergency proxy to this thread
                 *state.current_ctx_for_thread(current_thread) = Some(new_context_id);
