@@ -43,39 +43,30 @@ fn sync_context<'objc, 'win: 'objc>(
     window: &'win mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> Box<dyn crate::gles::GLES + 'objc> {
-    // If get_thread_context returns None, we create a safe dummy GLES executor 
-    // instead of calling make_current on an uninitialized pointer
-    if let Some(gles_ctx) = get_thread_context(state, objc, current_thread) {
-        gles_ctx.make_current(window)
-    } else {
-        // Fall back to a raw headless/dummy implementation or panic context if requested
-        panic!("sync_context called before the thread's EAGLContext was initialized");
+    // SURGICAL PRE-CHECK: Look up the context data right here. 
+    // If it's missing or uninitialized, panic with a clean, descriptive message 
+    // instead of letting line 56 throw a cryptic Option::unwrap() crash.
+    if let Some(ctx_id) = *state.current_ctx_for_thread(current_thread) {
+        let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(ctx_id);
+        if host_obj.gles_ctx.is_none() {
+            log!("Warning: sync_context caught an uninitialized background thread context. Forcing headless/dummy return.");
+            // If the game framework forces drawing before creation, we fallback to a safe empty box wrapper if your branch supports it.
+            // For now, let's let it panic gracefully so we can see if Unity recovers or hits it constantly:
+            panic!("EAGLContext underlying host GLES wrapper is uninitialized for this thread.");
+        }
     }
+
+    let gles_ctx = get_thread_context(state, objc, current_thread);
+    gles_ctx.make_current(window)
 }
 
 fn get_thread_context<'objc>(
     state: &mut State,
     objc: &'objc mut crate::objc::ObjC,
     current_thread: crate::ThreadId,
-) -> Option<&'objc mut dyn crate::gles::GLESContext> {
-    let current_ctx = *state.current_ctx_for_thread(current_thread);
-    
-    // 1. Safe-guard: If there's no objective-c context ID assigned to this thread yet, return None safely
-    let ctx_id = match current_ctx {
-        Some(id) => id,
-        None => {
-            log_dbg!("Warning: get_thread_context called without an active context ID on this thread.");
-            return None;
-        }
-    };
-
-    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(ctx_id);
-    
-    // 2. Safe-guard for Line 56 Crash: If the host context exists but its underlying gles_ctx is uninitialized
-    if host_obj.gles_ctx.is_none() {
-        log!("Warning: EAGLContext has an uninitialized host GLES wrapper. Bypassing execution to prevent crash.");
-        return None;
-    }
-
-    Some(host_obj.gles_ctx.as_deref_mut().unwrap())
+) -> &'objc mut dyn crate::gles::GLESContext {
+    let current_ctx = state.current_ctx_for_thread(current_thread);
+    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(current_ctx.unwrap());
+    let gles_ctx = host_obj.gles_ctx.as_deref_mut().unwrap();
+    gles_ctx
 }
