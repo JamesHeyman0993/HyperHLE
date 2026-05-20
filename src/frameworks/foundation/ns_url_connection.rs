@@ -121,29 +121,29 @@ pub const CLASSES: ClassExports = objc_classes! {
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
             
             if url_str.contains("localfeed.xml") {
-    log!("HACK: Detected localfeed.xml request. Returning fake XML.");
+                log!("HACK: Detected localfeed.xml request. Returning fake XML.");
 
-    if !response_ptr.is_null() {
-        env.mem.write(response_ptr, nil);
-    }
+                if !response_ptr.is_null() {
+                    env.mem.write(response_ptr, nil);
+                }
 
-    if !error_ptr.is_null() {
-        env.mem.write(error_ptr, nil);
-    }
+                if !error_ptr.is_null() {
+                    env.mem.write(error_ptr, nil);
+                }
 
-    // Fake XML string
-    let xml = crate::frameworks::foundation::ns_string::from_rust_string(
-    env,
-    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
-);
+                // Fake XML string
+                let xml = crate::frameworks::foundation::ns_string::from_rust_string(
+                    env,
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
+                );
                 
-let xml = autorelease(env, xml);
+                let xml = autorelease(env, xml);
 
-    // Convert NSString -> NSData
-    let data: id = msg![env; xml dataUsingEncoding:4];
+                // Convert NSString -> NSData
+                let data: id = msg![env; xml dataUsingEncoding:4];
 
-    // Return XML bytes
-    return data;
+                // Return XML bytes
+                return data;
             }
         }
     }
@@ -152,17 +152,17 @@ let xml = autorelease(env, xml);
 
     // Default behavior for everything else (which currently fails)
     if request == nil {
-    log!("NSURLConnection sendSynchronousRequest: nil request — returning empty NSData");
+        log!("NSURLConnection sendSynchronousRequest: nil request — returning empty NSData");
 
-    if !response_ptr.is_null() {
-        env.mem.write(response_ptr, nil);
-    }
+        if !response_ptr.is_null() {
+            env.mem.write(response_ptr, nil);
+        }
 
-    if !error_ptr.is_null() {
-        env.mem.write(error_ptr, nil);
-    }
+        if !error_ptr.is_null() {
+            env.mem.write(error_ptr, nil);
+        }
 
-    return msg_class![env; NSData data];
+        return msg_class![env; NSData data];
     }
 
     if !response_ptr.is_null() {
@@ -176,7 +176,7 @@ let xml = autorelease(env, xml);
     }
 
     msg_class![env; NSData data]
-                       }
+}
      
 // MARK: - Asynchronous API
 
@@ -200,7 +200,6 @@ let xml = autorelease(env, xml);
              delegate:(id)delegate
      startImmediately:(bool)start_immediately {
 
-    // --- MODIFIED: Never return nil to prevent FIFA/EA crashes ---
     if request == nil {
         log!("NSURLConnection initWithRequest: nil request — Returning dummy object to prevent crash");
     }
@@ -211,30 +210,36 @@ let xml = autorelease(env, xml);
         start_immediately,
     );
 
-    retain(env, delegate);
-    {
-        let mut host = env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
-        host.delegate  = delegate;
-        host.cancelled = false;
+    if delegate != nil {
+        retain(env, delegate);
+        
+        // Check if this object is a genuine connection object, or a TrivialHostObject fallback
+        if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+            let mut host = env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
+            host.delegate  = delegate;
+            host.cancelled = false;
+        } else {
+            log!("Warning: initWithRequest called on a non-NSURLConnection generic instance. Binding delegate via KVC fallback.");
+            let key = crate::frameworks::foundation::ns_string::get_static_str(env, "delegate");
+            () = msg![env; this setValue:delegate forKey:key];
+        }
     }
 
-    // If request was nil, we still return 'this' (the allocated object)
-    // so the game doesn't crash on a null pointer.
     this
-     }
+}
     
 // MARK: - Instance methods
 
 - (())start {
+    log!("NSURLConnection start: faking successful completion");
 
-    log!(
-        "NSURLConnection start: faking successful completion"
-    );
-
-    let delegate = env
-        .objc
-        .borrow::<NSURLConnectionHostObject>(this)
-        .delegate;
+    let delegate = if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+        env.objc.borrow::<NSURLConnectionHostObject>(this).delegate
+    } else {
+        let key = crate::frameworks::foundation::ns_string::get_static_str(env, "delegate");
+        let val: id = msg![env; this valueForKey:key];
+        val
+    };
 
     if delegate == nil {
         return;
@@ -267,21 +272,19 @@ let xml = autorelease(env, xml);
 
 - (())cancel {
     log_dbg!("NSURLConnection cancel");
-    // Mark cancelled; do NOT call the delegate (Apple behaviour: cancelled
-    // connections do not deliver connection:didFailWithError:).
-    env.objc
-        .borrow_mut::<NSURLConnectionHostObject>(this)
-        .cancelled = true;
+    if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+        env.objc.borrow_mut::<NSURLConnectionHostObject>(this).cancelled = true;
+    }
 }
 
 // MARK: - Dealloc
 
 - (())dealloc {
     log_dbg!("NSURLConnection dealloc");
-    let delegate = env.objc
-        .borrow::<NSURLConnectionHostObject>(this)
-        .delegate;
-    release(env, delegate);
+    if env.objc.has_host_object_of_type::<NSURLConnectionHostObject>(this) {
+        let delegate = env.objc.borrow::<NSURLConnectionHostObject>(this).delegate;
+        release(env, delegate);
+    }
     env.objc.dealloc_object(this, &mut env.mem);
 }
 
