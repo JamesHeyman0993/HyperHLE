@@ -652,7 +652,7 @@ impl Dyld {
             return None;
         }
         
-        // --- FIXED CRITICAL MATH INTERCEPT ---
+                // --- FIXED CRITICAL MATH INTERCEPT ---
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
         if symbol == vector_math_mangled {
              log!("HyperHLE: Catching unmapped vector routine: {}. Allocating host adapter bridge.", symbol);
@@ -662,6 +662,15 @@ impl Dyld {
              let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
              
              // Return the allocated host procedure runner so emulation handles the tick instantly
+             let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
+             return Some(self.linked_host_functions[idx_f as usize].1);
+        }
+
+        // --- NEW: CRYPTO SHA256 PASSTHROUGH INTERCEPT ---
+        if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
+             log!("HyperHLE: Catching static crypt engine link: {}. Setting pass-through safety buffer alignment.", symbol);
+             let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
+             let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
              let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
@@ -734,13 +743,22 @@ impl Dyld {
         Ok(function_ptr)
     }
 
-    fn create_proc_address_no_inval(
+        fn create_proc_address_no_inval(
         &mut self,
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
+        if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol) { return Ok(cached_fn); }
+            let f: HostFunction = &(touchhle_cc_sha256_stub as fn(&mut Environment, u32, u32, u32) -> u32);
+            let function_ptr = self.create_guest_function(mem, "CC_SHA256", f);
+            self.non_lazy_host_functions.insert("CC_SHA256", function_ptr);
+            return Ok(function_ptr);
+        }
+
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
         if symbol == vector_math_mangled {
+            
             if let Some(&cached_fn) = self.non_lazy_host_functions.get(vector_math_mangled) {
                 return Ok(cached_fn);
             }
@@ -932,4 +950,16 @@ fn touchhle_dyld_register_func_for_add_image(_env: &mut Environment, _func: u32)
 
 fn touchhle_dyld_register_func_for_remove_image(_env: &mut Environment, _func: u32) {
     log_dbg!("HyperHLE: Stubbed __dyld_register_func_for_remove_image");
+}
+fn touchhle_dyld_register_func_for_remove_image(_env: &mut Environment, _func: u32) {
+    log_dbg!("HyperHLE: Stubbed __dyld_register_func_for_remove_image");
+}
+
+fn touchhle_cc_sha256_stub(env: &mut Environment, _data: u32, _len: u32, md_output_buffer: u32) -> u32 {
+    log!("HyperHLE: Bypassing CC_SHA256 calculation. Passthrough target buffer pointer: {:#x}", md_output_buffer);
+    // If the game provided an allocated address structure, echo it back to fulfill pointer registration
+    if md_output_buffer != 0 {
+        return md_output_buffer;
+    }
+    0
 }
