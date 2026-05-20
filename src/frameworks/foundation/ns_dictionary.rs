@@ -836,9 +836,8 @@ let data: id = msg_class![env; NSPropertyListSerialization
             "Warning: NSMutableDictionary encodeWithCoder: unsupported coder class, skipping"
         );
     }
-}
-
-// NSFastEnumeration implementation
+    }
+    // NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
@@ -882,14 +881,27 @@ let data: id = msg_class![env; NSPropertyListSerialization
 
 - (())setObject:(id)object
              forKey:(id)key {
+        let mut object_to_insert = object;
+
         if object == nil {
             let key_str = if key != nil {
                 crate::frameworks::foundation::ns_string::to_rust_string(env, key).to_string()
             } else {
                 "nil".to_string()
             };
-            log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to insert nil object for key {} — ignoring", key_str);
-            return;
+            
+            // HACK: Intercept nil placement for device identification properties to prevent subsequent 0x0000000c crashes
+            if key_str.contains("Id") || key_str.contains("ID") || key_str.contains("crossPublisher") {
+                log!("HACK: Intercepted and substituted nil object for tracking payload identity key: '{}'", key_str);
+                let dummy = crate::frameworks::foundation::ns_string::from_rust_string(
+                    env,
+                    "touchHLE-safe-dummy-id-123456789".to_string(),
+                );
+                object_to_insert = autorelease(env, dummy);
+            } else {
+                log!("Warning: [NSMutableDictionary setObject:forKey:] attempt to insert nil object for key {} — ignoring", key_str);
+                return;
+            }
         }
 
         if key == nil {
@@ -898,7 +910,7 @@ let data: id = msg_class![env; NSPropertyListSerialization
         }
 
         let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));
-        host_obj.insert(env, key, object, /* copy_key: */ true);
+        host_obj.insert(env, key, object_to_insert, /* copy_key: */ true);
         *env.objc.borrow_mut(this) = host_obj;
     }
 
@@ -998,7 +1010,7 @@ let data: id = msg_class![env; NSPropertyListSerialization
 @implementation _touchHLE_NSMutableDictionary_non_retaining: _touchHLE_NSMutableDictionary
 
 + (id)allocWithZone:(NSZonePtr)_zone {
-    let host_object = Box::<CFDictionaryHostObject>::default();
+let host_object = Box::<CFDictionaryHostObject>::default();
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
