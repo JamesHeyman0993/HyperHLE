@@ -1016,11 +1016,12 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
 
     let gles_ctx = super::get_thread_context(
-        &mut env.framework_state.opengles,
-        &mut env.objc,
-        env.current_thread,
-    );
-
+    &mut env.framework_state.opengles,
+    &mut env.objc,
+    &mut env.window, // Added the missing Window parameter
+    env.current_thread,
+);
+    
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();
 
