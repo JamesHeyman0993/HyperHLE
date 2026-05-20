@@ -14,9 +14,6 @@ mod gles_guest;
 
 use touchHLE_gl_bindings::gles11::types::GLenum;
 use crate::mem::ConstPtr;
-
-// FIXED: Brought the context trait into scope through its public re-export 
-// instead of the private submodule path.
 use crate::gles::GLESContext;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
@@ -57,22 +54,27 @@ pub(crate) fn get_thread_context<'objc>(
     window: &mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> &'objc mut dyn crate::gles::GLESContext {
-    let current_ctx_option = state.current_ctx_for_thread(current_thread);
-    
-    let context_id = match *current_ctx_option {
-        Some(id) => id,
-        None => {
-            log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting fallback.");
-            if let Some(Some(fallback_id)) = state.current_ctxs.values().find(|c| c.is_some()) {
-                log!("Found fallback context ID: {:?}", fallback_id);
-                *current_ctx_option = Some(*fallback_id);
-                *fallback_id
-            } else {
-                panic!("Fatal Error: Context lookup failed. The app attempted to perform GL operations before initializing any EAGLContext.");
-            }
-        }
-    };
+    // 1. Check if a context exists using an immutable borrow first to appease the borrow checker.
+    let has_context = state.current_ctxs.get(&current_thread).and_then(|c| *c).is_some();
 
+    // 2. If it doesn't exist, scan for a fallback context before doing any mutable work.
+    if !has_context {
+        log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting fallback.");
+        
+        let fallback_id = state.current_ctxs.values()
+            .find_map(|&opt| opt) // Finds the first Some(id)
+            .raw_unwrap_or_else(|| {
+                panic!("Fatal Error: Context lookup failed. The app attempted to perform GL operations before initializing any EAGLContext.");
+            });
+
+        log!("Found fallback context ID: {:?}", fallback_id);
+        
+        // Mutably assign the fallback safely now that all immutable scans are finished.
+        *state.current_ctx_for_thread(current_thread) = Some(fallback_id);
+    }
+
+    // 3. We are guaranteed to have a context mapped now. Get it mutably.
+    let context_id = state.current_ctx_for_thread(current_thread).unwrap();
     let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
     
     if host_obj.gles_ctx.is_none() {
@@ -89,4 +91,17 @@ pub(crate) fn get_thread_context<'objc>(
     }
 
     host_obj.gles_ctx.as_deref_mut().unwrap()
+}
+
+// Simple extension helper trait to provide raw unwrapping capabilities
+trait OptionalExt<T> {
+    fn raw_unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T;
+}
+impl<T> OptionalExt<T> for Option<T> {
+    fn raw_unwrap_or_else<F: FnOnce() -> T>(self, f: F) -> T {
+        match self {
+            Some(val) => val,
+            None => f(),
+        }
+    }
 }
