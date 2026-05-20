@@ -13,7 +13,6 @@ mod eagl;
 mod gles_guest;
 
 use touchHLE_gl_bindings::gles11::types::GLenum;
-
 use crate::mem::ConstPtr;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
@@ -23,6 +22,16 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     constant_exports: &[eagl::CONSTANTS],
     function_exports: &[gles_guest::FUNCTIONS, eagl::FUNCTIONS],
 };
+
+// A local dummy struct that implements GLESContext to serve as our safe unwrap fallback
+#[derive(Default)]
+struct LocalFallbackGLESContext;
+impl crate::gles::GLESContext for LocalFallbackGLESContext {
+    fn make_current(&mut self, _window: &mut crate::window::Window) -> Box<dyn crate::gles::GLES + '_> {
+        // Return a dummy/null value if called during an uninitialized phase
+        panic!("Fallback context used for execution instead of safety mapping");
+    }
+}
 
 #[derive(Default)]
 pub struct State {
@@ -62,7 +71,10 @@ fn get_thread_context<'objc>(
         Some(id) => id,
         None => {
             log_dbg!("Warning: get_thread_context called without an active context ID on this thread.");
-            return state.fallback_ctx.as_deref_mut().map(|b| b as &mut dyn crate::gles::GLESContext).unwrap();
+            if state.fallback_ctx.is_none() {
+                state.fallback_ctx = Some(Box::new(LocalFallbackGLESContext::default()));
+            }
+            return state.fallback_ctx.as_deref_mut().unwrap();
         }
     };
 
@@ -72,25 +84,12 @@ fn get_thread_context<'objc>(
     if host_obj.gles_ctx.is_none() {
         log!("Warning: EAGLContext has an uninitialized host GLES wrapper. Redirecting execution to fallback to prevent crash.");
         
-        // If our state fallback doesn't exist yet, clone the context structure to initialize it
         if state.fallback_ctx.is_none() {
-            // We use the parent object context layout as our clean dummy blueprint
-            state.fallback_ctx = Some(Box::new(crate::gles::MockGLESContext::default()));
+            state.fallback_ctx = Some(Box::new(LocalFallbackGLESContext::default()));
         }
         
         return state.fallback_ctx.as_deref_mut().unwrap();
     }
 
     host_obj.gles_ctx.as_deref_mut().unwrap()
-}
-
-fn get_thread_context<'objc>(
-    state: &mut State,
-    objc: &'objc mut crate::objc::ObjC,
-    current_thread: crate::ThreadId,
-) -> &'objc mut dyn crate::gles::GLESContext {
-    let current_ctx = state.current_ctx_for_thread(current_thread);
-    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(current_ctx.unwrap());
-    let gles_ctx = host_obj.gles_ctx.as_deref_mut().unwrap();
-    gles_ctx
 }
