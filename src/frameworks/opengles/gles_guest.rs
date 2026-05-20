@@ -2226,12 +2226,49 @@ fn glShaderSource(
     }
 
     // 2. Fix layout constraints for modern strict drivers (e.g., Adreno/Mali)
-    let mut modified_source = String::new();
-    if complete_source.contains("fwidth") || complete_source.contains("dFdx") || complete_source.contains("dFdy") {
-        // Enforce declaration strictly on line 1 before any variable handling
-        modified_source.push_str("#extension GL_OES_standard_derivatives : enable\n");
+    // Clean out any existing misplaced extension lines first
+    let mut cleaned_lines = Vec::new();
+    let mut needs_derivatives = false;
+
+    for line in complete_source.lines() {
+        if line.contains("GL_OES_standard_derivatives") {
+            needs_derivatives = true;
+            // Skip this line to remove it from its illegal position down below
+            continue; 
+        }
+        if line.contains("fwidth") || line.contains("dFdx") || line.contains("dFdy") {
+            needs_derivatives = true;
+        }
+        cleaned_lines.push(line);
     }
-    modified_source.push_str(&complete_source);
+
+    // Reconstruct the shader text, inserting the extension cleanly after a #version statement
+    let mut modified_source = String::new();
+    let mut extension_inserted = false;
+
+    if needs_derivatives {
+        for line in cleaned_lines {
+            modified_source.push_str(line);
+            modified_source.push('\n');
+            
+            // If we hit the version directive, instantly inject the extension right after it
+            if !extension_inserted && line.trim_start().starts_with("#version") {
+                modified_source.push_str("#extension GL_OES_standard_derivatives : enable\n");
+                extension_inserted = true;
+            }
+        }
+
+        // If there was no #version tag in the shader at all, prepend it to the top safely
+        if !extension_inserted {
+            modified_source = format!("#extension GL_OES_standard_derivatives : enable\n{}", modified_source);
+        }
+    } else {
+        // If derivatives aren't used, just rebuild with the stripped/original layout
+        for line in cleaned_lines {
+            modified_source.push_str(line);
+            modified_source.push('\n');
+        }
+    }
 
     // 3. Convert our final payload to a CString and hand it off safely to the host
     let cs = std::ffi::CString::new(modified_source).unwrap_or_default();
