@@ -70,11 +70,18 @@ pub const MOCK_CLASSES: ClassExports = objc_classes! {
     }
     @end
 
-    @implementation AVPlayerLayer: NSObject
+        @implementation AVPlayerLayer: NSObject
     + (id)allocWithZone:(NSZonePtr)_zone {
         struct DummyLayer;
         impl crate::objc::HostObject for DummyLayer {}
         env.objc.alloc_object(this, Box::new(DummyLayer), &mut env.mem)
+    }
+
+    + (id)layer {
+        log!("HACK: Intercepted static [AVPlayerLayer layer]. Instantiating mock surface.");
+        let layer: id = msg_class![env; AVPlayerLayer alloc];
+        let layer: id = msg![env; layer init];
+        layer
     }
 
     + (id)playerLayerWithPlayer:(id)_player {
@@ -84,12 +91,15 @@ pub const MOCK_CLASSES: ClassExports = objc_classes! {
         layer
     }
 
+    - (())setPlayer:(id)_player {
+        // Absorbs the player canvas stream hook without complaining
+    }
+
     - (())setFrame:(crate::frameworks::core_graphics::CGRect)_frame {
         // Absorbs layout configuration requests safely without crashing
     }
     @end
-};
-
+    
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/AVFoundation.framework/AVFoundation",
     aliases: &[],
