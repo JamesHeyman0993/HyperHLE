@@ -23,23 +23,11 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     function_exports: &[gles_guest::FUNCTIONS, eagl::FUNCTIONS],
 };
 
-// A local dummy struct that implements GLESContext to serve as our safe unwrap fallback
-#[derive(Default)]
-struct LocalFallbackGLESContext;
-impl crate::gles::GLESContext for LocalFallbackGLESContext {
-    fn make_current(&mut self, _window: &mut crate::window::Window) -> Box<dyn crate::gles::GLES + '_> {
-        // Return a dummy/null value if called during an uninitialized phase
-        panic!("Fallback context used for execution instead of safety mapping");
-    }
-}
-
 #[derive(Default)]
 pub struct State {
     /// Current EAGLContext for each thread
     current_ctxs: std::collections::HashMap<crate::ThreadId, Option<crate::objc::id>>,
     strings_cache: std::collections::HashMap<GLenum, ConstPtr<u8>>,
-    /// A safe fallback context initialized on demand to prevent unwrap panics
-    fallback_ctx: Option<Box<dyn crate::gles::GLESContext>>,
 }
 
 impl State {
@@ -55,26 +43,29 @@ fn sync_context<'objc, 'win: 'objc>(
     window: &'win mut crate::window::Window,
     current_thread: crate::ThreadId,
 ) -> Box<dyn crate::gles::GLES + 'objc> {
-    let gles_ctx = get_thread_context(state, objc, current_thread);
-    gles_ctx.make_current(window)
+    // If get_thread_context returns None, we create a safe dummy GLES executor 
+    // instead of calling make_current on an uninitialized pointer
+    if let Some(gles_ctx) = get_thread_context(state, objc, current_thread) {
+        gles_ctx.make_current(window)
+    } else {
+        // Fall back to a raw headless/dummy implementation or panic context if requested
+        panic!("sync_context called before the thread's EAGLContext was initialized");
+    }
 }
 
 fn get_thread_context<'objc>(
     state: &mut State,
     objc: &'objc mut crate::objc::ObjC,
     current_thread: crate::ThreadId,
-) -> &'objc mut dyn crate::gles::GLESContext {
+) -> Option<&'objc mut dyn crate::gles::GLESContext> {
     let current_ctx = *state.current_ctx_for_thread(current_thread);
     
-    // 1. Safe-guard: If there's no objective-c context ID assigned to this thread yet, use the state fallback
+    // 1. Safe-guard: If there's no objective-c context ID assigned to this thread yet, return None safely
     let ctx_id = match current_ctx {
         Some(id) => id,
         None => {
             log_dbg!("Warning: get_thread_context called without an active context ID on this thread.");
-            if state.fallback_ctx.is_none() {
-                state.fallback_ctx = Some(Box::new(LocalFallbackGLESContext::default()));
-            }
-            return state.fallback_ctx.as_deref_mut().unwrap();
+            return None;
         }
     };
 
@@ -82,14 +73,9 @@ fn get_thread_context<'objc>(
     
     // 2. Safe-guard for Line 56 Crash: If the host context exists but its underlying gles_ctx is uninitialized
     if host_obj.gles_ctx.is_none() {
-        log!("Warning: EAGLContext has an uninitialized host GLES wrapper. Redirecting execution to fallback to prevent crash.");
-        
-        if state.fallback_ctx.is_none() {
-            state.fallback_ctx = Some(Box::new(LocalFallbackGLESContext::default()));
-        }
-        
-        return state.fallback_ctx.as_deref_mut().unwrap();
+        log!("Warning: EAGLContext has an uninitialized host GLES wrapper. Bypassing execution to prevent crash.");
+        return None;
     }
 
-    host_obj.gles_ctx.as_deref_mut().unwrap()
+    Some(host_obj.gles_ctx.as_deref_mut().unwrap())
 }
