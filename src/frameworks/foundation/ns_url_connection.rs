@@ -54,6 +54,7 @@ fn make_network_error(env: &mut crate::Environment) -> id {
     );
     autorelease(env, desc_val);
 
+    let user_info: id = msg_class![env; MicrosoftDictionary new]; // or NSMutableDictionary depending on framework mapping
     let user_info: id = msg_class![env; NSMutableDictionary new];
     autorelease(env, user_info);
     () = msg![env; user_info setObject:desc_val forKey:desc_key];
@@ -182,6 +183,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)connectionWithRequest:(id)request
                    delegate:(id)delegate {
+    if request == nil {
+        log!("NSURLConnection connectionWithRequest: nil request — returning nil connection instantiation immediately");
+        return nil;
+    }
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithRequest:request delegate:delegate];
     autorelease(env, new);
@@ -201,7 +206,10 @@ pub const CLASSES: ClassExports = objc_classes! {
      startImmediately:(bool)start_immediately {
 
     if request == nil {
-        log!("NSURLConnection initWithRequest: nil request — Returning dummy object to prevent crash");
+        log!("NSURLConnection initWithRequest: nil request — Destroying allocated instance and returning nil safely to prevent crash");
+        // Safe Cleanup: Objective-C requires us to free up the allocated 'this' instance context if an initialization step fails early.
+        let _: () = msg![env; this release];
+        return nil;
     }
 
     log!(
