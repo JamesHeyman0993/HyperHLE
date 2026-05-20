@@ -29,6 +29,9 @@ pub struct State {
     /// Current EAGLContext for each thread
     current_ctxs: std::collections::HashMap<crate::ThreadId, Option<crate::objc::id>>,
     strings_cache: std::collections::HashMap<GLenum, ConstPtr<u8>>,
+    /// Emergency fallback context to handle cases where the app triggers GL operations
+    /// before registering an active context with the runtime.
+    emergency_ctx: Option<Box<dyn crate::gles::GLESContext>>,
 }
 
 impl State {
@@ -57,53 +60,54 @@ pub(crate) fn get_thread_context<'objc>(
     // 1. Check if a valid context is already mapped to this thread
     let has_context = state.current_ctxs.get(&current_thread).and_then(|c| *c).is_some();
 
-    // 2. Resolve missing context states safely without panicking
-    if !has_context {
-        log!("Warning: get_thread_context called on a thread with no active EAGLContext bound. Attempting recovery.");
+    // 2. If a valid context exists, run the normal extraction logic
+    if has_context {
+        let context_id = state.current_ctx_for_thread(current_thread).unwrap();
+        let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
         
-        // Scan to see if ANY other thread has an active context we can borrow
-        let existing_fallback = state.current_ctxs.values().find_map(|&opt| opt);
-
-        let context_id = match existing_fallback {
-            Some(id) => {
-                log!("Found active sibling context ID fallback: {:?}", id);
-                id
+        if host_obj.gles_ctx.is_none() {
+            log!("Warning: get_thread_context initializing underlying GLES2NativeContext backend layer.");
+            match crate::gles::gles2_native::GLES2NativeContext::new(window) {
+                Ok(ctx) => {
+                    host_obj.gles_ctx = Some(Box::new(ctx));
+                }
+                Err(e) => {
+                    panic!("Failed to late-initialize GLES2NativeContext backend: {}", e);
+                }
             }
-            None => {
-                log!("No contexts exist anywhere in the environment. Allocating an emergency global default EAGLContext.");
-                
-                // FIXED: Using standard touchHLE ObjC framework allocation strategy
-                let new_context_id = objc.new_instance::<eagl::EAGLContextHostObject>();
-                
-                // Immediately map the emergency proxy to this thread
-                *state.current_ctx_for_thread(current_thread) = Some(new_context_id);
-                new_context_id
-            }
-        };
-
-        // Ensure this thread is mapped to our target context ID
-        *state.current_ctx_for_thread(current_thread) = Some(context_id);
+        }
+        return host_obj.gles_ctx.as_deref_mut().unwrap();
     }
 
-    // 3. Extract the context mutably
-    let context_id = state.current_ctx_for_thread(current_thread).unwrap();
-    let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
-    
-    // 4. On-demand initialization of the underlying hardware layer
-    if host_obj.gles_ctx.is_none() {
-        log!("Warning: get_thread_context initializing underlying GLES2NativeContext backend layer.");
+    // 3. Sibling Fallback Search: If this thread lacks a context, check if another thread has one
+    if let Some(context_id) = state.current_ctxs.values().find_map(|&opt| opt) {
+        log!("Found active sibling context ID fallback: {:?}", context_id);
+        *state.current_ctx_for_thread(current_thread) = Some(context_id);
         
+        let host_obj = objc.borrow_mut::<eagl::EAGLContextHostObject>(context_id);
+        if host_obj.gles_ctx.is_none() {
+            match crate::gles::gles2_native::GLES2NativeContext::new(window) {
+                Ok(ctx) => host_obj.gles_ctx = Some(Box::new(ctx)),
+                Err(e) => panic!("Failed to late-initialize GLES2NativeContext fallback: {}", e),
+            }
+        }
+        return host_obj.gles_ctx.as_deref_mut().unwrap();
+    }
+
+    // 4. Emergency Recovery: No contexts exist anywhere. Fall back to our structural emergency context instance.
+    log!("Warning: No context mappings exist anywhere. Utilizing module emergency fallback context.");
+    if state.emergency_ctx.is_none() {
         match crate::gles::gles2_native::GLES2NativeContext::new(window) {
             Ok(ctx) => {
-                host_obj.gles_ctx = Some(Box::new(ctx));
+                state.emergency_ctx = Some(Box::new(ctx));
             }
             Err(e) => {
-                panic!("Failed to late-initialize GLES2NativeContext backend: {}", e);
+                panic!("Failed to instantiate module emergency fallback context: {}", e);
             }
         }
     }
 
-    host_obj.gles_ctx.as_deref_mut().unwrap()
+    state.emergency_ctx.as_deref_mut().unwrap()
 }
 
 // Simple extension helper trait to provide raw unwrapping capabilities
