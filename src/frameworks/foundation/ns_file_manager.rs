@@ -216,6 +216,14 @@ fn NSSearchPathForDirectoriesInDomains(
         NSAutosavedInformationDirectory => {
             env.fs.home_directory().join("Library/Autosave Information")
         }
+        NSAllApplicationsDirectory => {
+            log!("NSSearchPathForDirectoriesInDomains: Handling NSAllApplicationsDirectory (100) explicitly.");
+            GuestPath::new(crate::fs::APPLICATIONS).to_owned()
+        }
+        NSAllLibrariesDirectory => {
+            log!("NSSearchPathForDirectoriesInDomains: Handling NSAllLibrariesDirectory (101) explicitly.");
+            env.fs.home_directory().join("Library")
+        }
         _ => {
             log!(
                 "Warning: Unimplemented NSSearchPathDirectory {}, returning home directory",
@@ -344,7 +352,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if path.is_null() {
         return Ptr::null();
     }
-    // Возвращаем указатель на C-строку (UTF-8), которую хранит NSString
     msg![env; path UTF8String]
 }
 
@@ -478,7 +485,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         return false;
     }
 
-    let _ = attributes; // Ignore for now
+    let _ = attributes;
 
     if data.is_null() {
         let empty: id = msg_class![env; NSData new];
@@ -516,18 +523,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     let path_str = ns_string::to_rust_string(env, path);
     let guest_path = GuestPath::new(&path_str);
 
-    // --- ЧЕСТНАЯ РЕАЛИЗАЦИЯ (Без заглушек) ---
-    // По документации Apple: если withIntermediateDirectories == YES и папка
-    // уже существует,
-    // метод обязан вернуть YES. Эмулятор больше не будет биться о Read-Only
-    // защиту бандла.
     if env.fs.exists(guest_path) {
         if env.fs.is_dir(guest_path) {
             if with_intermediates {
                 return true;
             } else {
-                // Если with_intermediates == false, возвращаем
-                // NSFileWriteFileExistsError (516)
                 if !error.is_null() {
                     let domain = get_static_str(env, NSCocoaErrorDomain);
                     let ns_error = msg_class![env; NSError alloc];
@@ -537,7 +537,6 @@ pub const CLASSES: ClassExports = objc_classes! {
                 return false;
             }
         } else {
-            // По этому пути существует файл, а не папка. Возвращаем ошибку 516.
             if !error.is_null() {
                 let domain = get_static_str(env, NSCocoaErrorDomain);
                 let ns_error = msg_class![env; NSError alloc];
@@ -547,7 +546,6 @@ pub const CLASSES: ClassExports = objc_classes! {
             return false;
         }
     }
-    // ------------------------------------------
 
     let res = if with_intermediates {
         env.fs.create_dir_all(guest_path)
@@ -561,12 +559,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             true
         }
         Err(err) => {
-            // Мягкий фоллбэк: если папки нет, но игра все равно в наглую лезет
-            // писать в свой Read-Only бандл (частая ошибка в старых играх
-            // Gameloft),
-            // перехватываем эту ошибку VFS, чтобы избежать краша.
             if let FsError::ReadonlyParentDir = err {
-                log!("Warning: createDirectoryAtPath {} intercepted ReadonlyParentDir, pretending success", path_str);
+                log!("Warning: createDirectoryAtPath {} intercepted ReadonlyParentDir, pretending succes", path_str);
                 return true;
             }
 
@@ -576,7 +570,7 @@ pub const CLASSES: ClassExports = objc_classes! {
                 if env.fs.create_dir_all(guest_path).is_ok() {
                     return true;
                 }
-            }
+       }
 
             log!(
                 "Warning: createDirectoryAtPath {} failed with {:?}, returning false",
@@ -597,7 +591,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)createSymbolicLinkAtPath:(id)path
              withDestinationPath:(id)dest_path
                            error:(MutPtr<id>)error {
-    // Symbolic links not fully supported - log and return false
     let _ = (path, dest_path);
     log!("Warning: createSymbolicLinkAtPath:withDestinationPath:error: not fully implemented");
     if !error.is_null() {
@@ -624,7 +617,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let path_str = ns_string::to_rust_string(env, path);
     let guest_path = GuestPath::new(&path_str);
 
-    // 1. Честно проверяем, существует ли вообще файл/папка по этому пути
     if !env.fs.exists(guest_path) {
         if !error.is_null() {
             let domain = get_static_str(env, NSCocoaErrorDomain);
@@ -635,12 +627,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
 
-    // 2. В виртуальной ФС touchHLE реальных симлинков нет (они либо резолвятся
-    // при распаковке,
-    // либо не поддерживаются). По документации Apple, если файл существует,
-    // но НЕ является симлинком, метод возвращает nil и ошибку (обычно код 256 -
-    // NSFileReadUnknownError
-    // или POSIX EINVAL 22). Эмулируем этот легальный отказ:
     if !error.is_null() {
         let domain = get_static_str(env, NSCocoaErrorDomain);
         let ns_error = msg_class![env; NSError alloc];
@@ -766,19 +752,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (bool)linkItemAtPath:(id)src_path
                 toPath:(id)dst_path
                  error:(MutPtr<id>)error {
-    // Hard links not supported - just copy instead
     msg![env; this copyItemAtPath:src_path toPath:dst_path error:error]
 }
 
 // MARK: - Managing iCloud-Based Items (Stubs)
 
 - (id)URLForUbiquityContainerIdentifier:(id)_container_id {
-    // iCloud not supported
     nil
 }
 
 - (bool)isUbiquitousItemAtURL:(id)_url {
-    // iCloud not supported
     false
 }
 
@@ -786,7 +769,6 @@ pub const CLASSES: ClassExports = objc_classes! {
             itemAtURL:(id)_url
        destinationURL:(id)_dest_url
                 error:(MutPtr<id>)error {
-    // iCloud not supported
     if !error.is_null() {
         let domain = get_static_str(env, NSCocoaErrorDomain);
         let ns_error = msg_class![env; NSError alloc];
@@ -837,7 +819,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         return false;
     }
     let path = ns_string::to_rust_string(env, path);
-    env.fs.exists(GuestPath::new(&path)) // All existing files are readable
+    env.fs.exists(GuestPath::new(&path))
 }
 
 - (bool)isWritableFileAtPath:(id)path {
@@ -845,15 +827,13 @@ pub const CLASSES: ClassExports = objc_classes! {
         return false;
     }
     let path = ns_string::to_rust_string(env, path);
-    env.fs.exists(GuestPath::new(&path)) // All existing files are writable
+    env.fs.exists(GuestPath::new(&path))
 }
 
 - (bool)isExecutableFileAtPath:(id)path {
     if path.is_null() {
         return false;
     }
-    // We don't support execution right now, but for compatibility might want to
-    // return true for certain files
     let path = ns_string::to_rust_string(env, path);
     env.fs.exists(GuestPath::new(&path))
 }
@@ -863,7 +843,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         return false;
     }
     let path = ns_string::to_rust_string(env, path);
-    env.fs.exists(GuestPath::new(&path)) // All existing files are deletable
+    env.fs.exists(GuestPath::new(&path))
 }
 
 // MARK: - Getting and Setting Attributes
@@ -918,10 +898,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)fileAttributesAtPath:(id)path
               traverseLink:(bool)_traverse {
-    // В старых версиях iOS этот метод просто возвращал словарь с атрибутами.
-    // Так как у нас уже есть полноценная реализация атрибутов,
-    // мы честно делегируем вызов в неё, передав null вместо указателя на
-    // ошибку.
     let error: MutPtr<id> = Ptr::null();
     msg![env; this attributesOfItemAtPath:path error:error]
 }
@@ -938,28 +914,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
 
-    // Return dummy file system attributes
     let dict: id = msg_class![env; NSMutableDictionary dictionary];
 
     let size_num: id = msg_class![env; NSNumber numberWithUnsignedLongLong:(1024 * 1024 * 1024 * 16_u64)];
-    // 16GB
     let size_key = get_static_str(env, NSFileSystemSize);
     () = msg![env; dict setObject:size_num forKey:size_key];
 
     let free_num: id = msg_class![env; NSNumber numberWithUnsignedLongLong:(1024 * 1024 * 1024 * 8_u64)];
-    // 8GB
     let free_key = get_static_str(env, NSFileSystemFreeSize);
     () = msg![env; dict setObject:free_num forKey:free_key];
 
     let dict_imm = msg![env; dict copy];
     autorelease(env, dict_imm)
 }
-
-- (bool)setAttributes:(id)attributes
+    - (bool)setAttributes:(id)attributes
          ofItemAtPath:(id)path
                 error:(MutPtr<id>)error {
-    // Setting attributes is not fully supported, but we claim success if file
-    // exists
     let exists: bool = msg![env; this fileExistsAtPath:path];
     if !exists {
         if !error.is_null() {
@@ -1012,8 +982,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSDirectoryEnumerator: NSObject
 
 + (id)allocWithZone:(NSZonePtr)_zone {
-    // Дефолтная пустышка, реальные данные уже заполняются в твоем
-    // enumeratorAtPath:
     let host = Box::new(NSDirectoryEnumeratorHostObject {
         iterator: Vec::new().into_iter(),
         base_path: GuestPathBuf::from(GuestPath::new("")),
@@ -1025,7 +993,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-// Главный метод: игра вызывает его в цикле, пока он не вернет nil
 - (id)nextObject {
     let mut host = env.objc.borrow_mut::<NSDirectoryEnumeratorHostObject>(this);
 
@@ -1033,9 +1000,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         let path_str = path.as_str();
         let base_str = host.base_path.as_str();
 
-        // По документации Apple, NSDirectoryEnumerator возвращает пути
-        // относительно базовой директории.
-        // Поэтому мы честно отрезаем base_path от начала строки.
         let rel_path = if path_str.starts_with(base_str) {
             let mut stripped = &path_str[base_str.len()..];
             if stripped.starts_with('/') {
@@ -1054,14 +1018,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)fileAttributes {
-    // Иногда игры параллельно запрашивают атрибуты каждого файла (размер/тип).
-    // Возвращаем пустой словарь, чтобы не было крэша "unrecognized selector".
     msg_class![env; NSDictionary dictionary]
 }
 
-- (())skipDescendants {
-    // no-op: метод существует на случай, если игра захочет пропустить подпапку
-}
+- (())skipDescendants {}
 
 @end
 
@@ -1082,7 +1042,6 @@ pub fn is_directory(env: &mut Environment, path: id) -> bool {
     }
     let manager: id = msg_class![env; NSFileManager defaultManager];
 
-    // Allocate a boolean in guest memory
     let is_dir_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
     env.mem.write(is_dir_ptr, false);
 
@@ -1100,7 +1059,7 @@ pub fn create_directory_if_needed(env: &mut Environment, path: id) -> bool {
     }
 
     if is_directory(env, path) {
-        return true; // Already exists
+        return true;
     }
 
     let manager: id = msg_class![env; NSFileManager defaultManager];
