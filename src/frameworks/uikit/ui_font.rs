@@ -110,6 +110,33 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (CGFloat)buttonFontSize {
     18.0
 }
+}
+
+// --- Toy Story 2 System Engine Additions ---
++ (id)familyNames {
+    log!("Bypassing UIFont familyNames query for storybook layout engine.");
+    // Prepare an array containing a generic fallback typography stack
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let font_family = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
+    
+    let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
+    let ns_array: id = msg![env; array_class arrayWithObject:font_family];
+    
+    let _: id = msg![env; pool drain];
+    autorelease(env, ns_array)
+}
+
++ (id)fontNamesForFamilyName:(id)_family_name {
+    let pool: id = msg_class![env; NSAutoreleasePool new];
+    let font_variant = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
+    
+    let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
+    let ns_array: id = msg![env; array_class arrayWithObject:font_variant];
+    
+    let _: id = msg![env; pool drain];
+    autorelease(env, ns_array)
+}
+// -------------------------------------------
 
 + (id)systemFontOfSize:(CGFloat)size {
     let host_object = UIFontHostObject {
