@@ -38,10 +38,25 @@ fn pthread_key_create(
 }
 
 fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr {
-    // Use of invalid key is undefined, panicking is fine.
-    let idx: usize = key.checked_sub(1).unwrap().try_into().unwrap();
+    // Gracefully handle uninitialized or invalid keys (0 or out of bounds) instead of unwrapping None
+    let Some(sub_key) = key.checked_sub(1) else {
+        log!("Warning: pthread_getspecific called with uninitialized key (0). Returning null.");
+        return Ptr::null();
+    };
+    
+    let idx: usize = match sub_key.try_into() {
+        Ok(val) => val,
+        Err(_) => return Ptr::null(),
+    };
+
+    let state = get_state(env);
+    if idx >= state.keys.len() {
+        log!("Warning: pthread_getspecific called with out-of-bounds key ({}). Returning null.", key);
+        return Ptr::null();
+    }
+
     let current_thread = env.current_thread;
-    get_state(env).keys[idx]
+    state.keys[idx]
         .0
         .get(&current_thread)
         .copied()
@@ -49,10 +64,25 @@ fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr 
 }
 
 fn pthread_setspecific(env: &mut Environment, key: pthread_key_t, value: ConstVoidPtr) -> i32 {
-    // TODO: return error instead of panicking if key is invalid?
-    let idx: usize = key.checked_sub(1).unwrap().try_into().unwrap();
+    // Gracefully handle uninitialized or invalid keys instead of panicking
+    let Some(sub_key) = key.checked_sub(1) else {
+        log!("Warning: pthread_setspecific called with uninitialized key (0). Ignoring set request.");
+        return 0; // Return 0 to keep the engine moving forward safely
+    };
+
+    let idx: usize = match sub_key.try_into() {
+        Ok(val) => val,
+        Err(_) => return 22, // EINVAL (Invalid argument)
+    };
+
+    let state = get_state(env);
+    if idx >= state.keys.len() {
+        log!("Warning: pthread_setspecific called with out-of-bounds key ({}).", key);
+        return 22; // EINVAL
+    }
+
     let current_thread = env.current_thread;
-    get_state(env).keys[idx]
+    state.keys[idx]
         .0
         .insert(current_thread, value.cast_mut());
     0 // success
