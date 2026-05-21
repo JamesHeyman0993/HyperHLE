@@ -193,8 +193,27 @@ pub fn AudioQueueNewOutput(
 
     // --- GAME SPECIFIC HACKS END ---
 
+    log_if_broken_audio_format(&format);
+
+    // CRITICAL FIX: Run normalization BEFORE creating the host object container structure
+    if !is_supported_audio_format(&format) {
+        log!("HACK: Audio queue format is not supported ({:?}). Normalizing to silent Linear PCM fallback format immediately.", debug_fourcc(format.format_id));
+        
+        format = AudioStreamBasicDescription {
+            sample_rate: 44100.0,
+            format_id: kAudioFormatLinearPCM,
+            format_flags: kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger,
+            bytes_per_packet: 4,
+            frames_per_packet: 1,
+            bytes_per_frame: 4,
+            channels_per_frame: 2,
+            bits_per_channel: 16,
+            _reserved: 0,
+        };
+    }
+
     let host_object = AudioQueueHostObject {
-        format,
+        format, // Safely assigned with the correct fallback adjustments applied
         callback_proc: in_callback_proc,
         callback_user_data: in_user_data,
         run_loop: in_callback_run_loop,
@@ -219,24 +238,6 @@ pub fn AudioQueueNewOutput(
     env.mem.write(out_aq, aq_ref);
 
     ns_run_loop::add_audio_queue(env, in_callback_run_loop, aq_ref);
-
-        log_if_broken_audio_format(&format);
-
-    if !is_supported_audio_format(&format) {
-        log!("HACK: Audio queue {:?} format is not supported ({:#?}). Normalizing to silent Linear PCM fallback format.", aq_ref, format);
-        
-        format = AudioStreamBasicDescription {
-            sample_rate: 44100.0,
-            format_id: kAudioFormatLinearPCM,
-            format_flags: kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger,
-            bytes_per_packet: 4,
-            frames_per_packet: 1,
-            bytes_per_frame: 4,
-            channels_per_frame: 2,
-            bits_per_channel: 16,
-            _reserved: 0,
-        };
-    }
     
     log_dbg!(
         "AudioQueueNewOutput() for format {:#?}, new audio queue handle: {:?}",
@@ -313,8 +314,6 @@ fn AudioQueueAllocateBufferWithPacketDescriptions(
     _in_number_packet_desc: GuestUSize,
     out_buffer: MutPtr<AudioQueueBufferRef>,
 ) -> OSStatus {
-    // This is the bridge that ensures the packet-based allocator 
-    // uses your hardened "ironclad" logic above.
     AudioQueueAllocateBuffer(env, in_aq, in_buffer_byte_size, out_buffer)
 }
 
@@ -324,47 +323,37 @@ pub fn AudioQueueAllocateBuffer(
     in_buffer_byte_size: GuestUSize,
     out_buffer: MutPtr<AudioQueueBufferRef>,
 ) -> OSStatus {
-    // 1. Guard against the game passing a null pointer for us to write into
     if out_buffer.is_null() {
         return -50; // kAudioQueueErr_InvalidParameter
     }
 
-    // 2. Determine a safe size (FIFA 11 usually likes 4KB or 32KB)
     let safe_size = if in_buffer_byte_size < 4096 { 4096 } else { in_buffer_byte_size };
 
-    // 3. Allocate the actual sound data memory
     let mut audio_data = env.mem.alloc(safe_size);
     if audio_data.is_null() {
-        // Emergency: if memory is tight, force a small allocation so the pointer isn't 0
         audio_data = env.mem.alloc(1024);
     }
 
-        // 4. Create the buffer struct in guest memory.
-    // We use alloc_and_write to ensure the game has a real, writable memory block.
     let buffer_ptr = env.mem.alloc_and_write(AudioQueueBuffer {
         audio_data_bytes_capacity: safe_size,
-        audio_data,                // Offset 0x04
+        audio_data,                
         audio_data_byte_size: 0,
-        user_data: Ptr::null(),    // Offset 0x0c - This is now a valid, writable address
+        user_data: Ptr::null(),    
         packet_description_capacity: 0,
         _packet_descriptions: Ptr::null(),
         _packet_description_count: 0,
     });
     
-    // 5. Try to register it with the host object (if the queue exists)
     let state = State::get(&mut env.framework_state);
     if let Some(host_object) = state.audio_queues.get_mut(&in_aq) {
         host_object.buffers.push(buffer_ptr);
     } else {
-        // If we skipped the format, the queue might not be in our map.
-        // We log it but proceed so the game doesn't crash.
         log!("NSURLConnection/Audio Hack: Providing dummy buffer for skipped queue {:?}", in_aq);
     }
 
-    // 6. CRITICAL: Tell the game where the buffer is.
     env.mem.write(out_buffer, buffer_ptr);
 
-    0 // Success (kAudioQueueErr_None)
+    0 // Success
 }
 
 pub fn AudioQueueEnqueueBuffer(
@@ -387,9 +376,6 @@ pub fn AudioQueueEnqueueBuffer(
     }
 
     host_object.buffer_queue.push_back(in_buffer);
-
-    // If we have packet descriptions (common in AAC/IMA4), we'd handle them here.
-    // For now, we just track the buffer so it can be played.
 
     0 // success
 }
@@ -625,21 +611,28 @@ pub fn decode_buffer(
 ) -> (ALenum, ALsizei, Vec<u8>) {
     let data_slice = mem.bytes_at(audio_data, audio_data_byte_size);
 
-        if !is_supported_audio_format(format) {
+    if !is_supported_audio_format(format) {
         log!("HACK: Skipping unsupported audio format to prevent panic. Enforcing standardized Stereo16 buffer.");
-        
-        // Match the fallback layout used in AudioQueueNewOutput exactly 
-        // to prevent mismatch panic down the chain.
         let silent_buffer_size = if audio_data_byte_size == 0 { 4096 } else { audio_data_byte_size as usize };
         return (
             al::AL_FORMAT_STEREO16, 
             44100,                  
             vec![0; silent_buffer_size] 
         );
-        }
+    }
     
     match format.format_id {
         kAudioFormatAppleIMA4 => {
+            assert!(data_slice.len().is_multiple_of(34));
+
+            let mut out_pcm = Vec::<u8>::with_capacity((data_slice.len() / 34) * 64 * 2);
+            let packets = data_slice.chunks(34);
+
+            if format.channels_per_frame == 1 {
+                for packet in packets {
+                    let pcm_packet: [i16; 64] = decode_ima4(packet.try_into().unwrap());
+                    let pcm_bytes: &[u8] = unsafe {
+                  kAudioFormatAppleIMA4 => {
             assert!(data_slice.len().is_multiple_of(34));
 
             let mut out_pcm = Vec::<u8>::with_capacity((data_slice.len() / 34) * 64 * 2);
@@ -727,7 +720,6 @@ pub fn decode_buffer(
                 (1, 16) => al::AL_FORMAT_MONO16,
                 (2, 8) => al::AL_FORMAT_STEREO8,
                 (2, 16) => al::AL_FORMAT_STEREO16,
-                // --- ДОБАВЛЕНА РАБОЧАЯ ВЕТКА ДЛЯ (1, 32) ---
                 (1, 32) => {
                     assert!((format.format_flags & kAudioFormatFlagIsSignedInteger) != 0);
 
@@ -746,7 +738,6 @@ pub fn decode_buffer(
                         new_processed_data,
                     );
                 }
-                // --- СУЩЕСТВУЮЩАЯ ВЕТКА (2, 32) ---
                 (2, 32) => {
                     assert!((format.format_flags & kAudioFormatFlagIsSignedInteger) != 0);
 
@@ -765,11 +756,7 @@ pub fn decode_buffer(
                         new_processed_data,
                     );
                 }
-                // ... предыдущие рабочие ветки (1, 32) и (2, 32) остаются как
-                // есть ...
                 _ => {
-                    // Копируем значение в локальную переменную, чтобы избежать
-                    // создания ссылки на packed-поле
                     let bits = format.bits_per_channel;
                     unreachable!(
                         "Unhandled audio format: {} channels, {} bits",
@@ -780,7 +767,7 @@ pub fn decode_buffer(
 
             (f, format.sample_rate as ALsizei, processed_data)
         }
-                _ => {
+        _ => {
             log!("HACK: Unhandled format ID {}, returning silence", debug_fourcc(format.format_id));
             (al::AL_FORMAT_MONO8, 44100, vec![0; 64])
         },
@@ -870,7 +857,7 @@ fn prime_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
         unsafe { context.SourceQueueBuffers(al_source, 1, &next_al_buffer) };
         assert!(unsafe { context.GetError() } == 0);
     }
-}
+                    }
 
 fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mut callback: F) {
     loop {
@@ -898,7 +885,6 @@ fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mu
         callback(al_buffer);
     }
 }
-
 pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
     let (state, context) =
         State::get_with_context(&mut env.framework_state, &mut env.openal_manager);
@@ -1062,8 +1048,6 @@ pub fn AudioQueueStart(
 
     let host_object = state.audio_queues.get_mut(&in_aq).unwrap();
 
-    // Even if the format is unsupported, we MUST mark it as Running
-    // so the game doesn't wait forever or crash.
     host_object.is_running = AudioQueueIsRunning::Running;
 
     if is_supported_audio_format(&host_object.format) {
@@ -1072,7 +1056,7 @@ pub fn AudioQueueStart(
             assert!(unsafe { context.GetError() } == 0);
         }
     } else {
-        log!("HACK: AudioQueueStart: Fake-starting unsupported format for FIFA 11 compatibility.");
+        log!("HACK: AudioQueueStart: Fake-starting unsupported format for compatibility.");
     }
 
     notify_aq_is_running(env, in_aq);
@@ -1278,7 +1262,7 @@ pub fn AudioQueueNewInput(
 
     let mut format = env.mem.read(in_format);
 
-        // FIFA 11 Hack: Must apply here too if the game creates an Input queue
+    // FIFA 11 Hack: Must apply here too if the game creates an Input queue
     if format.format_id == kAudioFormatLinearPCM 
         && format.channels_per_frame == 2 
         && format.bits_per_channel == 16 
@@ -1290,7 +1274,7 @@ pub fn AudioQueueNewInput(
     }
 
     if !is_supported_audio_format(&format) {
-        log!("HACK: AudioQueueNewInput format is not supported. Normalizing to silent Linear PCM fallback format.");
+        log!("HACK: AudioQueueNewInput format is not supported. Normalizing to silent Linear PCM fallback format immediately.");
         format = AudioStreamBasicDescription {
             sample_rate: 44100.0,
             format_id: kAudioFormatLinearPCM,
@@ -1318,7 +1302,7 @@ pub fn AudioQueueNewInput(
         aq_is_running_proc: None,
         aq_is_running_user_data: None,
         is_running_handler: false,
-        is_input: true, // Set this to true for Input
+        is_input: true, 
         input_delay: 0,
     };
     
