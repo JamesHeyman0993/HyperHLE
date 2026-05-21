@@ -670,7 +670,7 @@ pub fn decode_buffer(
                 )
             }
         }
-        kAudioFormatLinearPCM => {
+                kAudioFormatLinearPCM => {
             let misaligned_by = data_slice.len() % (format.bytes_per_frame as usize);
             let data_slice = if misaligned_by != 0 {
                 &data_slice[..data_slice.len() - misaligned_by]
@@ -715,11 +715,11 @@ pub fn decode_buffer(
                 processed_data
             };
 
-            let f = match (actual_channels_per_frame, format.bits_per_channel) {
-                (1, 8) => al::AL_FORMAT_MONO8,
-                (1, 16) => al::AL_FORMAT_MONO16,
-                (2, 8) => al::AL_FORMAT_STEREO8,
-                (2, 16) => al::AL_FORMAT_STEREO16,
+            match (actual_channels_per_frame, format.bits_per_channel) {
+                (1, 8) => (al::AL_FORMAT_MONO8, format.sample_rate as ALsizei, processed_data),
+                (1, 16) => (al::AL_FORMAT_MONO16, format.sample_rate as ALsizei, processed_data),
+                (2, 8) => (al::AL_FORMAT_STEREO8, format.sample_rate as ALsizei, processed_data),
+                (2, 16) => (al::AL_FORMAT_STEREO16, format.sample_rate as ALsizei, processed_data),
                 (1, 32) => {
                     assert!((format.format_flags & kAudioFormatFlagIsSignedInteger) != 0);
 
@@ -732,11 +732,7 @@ pub fn decode_buffer(
                         let new_val: i16 = (val >> 16) as i16;
                         new_processed_data.extend(new_val.to_le_bytes());
                     }
-                    return (
-                        al::AL_FORMAT_MONO16,
-                        format.sample_rate as ALsizei,
-                        new_processed_data,
-                    );
+                    (al::AL_FORMAT_MONO16, format.sample_rate as ALsizei, new_processed_data)
                 }
                 (2, 32) => {
                     assert!((format.format_flags & kAudioFormatFlagIsSignedInteger) != 0);
@@ -750,11 +746,7 @@ pub fn decode_buffer(
                         let new_val: i16 = (val >> 16) as i16;
                         new_processed_data.extend(new_val.to_le_bytes());
                     }
-                    return (
-                        al::AL_FORMAT_STEREO16,
-                        format.sample_rate as ALsizei,
-                        new_processed_data,
-                    );
+                    (al::AL_FORMAT_STEREO16, format.sample_rate as ALsizei, new_processed_data)
                 }
                 _ => {
                     let bits = format.bits_per_channel;
@@ -763,8 +755,9 @@ pub fn decode_buffer(
                         actual_channels_per_frame, bits
                     )
                 }
-            };
-
+            }
+      }
+                
             (f, format.sample_rate as ALsizei, processed_data)
         }
         _ => {
