@@ -244,7 +244,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 // MARK: - Instance methods
 
 - (())start {
-    log!("NSURLConnection start: faking successful completion");
+    log!("NSURLConnection start: faking successful completion with valid mock JSON payload");
 
     let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         env.objc.borrow::<NSURLConnectionHostObject>(this);
@@ -266,8 +266,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     let response: id = msg_class![env; NSURLResponse new];
     autorelease(env, response);
 
-    // Fake empty NSData
-    let data: id = msg_class![env; NSData data];
+    // FIX: Generate a valid empty JSON dictionary string "{}" instead of plain empty data
+    // This prevents analytics SDKs (like Crittercism/JSONKit) from throwing a null string panic.
+    let json_nsstr = crate::frameworks::foundation::ns_string::from_rust_string(
+        env,
+        "{}".to_string(),
+    );
+    let json_nsstr = autorelease(env, json_nsstr);
+
+    // Convert NSString "{}" -> NSData using UTF-8 encoding (4)
+    let data: id = msg![env; json_nsstr dataUsingEncoding:4];
 
     // connection:didReceiveResponse:
     () = msg![env;
@@ -286,7 +294,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         delegate connectionDidFinishLoading:this
     ];
 }
-
+    
 - (())cancel {
     log_dbg!("NSURLConnection cancel");
     let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
