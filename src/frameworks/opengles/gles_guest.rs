@@ -182,6 +182,17 @@ fn glGetFloatv(env: &mut Environment, pname: GLenum, params: MutPtr<GLfloat>) {
     });
 }
 fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
+    // 1. CRITICAL BYPASS: Catch Toy Story Mania texture binding query immediately
+    // before touching context or validation ranges.
+    if pname == 0x808e { // GL_TEXTURE_BINDING_2D
+        log!("Applying GLES Bypass: Forcing instant safe return for GL_TEXTURE_BINDING_2D.");
+        if !params.is_null() {
+            env.mem.write(params, 1 as _); // Return a default fallback texture handle ID
+        }
+        return;
+    }
+
+    // 2. Standard touchHLE hardware engine mappings
     match pname {
         gles11::NUM_COMPRESSED_TEXTURE_FORMATS => {
             env.mem
@@ -198,14 +209,6 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
         gles11::MAX_TEXTURE_SIZE => {
             env.mem.write(params, 2048 as _);
         }
-        // Toy Story Mania Engine Intercept: Safe mock return value for texture bindings
-        // to bypass out-of-bounds guest memory layout panics.
-        0x808e => {
-            log!("Applying GLES Bypass: Faking valid response for GL_TEXTURE_BINDING_2D query.");
-            if !params.is_null() {
-                env.mem.write(params, 0 as _);
-            }
-        }
         _ => {
             if env
                 .framework_state
@@ -213,16 +216,18 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
                 .current_ctx_for_thread(env.current_thread)
                 .is_none()
             {
-                env.mem.write(params, 1);
+                if !params.is_null() {
+                    env.mem.write(params, 1);
+                }
                 return;
             }
             if params.is_null() {
                 return;
             }
             with_ctx_and_mem(env, |gles, mem| {
-                // Safely read/write the pointer layout boundary using standard slice mapping
-                let params = mem.ptr_at_mut(params, 16);
-                unsafe { gles.GetIntegerv(pname, params) };
+                // Read safely within a restricted boundary array size
+                let params_slice = mem.ptr_at_mut(params, 1);
+                unsafe { gles.GetIntegerv(pname, params_slice) };
             });
         }
     }
