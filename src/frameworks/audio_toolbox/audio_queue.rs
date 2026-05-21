@@ -159,7 +159,7 @@ pub fn AudioQueueNewOutput(
 
     let mut format = env.mem.read(in_format);
 
-    // --- GAME SPECIFIC HACKS START ---
+       // --- GAME SPECIFIC HACKS START ---
 
     // 1. C&C Red Alert Hack
     if env.bundle.bundle_identifier().starts_with("com.ea.candcra")
@@ -191,8 +191,34 @@ pub fn AudioQueueNewOutput(
         format.bytes_per_packet = 4;
     }
 
-    // --- GAME SPECIFIC HACKS END ---
+    // 3. Resident Evil 4 Platinum Hack
+    if env.bundle.bundle_identifier().starts_with("jp.co.capcom.res4") {
+        // Fix A: Correct the non-sensical 11kHz LPCM frame size allocation
+        if format.format_id == kAudioFormatLinearPCM && format.bytes_per_frame == 2 && format.channels_per_frame == 2 {
+            log!("Applying RE4 Hack: Fixing 16-bit stereo bytes_per_frame from 2 to 4.");
+            format.bytes_per_frame = 4;
+            format.bytes_per_packet = 4;
+        }
+        
+        // Fix B: Force fallback immediately if the app requests the unsupported AAC format ID
+        if format.format_id == fourcc(b"aac ") {
+            log!("Applying RE4 Hack: Intercepting AAC format request, forcing safe PCM fallback mapping.");
+            format = AudioStreamBasicDescription {
+                sample_rate: 44100.0,
+                format_id: kAudioFormatLinearPCM,
+                format_flags: kAudioFormatFlagIsPacked | kAudioFormatFlagIsSignedInteger,
+                bytes_per_packet: 4,
+                frames_per_packet: 1,
+                bytes_per_frame: 4,
+                channels_per_frame: 2,
+                bits_per_channel: 16,
+                _reserved: 0,
+            };
+        }
+    }
 
+    // --- GAME SPECIFIC HACKS END ---
+    
     log_if_broken_audio_format(&format);
 
     // CRITICAL FIX: Run normalization BEFORE creating the host object container structure
