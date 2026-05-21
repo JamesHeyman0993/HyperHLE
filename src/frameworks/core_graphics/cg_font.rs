@@ -12,7 +12,6 @@ use crate::frameworks::foundation::ns_string;
 use crate::mem::{MutVoidPtr, Ptr};
 use crate::objc::{id, msg, msg_class, nil, release, retain};
 use crate::Environment;
-use byteorder::{BigEndian, WriteBytesExt};
 
 // =========================================================================
 // MARK: - Type aliases
@@ -387,12 +386,12 @@ fn CGFontCopyTableForTag(env: &mut Environment, font: CGFontRef, tag: u32) -> CF
         mock_cmap.extend_from_slice(&1u16.to_be_bytes()); // idDelta
         mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // idRangeOffset
 
-        // Extract raw values to variables first
-        let bytes_ptr: *const std::ffi::c_void = mock_cmap.as_ptr() as _;
+        // Extract raw pointer address as a integer type (u32) which implements GuestArg natively
+        let bytes_ptr_val = mock_cmap.as_ptr() as u32;
         let bytes_len = mock_cmap.len();
 
         let data_class = env.objc.get_known_class("NSData", &mut env.mem);
-        let ns_data: id = msg![env; data_class dataWithBytes:bytes_ptr length:bytes_len];
+        let ns_data: id = msg![env; data_class dataWithBytes:bytes_ptr_val length:bytes_len];
         return ns_data;
     }
 
