@@ -361,30 +361,31 @@ fn CGFontCopyTableForTag(env: &mut Environment, font: CGFontRef, tag: u32) -> CF
         log!("Applying Madden/FusionKit Bypass: Generating mock 'cmap' font table structure.");
         
         let mut mock_cmap = Vec::new();
+        
         // Header structure
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
-        mock_cmap.write_u16::<BigEndian>(1).unwrap();
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // version
+        mock_cmap.extend_from_slice(&1u16.to_be_bytes()); // numTables
         
         // Encoding Record
-        mock_cmap.write_u16::<BigEndian>(3).unwrap();
-        mock_cmap.write_u16::<BigEndian>(1).unwrap();
-        mock_cmap.write_u32::<BigEndian>(12).unwrap();
+        mock_cmap.extend_from_slice(&3u16.to_be_bytes()); // platformID (Windows/Unicode)
+        mock_cmap.extend_from_slice(&1u16.to_be_bytes()); // encodingID
+        mock_cmap.extend_from_slice(&12u32.to_be_bytes()); // offset
         
         // Subtable format 4 configurations
-        mock_cmap.write_u16::<BigEndian>(4).unwrap();
-        mock_cmap.write_u16::<BigEndian>(32).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
-        mock_cmap.write_u16::<BigEndian>(2).unwrap();
-        mock_cmap.write_u16::<BigEndian>(2).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.extend_from_slice(&4u16.to_be_bytes()); // format
+        mock_cmap.extend_from_slice(&32u16.to_be_bytes()); // length
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // language
+        mock_cmap.extend_from_slice(&2u16.to_be_bytes()); // segCountX2
+        mock_cmap.extend_from_slice(&2u16.to_be_bytes()); // searchRange
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // entrySelector
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // rangeShift
         
         // Segment termination structures
-        mock_cmap.write_u16::<BigEndian>(0xFFFF).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0xFFFF).unwrap();
-        mock_cmap.write_u16::<BigEndian>(1).unwrap();
-        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.extend_from_slice(&0xFFFFu16.to_be_bytes()); // endCode
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // reservedPad
+        mock_cmap.extend_from_slice(&0xFFFFu16.to_be_bytes()); // startCode
+        mock_cmap.extend_from_slice(&1u16.to_be_bytes()); // idDelta
+        mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // idRangeOffset
 
         // Extract raw values to variables first so the msg! macro compiles cleanly
         let bytes_ptr = mock_cmap.as_ptr();
