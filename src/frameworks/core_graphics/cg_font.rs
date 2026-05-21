@@ -387,13 +387,17 @@ fn CGFontCopyTableForTag(env: &mut Environment, font: CGFontRef, tag: u32) -> CF
         mock_cmap.extend_from_slice(&1u16.to_be_bytes()); // idDelta
         mock_cmap.extend_from_slice(&0u16.to_be_bytes()); // idRangeOffset
 
-        // Extract raw values to variables first so the msg! macro compiles cleanly
+                // Extract raw values to variables first
         let bytes_ptr = mock_cmap.as_ptr();
         let bytes_len = mock_cmap.len();
 
+        // Convert the host pointer into a guest-compatible void pointer type
+        let guest_bytes_ptr = crate::mem::ConstVoidPtr::from_host(bytes_ptr);
+
         let data_class = env.objc.get_known_class("NSData", &mut env.mem);
-        let ns_data: id = msg![env; data_class dataWithBytes:bytes_ptr length:bytes_len];
+        let ns_data: id = msg![env; data_class dataWithBytes:guest_bytes_ptr length:bytes_len];
         return ns_data;
+        
     }
 
     nil
