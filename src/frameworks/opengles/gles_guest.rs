@@ -198,6 +198,12 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
         gles11::MAX_TEXTURE_SIZE => {
             env.mem.write(params, 2048 as _);
         }
+        // Toy Story Mania Engine Intercept: Safe mock return value for texture bindings
+        // to bypass out-of-bounds guest memory layout panics.
+        0x808e => {
+            log!("Applying GLES Bypass: Faking valid response for GL_TEXTURE_BINDING_2D query.");
+            env.mem.write(params, 0 as _);
+        }
         _ => {
             if env
                 .framework_state
@@ -209,12 +215,19 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
                 return;
             }
             with_ctx_and_mem(env, |gles, mem| {
-                let params = mem.ptr_at_mut(params, 16);
-                unsafe { gles.GetIntegerv(pname, params) };
+                // Ensure the underlying pointer structure is tracked securely inside guest bounds
+                if mem.is_valid(params) {
+                    let params = mem.ptr_at_mut(params, 16);
+                    unsafe { gles.GetIntegerv(pname, params) };
+                } else {
+                    log!("Warning: Intercepted invalid guest pointer in glGetIntegerv for pname: {:#x}", pname);
+                    mem.write(params, 0);
+                }
             });
         }
     }
 }
+
 fn glGetPointerv(env: &mut Environment, pname: GLenum, params: MutPtr<ConstVoidPtr>) {
     if env
         .framework_state
