@@ -459,14 +459,25 @@ pub(super) fn UIApplicationMain(
     };
 
     {
+            {
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
-        if env.objc.object_has_method_named(&env.mem, delegate, "application:didFinishLaunchingWithOptions:") {
+        
+        // Toy Story Mania Fallback Hack: Force the emulator to use the legacy launch path
+        let has_options_method = if env.bundle.bundle_identifier().starts_with("com.disney.toystory") {
+            log!("Applying Toy Story Mania Hack: Hiding didFinishLaunchingWithOptions to force legacy, un-dictionaried startup path.");
+            false 
+        } else {
+            env.objc.object_has_method_named(&env.mem, delegate, "application:didFinishLaunchingWithOptions:")
+        };
+
+        if has_options_method {
             let empty_dict: id = msg_class![env; NSDictionary dictionary];
             () = msg![env; delegate application:ui_application didFinishLaunchingWithOptions:empty_dict];
         } else if env.objc.object_has_method_named(&env.mem, delegate, "applicationDidFinishLaunching:") {
             () = msg![env; delegate applicationDidFinishLaunching:ui_application];
         }
+                
         let center: id = msg_class![env; NSNotificationCenter defaultCenter];
         let notif_name = get_static_str(env, UIApplicationDidFinishLaunchingNotification);
         () = msg![env; center postNotificationName:notif_name object:ui_application userInfo:nil];
