@@ -38,7 +38,6 @@ fn pthread_key_create(
 }
 
 fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr {
-    // Gracefully handle uninitialized or invalid keys (0 or out of bounds) instead of unwrapping None
     let Some(sub_key) = key.checked_sub(1) else {
         log!("Warning: pthread_getspecific called with uninitialized key (0). Returning null.");
         return Ptr::null();
@@ -49,10 +48,11 @@ fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr 
         Err(_) => return Ptr::null(),
     };
 
-    // FIX: Grab the current thread ID FIRST before mutably borrowing env via get_state
-    let current_thread = env.current_thread;
-    let state = get_state(env);
+    // Extract the thread ID into a completely disconnected variable first
+    let target_thread = env.current_thread;
     
+    // Now we can safely borrow env to access our state array
+    let state = get_state(env);
     if idx >= state.keys.len() {
         log!("Warning: pthread_getspecific called with out-of-bounds key ({}). Returning null.", key);
         return Ptr::null();
@@ -60,13 +60,12 @@ fn pthread_getspecific(env: &mut Environment, key: pthread_key_t) -> MutVoidPtr 
 
     state.keys[idx]
         .0
-        .get(&current_thread)
+        .get(&target_thread)
         .copied()
         .unwrap_or(Ptr::null())
 }
 
 fn pthread_setspecific(env: &mut Environment, key: pthread_key_t, value: ConstVoidPtr) -> i32 {
-    // Gracefully handle uninitialized or invalid keys instead of panicking
     let Some(sub_key) = key.checked_sub(1) else {
         log!("Warning: pthread_setspecific called with uninitialized key (0). Ignoring set request.");
         return 0;
@@ -77,10 +76,11 @@ fn pthread_setspecific(env: &mut Environment, key: pthread_key_t, value: ConstVo
         Err(_) => return 22, // EINVAL
     };
 
-    // FIX: Grab the current thread ID FIRST before mutably borrowing env via get_state
-    let current_thread = env.current_thread;
+    // Extract the thread ID into a completely disconnected variable first
+    let target_thread = env.current_thread;
+
+    // Now we can safely borrow env to perform our map injection
     let state = get_state(env);
-    
     if idx >= state.keys.len() {
         log!("Warning: pthread_setspecific called with out-of-bounds key ({}).", key);
         return 22; // EINVAL
@@ -88,7 +88,7 @@ fn pthread_setspecific(env: &mut Environment, key: pthread_key_t, value: ConstVo
 
     state.keys[idx]
         .0
-        .insert(current_thread, value.cast_mut());
+        .insert(target_thread, value.cast_mut());
     0 // success
 }
 
