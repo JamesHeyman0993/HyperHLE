@@ -445,6 +445,24 @@ UIColor blackColor] // TODO
 - (())play {
     log!("HACK: Video sequence execution [(MPMoviePlayerController*){:?} play]", this);
     
+    let bundle_id = env.bundle.bundle_identifier();
+    
+    // --- VIDEO COMPLETION BYPASS FOR STALLING / CRASHING TITLES ---
+    if bundle_id.starts_with("jp.co.capcom.res4") || bundle_id.starts_with("com.disney.toystory") {
+        log!("Applying Game Hack: Forcing instant loop push bypassing playback state checks for: {}", bundle_id);
+        let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+        current_state.playback_state = MPMoviePlaybackStatePlaying;
+        
+        retain(env, this);
+        State::get(env).pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            this,
+            Instant::now(), // 0ms delay - fire immediately next loop cycle
+        ));
+        return; // Exit early so standard logic doesn't touch this context
+    }
+    // --------------------------------------------------------------
+
     let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
     
     if current_state.playback_state != MPMoviePlaybackStatePlaying {
@@ -452,25 +470,15 @@ UIColor blackColor] // TODO
         
         retain(env, this);
         
-        // Resident Evil 4 Video Skip Hack: Skip the 150ms delay so the engine doesn't stall out
-        if env.bundle.bundle_identifier().starts_with("jp.co.capcom.res4") {
-            log!("Applying RE4 Hack: Scheduling instant video finish notification handler.");
-            State::get(env).pending_notifications.push_back((
-                MPMoviePlayerPlaybackDidFinishNotification,
-                this,
-                Instant::now(), // 0ms delay - fire immediately next loop cycle
-            ));
-        } else {
-            // Default safe delay for other titles (Spore Origins, etc.)
-            State::get(env).pending_notifications.push_back((
-                MPMoviePlayerPlaybackDidFinishNotification,
-                this,
-                Instant::now() + std::time::Duration::from_millis(150),
-            ));
-        }
+        // Default safe delay for other titles (Spore Origins, etc.)
+        State::get(env).pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            this,
+            Instant::now() + std::time::Duration::from_millis(150),
+        ));
     }
 }
-                  
+                      
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
     env.objc
