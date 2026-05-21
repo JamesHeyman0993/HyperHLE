@@ -230,10 +230,17 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
+    // If start_immediately is true, manually fire off our mock completion sequence
+    // so the delegate receives its expected structural placeholders immediately.
+    if start_immediately {
+        log!("NSURLConnection: startImmediately is true, running network completion stub now.");
+        () = msg![env; this start];
+    }
+
     // Always yield the instantiation pointer context 'this'
     this
-}
-    
+     }
+      
 // MARK: - Instance methods
 
 - (())start {
