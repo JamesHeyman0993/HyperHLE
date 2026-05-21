@@ -68,6 +68,12 @@ fn freeifaddrs(_env: &mut Environment, _ifa: MutPtr<ifaddrs>) {
 
 fn if_nametoindex(env: &mut Environment, ifname: ConstPtr<u8>) -> u32 {
     let name = env.mem.cstr_at_utf8(ifname).unwrap_or("<invalid>");
+    
+    if name == "en0" || name == "en1" {
+        log!("if_nametoindex(\"{}\") – Faking valid interface index 1 to satisfy SDK sanity checks.", name);
+        return 1;
+    }
+    
     log!("if_nametoindex(\"{}\") – returning 0 (No device found)", name);
     0
 }
