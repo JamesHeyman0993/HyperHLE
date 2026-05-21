@@ -202,7 +202,9 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
         // to bypass out-of-bounds guest memory layout panics.
         0x808e => {
             log!("Applying GLES Bypass: Faking valid response for GL_TEXTURE_BINDING_2D query.");
-            env.mem.write(params, 0 as _);
+            if !params.is_null() {
+                env.mem.write(params, 0 as _);
+            }
         }
         _ => {
             if env
@@ -214,15 +216,13 @@ fn glGetIntegerv(env: &mut Environment, pname: GLenum, params: MutPtr<GLint>) {
                 env.mem.write(params, 1);
                 return;
             }
+            if params.is_null() {
+                return;
+            }
             with_ctx_and_mem(env, |gles, mem| {
-                // Ensure the underlying pointer structure is tracked securely inside guest bounds
-                if mem.is_valid(params) {
-                    let params = mem.ptr_at_mut(params, 16);
-                    unsafe { gles.GetIntegerv(pname, params) };
-                } else {
-                    log!("Warning: Intercepted invalid guest pointer in glGetIntegerv for pname: {:#x}", pname);
-                    mem.write(params, 0);
-                }
+                // Safely read/write the pointer layout boundary using standard slice mapping
+                let params = mem.ptr_at_mut(params, 16);
+                unsafe { gles.GetIntegerv(pname, params) };
             });
         }
     }
