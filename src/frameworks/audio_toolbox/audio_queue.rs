@@ -632,17 +632,7 @@ pub fn decode_buffer(
                 for packet in packets {
                     let pcm_packet: [i16; 64] = decode_ima4(packet.try_into().unwrap());
                     let pcm_bytes: &[u8] = unsafe {
-                  kAudioFormatAppleIMA4 => {
-            assert!(data_slice.len().is_multiple_of(34));
-
-            let mut out_pcm = Vec::<u8>::with_capacity((data_slice.len() / 34) * 64 * 2);
-            let packets = data_slice.chunks(34);
-
-            if format.channels_per_frame == 1 {
-                for packet in packets {
-                    let pcm_packet: [i16; 64] = decode_ima4(packet.try_into().unwrap());
-                    let pcm_bytes: &[u8] = unsafe {
-                        std::slice::from_raw_parts(pcm_packet.as_ptr() as *const u8, 128)
+                  std::slice::from_raw_parts(pcm_packet.as_ptr() as *const u8, 128)
                     };
                     out_pcm.extend_from_slice(pcm_bytes);
                 }
@@ -670,7 +660,7 @@ pub fn decode_buffer(
                 )
             }
         }
-                kAudioFormatLinearPCM => {
+        kAudioFormatLinearPCM => {
             let misaligned_by = data_slice.len() % (format.bytes_per_frame as usize);
             let data_slice = if misaligned_by != 0 {
                 &data_slice[..data_slice.len() - misaligned_by]
@@ -756,9 +746,6 @@ pub fn decode_buffer(
                     )
                 }
             }
-      }
-                
-            (f, format.sample_rate as ALsizei, processed_data)
         }
         _ => {
             log!("HACK: Unhandled format ID {}, returning silence", debug_fourcc(format.format_id));
@@ -850,7 +837,7 @@ fn prime_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
         unsafe { context.SourceQueueBuffers(al_source, 1, &next_al_buffer) };
         assert!(unsafe { context.GetError() } == 0);
     }
-                    }
+}
 
 fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mut callback: F) {
     loop {
@@ -878,6 +865,7 @@ fn unqueue_buffers<F: FnMut(ALuint)>(al_source: ALuint, context: &OpenAL<'_>, mu
         callback(al_buffer);
     }
 }
+
 pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
     let (state, context) =
         State::get_with_context(&mut env.framework_state, &mut env.openal_manager);
@@ -968,7 +956,6 @@ pub fn handle_audio_queue(env: &mut Environment, in_aq: AudioQueueRef) {
 
     host_object.is_running_handler = false;
 }
-
 fn AudioQueuePrime(
     env: &mut Environment,
     in_aq: AudioQueueRef,
@@ -998,7 +985,6 @@ fn AudioQueuePrime(
                 prepared_frames += size / format.bytes_per_frame;
             }
         }
-
         if in_number_of_frames_to_prepare > 0 && prepared_frames > in_number_of_frames_to_prepare {
             prepared_frames = in_number_of_frames_to_prepare;
         }
