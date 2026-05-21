@@ -14,17 +14,23 @@ use crate::libc::sysctl::SysInfoType::String;
 use crate::mem::{guest_size_of, ConstPtr, GuestUSize, MutPtr, MutVoidPtr, PAGE_SIZE};
 use crate::Environment;
 
-static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 24] = [
+static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 27] = [ // Changed size from 24 to 27
     // Generic CPU, I/O
-    ((6,1), "hw.machine" , String(b"iPhone1,1")), // overridden dynamically below
+    ((6,1), "hw.machine" , String(b"iPhone1,1")), 
     ((6,2), "hw.model" , String(b"M68AP")),
     ((6,3), "hw.ncpu" , SysInfoType::Int32(1)),
-    ((6,25), "hw.activecpu" , SysInfoType::Int32(1)), // Активные ядра
+    ((6,25), "hw.activecpu" , SysInfoType::Int32(1)), 
     ((0,0), "hw.cputype" , SysInfoType::Int32(12)),
     ((0,0), "hw.cpusubtype" , SysInfoType::Int32(6)),
     ((6,15), "hw.cpufrequency" , SysInfoType::Int64(412000000)),
     ((6,16), "hw.cpufrequency_max", SysInfoType::Int64(412000000)),
     ((6,14), "hw.busfrequency" , SysInfoType::Int64(103000000)),
+
+    // --- ADD THE THREE LINES BELOW ---
+    ((0,0), "hw.physicalcpu_max", SysInfoType::Int32(1)),
+    ((0,0), "hw.logicalcpu_max", SysInfoType::Int32(1)),
+    ((0,0), "sysctl.proc_native", SysInfoType::Int32(1)), // 1 indicates a native binary execution environment
+    // ---------------------------------
 
     // Честные параметры кэша для ARM1176JZF-S (iPhone 2G / 3G)
     ((0,0), "hw.cachelinesize", SysInfoType::Int32(32)),
