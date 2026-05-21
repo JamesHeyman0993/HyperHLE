@@ -951,9 +951,6 @@ fn touchhle_dyld_register_func_for_add_image(_env: &mut Environment, _func: u32)
 fn touchhle_dyld_register_func_for_remove_image(_env: &mut Environment, _func: u32) {
     log_dbg!("HyperHLE: Stubbed __dyld_register_func_for_remove_image");
 }
-fn touchhle_dyld_register_func_for_remove_image(_env: &mut Environment, _func: u32) {
-    log_dbg!("HyperHLE: Stubbed __dyld_register_func_for_remove_image");
-}
 
 fn touchhle_cc_sha256_stub(env: &mut Environment, _data: u32, _len: u32, md_output_buffer: u32) -> u32 {
     log!("HyperHLE: Bypassing CC_SHA256 calculation. Passthrough target buffer pointer: {:#x}", md_output_buffer);
