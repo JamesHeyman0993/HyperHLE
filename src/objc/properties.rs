@@ -10,7 +10,8 @@
 //! too.
 //!
 //! Resources:
-//! - `objc_setProperty` and friends are not documented, so [reading the source code](https://opensource.apple.com/source/objc4/objc4-551.1/runtime/Accessors.subproj/objc-accessors.mm.auto.html) is useful.
+//! - `objc_setProperty` and friends are not documented, so [reading the source code](https://opensource.apple.com/source/objc4/objc4-551.1/runtime/Accessors.subproj/objc-accessors.mm.auto.html) is necessary.
+//! - [objc4-723 source](https://opensource.apple.com/source/objc4/objc4-723/runtime/objc-accessors.mm.auto.html)
 //!
 //! See also: [crate::frameworks::foundation::ns_object].
 
@@ -20,6 +21,20 @@ use crate::mem::{
     SafeRead,
 };
 use crate::Environment;
+use std::sync::Mutex;
+use std::collections::HashMap;
+
+/// Global mutex storage for atomic properties
+/// Uses the object's pointer address as the key
+static ATOMIC_PROPERTY_LOCKS: Mutex<HashMap<usize, Mutex<()>>> = Mutex::new(HashMap::new());
+
+/// Get or create a mutex for an atomic property access
+fn get_atomic_lock(obj_addr: usize) -> std::sync::MutexGuard<'static, ()> {
+    let mut locks = ATOMIC_PROPERTY_LOCKS.lock().unwrap();
+    let lock = locks.entry(obj_addr).or_insert_with(|| Mutex::new(()));
+    let lock_ref = unsafe { &*(lock as *const Mutex<()>) };
+    lock_ref.lock().unwrap()
+}
 
 /// The layout of a property list in an app binary.
 ///
@@ -137,11 +152,17 @@ pub(super) fn objc_getProperty(
     assert!(offset >= 4);
 
     if atomic {
-        log_once!("TODO: Lock when atomic is set to true in objc_getProperty");
+        // Acquire lock for atomic property access
+        let _lock = get_atomic_lock(this.to_bits() as usize);
+        let ivar: MutPtr<id> = Ptr::from_bits(this.to_bits().checked_add_signed(offset).unwrap());
+        let value = env.mem.read(ivar);
+        // Retain the returned value to prevent premature deallocation
+        retain(env, value);
+        value
+    } else {
+        let ivar: MutPtr<id> = Ptr::from_bits(this.to_bits().checked_add_signed(offset).unwrap());
+        env.mem.read(ivar)
     }
-
-    let ivar: MutPtr<id> = Ptr::from_bits(this.to_bits().checked_add_signed(offset).unwrap());
-    env.mem.read(ivar)
 }
 
 /// Undocumented function (see link above) apparently used by auto-generated
@@ -164,30 +185,51 @@ pub(super) fn objc_setProperty(
     // safeguard: any real ivar offset will be after the isa pointer.
     assert!(offset >= 4);
 
-    if atomic {
-        log_once!("TODO: Lock when atomic is set to true in objc_setProperty");
-    }
-
     let ivar: MutPtr<id> = Ptr::from_bits(this.to_bits().checked_add_signed(offset).unwrap());
-    let old = env.mem.read(ivar);
 
-    let void_null: MutVoidPtr = Ptr::null();
-    let value: id = if value != nil {
-        match should_copy {
-            0 => retain(env, value),
-            1 => msg![env; value copyWithZone:void_null],
-            2 => msg![env; value mutableCopyWithZone:void_null],
-            // Apple's source code implies that any non-zero value that isn't 2
-            // should mean "copy", but that seems weird, let's be conservative.
-            _ => panic!("Unknown \"should copy\" value: {should_copy}"),
+    if atomic {
+        // Acquire lock for atomic property access
+        let _lock = get_atomic_lock(this.to_bits() as usize);
+        
+        let old = env.mem.read(ivar);
+
+        let void_null: MutVoidPtr = Ptr::null();
+        let new_value: id = if value != nil {
+            match should_copy {
+                0 => retain(env, value),
+                1 => msg![env; value copyWithZone:void_null],
+                2 => msg![env; value mutableCopyWithZone:void_null],
+                // Apple's source code implies that any non-zero value that isn't 2
+                // should mean "copy", but that seems weird, let's be conservative.
+                _ => panic!("Unknown \"should copy\" value: {should_copy}"),
+            }
+        } else {
+            nil
+        };
+        env.mem.write(ivar, new_value);
+
+        if old != nil {
+            release(env, old);
         }
     } else {
-        nil
-    };
-    env.mem.write(ivar, value);
+        let old = env.mem.read(ivar);
 
-    if old != nil {
-        release(env, old);
+        let void_null: MutVoidPtr = Ptr::null();
+        let new_value: id = if value != nil {
+            match should_copy {
+                0 => retain(env, value),
+                1 => msg![env; value copyWithZone:void_null],
+                2 => msg![env; value mutableCopyWithZone:void_null],
+                _ => panic!("Unknown \"should copy\" value: {should_copy}"),
+            }
+        } else {
+            nil
+        };
+        env.mem.write(ivar, new_value);
+
+        if old != nil {
+            release(env, old);
+        }
     }
 }
 
@@ -198,13 +240,18 @@ pub(super) fn objc_copyStruct(
     dest: MutVoidPtr,
     src: ConstVoidPtr,
     size: GuestUSize,
-    _atomic: bool,
+    atomic: bool,
     _hasStrong: bool,
 ) {
-    // It's safe to ignore atomic as we never switch thread unless we call back
-    // into guest code and we're not doing that here, just calling memmove.
-    // TODO: implement atomic support
-    env.mem.memmove(dest, src, size);
+    if atomic {
+        // For atomic struct copy, we need to use a spinlock-like mechanism
+        // Since we can't easily lock arbitrary addresses, we use a best-effort approach
+        // by acquiring a lock based on the destination address
+        let _lock = get_atomic_lock(dest.to_bits() as usize);
+        env.mem.memmove(dest, src, size);
+    } else {
+        env.mem.memmove(dest, src, size);
+    }
 }
 
 /// Logs a placeholder message for an unimplemented ObjC setter
