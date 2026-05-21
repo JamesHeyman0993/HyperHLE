@@ -12,6 +12,7 @@ use crate::frameworks::foundation::ns_string;
 use crate::mem::{MutVoidPtr, Ptr};
 use crate::objc::{id, msg, msg_class, nil, release, retain};
 use crate::Environment;
+use byteorder::{BigEndian, WriteBytesExt};
 
 // =========================================================================
 // MARK: - Type aliases
@@ -268,7 +269,7 @@ fn CGFontGetGlyphAdvances(
     true
 }
 
-/// `bool CGFontGetGlyphBBoxes(font, glyphs, count, bboxes)`
+/// `bool Hack: CGFontGetGlyphBBoxes(font, glyphs, count, bboxes)`
 ///
 /// Writes `count` bounding boxes (CGRect, in design units). Stub: writes the
 /// full font bounding box for every glyph.
@@ -343,12 +344,53 @@ fn CGFontCopyTableTags(_env: &mut Environment, font: CGFontRef) -> CFTypeRef {
 }
 
 /// `CFDataRef CGFontCopyTableForTag(CGFontRef font, uint32_t tag)`
-fn CGFontCopyTableForTag(_env: &mut Environment, font: CGFontRef, tag: u32) -> CFTypeRef {
+fn CGFontCopyTableForTag(env: &mut Environment, font: CGFontRef, tag: u32) -> CFTypeRef {
+    let tag_bytes = tag.to_be_bytes();
+    let tag_str = std::str::from_utf8(&tag_bytes).unwrap_or("????");
+    
     log_dbg!(
-        "CGFontCopyTableForTag({:?}, {:#010x}) — returning nil",
+        "CGFontCopyTableForTag({:?}, {} [0x{:08x}])",
         font,
+        tag_str,
         tag
     );
+
+    // If EA's FusionKit engine queries the Character Map layout ('cmap'), return
+    // a valid mock container instead of a crashing NULL reference.
+    if tag == 0x636d6170 { // 'cmap'
+        log!("Applying Madden/FusionKit Bypass: Generating mock 'cmap' font table structure.");
+        
+        let mut mock_cmap = Vec::new();
+        // Header structure
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.write_u16::<BigEndian>(1).unwrap();
+        
+        // Encoding Record
+        mock_cmap.write_u16::<BigEndian>(3).unwrap();
+        mock_cmap.write_u16::<BigEndian>(1).unwrap();
+        mock_cmap.write_u32::<BigEndian>(12).unwrap();
+        
+        // Subtable format 4 configurations
+        mock_cmap.write_u16::<BigEndian>(4).unwrap();
+        mock_cmap.write_u16::<BigEndian>(32).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.write_u16::<BigEndian>(2).unwrap();
+        mock_cmap.write_u16::<BigEndian>(2).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        
+        // Segment termination structures
+        mock_cmap.write_u16::<BigEndian>(0xFFFF).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0xFFFF).unwrap();
+        mock_cmap.write_u16::<BigEndian>(1).unwrap();
+        mock_cmap.write_u16::<BigEndian>(0).unwrap();
+
+        let data_class = env.objc.get_known_class("NSData", &mut env.mem);
+        let ns_data: id = msg![env; data_class dataWithBytes:mock_cmap.as_ptr() length:mock_cmap.len()];
+        return ns_data;
+    }
+
     nil
 }
 
