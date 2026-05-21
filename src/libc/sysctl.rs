@@ -108,6 +108,17 @@ fn sysctl(
 
     let (name0, name1) = (env.mem.read(name), env.mem.read(name + 1));
 
+    // Catch CTL_NET (4) and NET_RT_IFLIST (17) to satisfy network routing table diagnostics
+    if name0 == 4 && name1 == 17 {
+        log!("sysctl(): Faking empty routing table list ([4, 17]) to satisfy mgmtInfoBase query.");
+        if oldp.is_null() {
+            env.mem.write(oldlenp, 0 as GuestUSize);
+            return 0;
+        }
+        env.mem.write(oldlenp, 0 as GuestUSize);
+        return 0;
+    }
+
     // hw.machine depends on the emulated device family
     // В SYSCTL_VALUES hw.machine соответствует ключу (6, 1)
     if name0 == 6 && name1 == 1 {
