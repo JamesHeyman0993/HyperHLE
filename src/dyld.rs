@@ -375,6 +375,7 @@ impl Dyld {
                 || name == "__dyld_get_image_header"
                 || name == "__dyld_register_func_for_add_image"
                 || name == "__dyld_register_func_for_remove_image"
+                || name == "_CrittercismJKParseUTF8String"
             {
                 let trampoline_ptr = self.create_proc_address_no_inval(mem, name).unwrap().to_ptr();
                 trampoline_ptr
@@ -482,7 +483,7 @@ impl Dyld {
                 || symbol == "_NSMetadataQueryDidFinishGatheringNotification" 
                 || symbol == "_NSMetadataQueryUbiquitousDocumentsScope" 
             {
-                let dummy = mem.alloc(16);
+ let dummy = mem.alloc(16);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
                 continue;
             }
@@ -674,6 +675,15 @@ impl Dyld {
              let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
+
+        // --- NEW: CRITTERCISM PARSER INTERCEPT ---
+        if symbol == "_CrittercismJKParseUTF8String" || symbol == "CrittercismJKParseUTF8String" {
+             log!("HyperHLE: Catching lazy link for Crittercism JSON Parser. Bypassing crash engine.");
+             let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
+             let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
+             let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
+             return Some(self.linked_host_functions[idx_f as usize].1);
+        }
         
         if let Some(&addr) = self.non_lazy_host_functions.get(symbol) {
             let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
@@ -711,8 +721,7 @@ impl Dyld {
                 return None;
             }
         }
-
-        log!("Warning: call to unimplemented function {}; installing return-0 stub", symbol);
+      log!("Warning: call to unimplemented function {}; installing return-0 stub", symbol);
         
         let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
         let f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
@@ -753,6 +762,15 @@ impl Dyld {
             let f: HostFunction = &(touchhle_cc_sha256_stub as fn(&mut Environment, u32, u32, u32) -> u32);
             let function_ptr = self.create_guest_function(mem, "CC_SHA256", f);
             self.non_lazy_host_functions.insert("CC_SHA256", function_ptr);
+            return Ok(function_ptr);
+        }
+
+        if symbol == "_CrittercismJKParseUTF8String" || symbol == "CrittercismJKParseUTF8String" {
+            let symbol_name = "_CrittercismJKParseUTF8String";
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol_name) { return Ok(cached_fn); }
+            let f: HostFunction = &(touchhle_crittercism_json_stub as fn(&mut Environment, u32, u32, u32, u32) -> u32);
+            let function_ptr = self.create_guest_function(mem, symbol_name, f);
+            self.non_lazy_host_functions.insert(symbol_name, function_ptr);
             return Ok(function_ptr);
         }
 
@@ -806,7 +824,7 @@ impl Dyld {
             let function_ptr = self.create_guest_function(mem, "__dyld_get_image_header", f);
             self.non_lazy_host_functions.insert("__dyld_get_image_header", function_ptr);
             return Ok(function_ptr);
-            }
+        }
         if symbol == "__dyld_register_func_for_add_image" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get("__dyld_register_func_for_add_image") { return Ok(cached_fn); }
             let f: HostFunction = &(touchhle_dyld_register_func_for_add_image as fn(&mut Environment, u32));
@@ -960,3 +978,10 @@ fn touchhle_cc_sha256_stub(env: &mut Environment, _data: u32, _len: u32, md_outp
     }
     0
 }
+
+fn touchhle_crittercism_json_stub(_env: &mut Environment, _string_bytes_ptr: u32, _length: u32, _encoding: u32, _error_out_ptr: u32) -> u32 {
+    log!("HyperHLE: Intercepted and bypassed _CrittercismJKParseUTF8String to eliminate empty JSON parsing crash.");
+    // Return 0 (nil / NULL object reference) to signal an empty or safe initialization result 
+    // without triggering an assembly-level null pointer dereference.
+    0
+                                                                                               }  
