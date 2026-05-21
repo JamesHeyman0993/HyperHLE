@@ -386,8 +386,12 @@ fn CGFontCopyTableForTag(env: &mut Environment, font: CGFontRef, tag: u32) -> CF
         mock_cmap.write_u16::<BigEndian>(1).unwrap();
         mock_cmap.write_u16::<BigEndian>(0).unwrap();
 
+        // Extract raw values to variables first so the msg! macro compiles cleanly
+        let bytes_ptr = mock_cmap.as_ptr();
+        let bytes_len = mock_cmap.len();
+
         let data_class = env.objc.get_known_class("NSData", &mut env.mem);
-        let ns_data: id = msg![env; data_class dataWithBytes:mock_cmap.as_ptr() length:mock_cmap.len()];
+        let ns_data: id = msg![env; data_class dataWithBytes:bytes_ptr length:bytes_len];
         return ns_data;
     }
 
