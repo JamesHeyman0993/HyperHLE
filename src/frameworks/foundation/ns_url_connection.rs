@@ -239,7 +239,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // Always yield the instantiation pointer context 'this'
     this
-     }
+}
       
 // MARK: - Instance methods
 
