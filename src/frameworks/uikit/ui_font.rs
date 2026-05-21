@@ -114,9 +114,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 // --- Toy Story 2 System Engine Additions ---
 + (id)familyNames {
     log!("Bypassing UIFont familyNames query for storybook layout engine.");
-    let pool: id = msg_class![env; NSAutoreleasePool new];
-    let font_family = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
+    let pool_class = env.objc.get_known_class("NSAutoreleasePool", &mut env.mem);
+    let pool: id = msg![env; pool_class new];
     
+    let font_family = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
     let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
     let ns_array: id = msg![env; array_class arrayWithObject:font_family];
     
@@ -125,9 +126,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)fontNamesForFamilyName:(id)_family_name {
-    let pool: id = msg_class![env; NSAutoreleasePool new];
-    let font_variant = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
+    let pool_class = env.objc.get_known_class("NSAutoreleasePool", &mut env.mem);
+    let pool: id = msg![env; pool_class new];
     
+    let font_variant = crate::frameworks::foundation::ns_string::get_static_str(env, "Helvetica");
     let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
     let ns_array: id = msg![env; array_class arrayWithObject:font_variant];
     
@@ -135,7 +137,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, ns_array)
 }
 // -------------------------------------------
-
+    
 + (id)systemFontOfSize:(CGFloat)size {
     let host_object = UIFontHostObject {
         size,
