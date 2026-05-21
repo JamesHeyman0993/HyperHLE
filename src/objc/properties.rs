@@ -26,8 +26,8 @@ use std::collections::HashMap;
 
 /// Global mutex storage for atomic properties
 /// Uses the object's pointer address as the key
-static ATOMIC_PROPERTY_LOCKS: Mutex<HashMap<usize, Mutex<()>>> = Mutex::new(HashMap::new());
-
+static ATOMIC_PROPERTY_LOCKS: std::sync::LazyLock<Mutex<HashMap<usize, Mutex<()>>>> = 
+    std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
 /// Get or create a mutex for an atomic property access
 fn get_atomic_lock(obj_addr: usize) -> std::sync::MutexGuard<'static, ()> {
     let mut locks = ATOMIC_PROPERTY_LOCKS.lock().unwrap();
