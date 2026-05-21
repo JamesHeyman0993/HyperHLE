@@ -444,11 +444,23 @@ UIColor blackColor] // TODO
 // MPMediaPlayback implementation
 - (())play {
     log!("HACK: Video sequence execution [(MPMoviePlayerController*){:?} play]", this);
-    env.objc
-        .borrow_mut::<MPMoviePlayerControllerHostObject>(this)
-        .playback_state = MPMoviePlaybackStatePlaying;
+    
+    let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+    
+    // Only queue the completion event if we aren't already playing
+    if current_state.playback_state != MPMoviePlaybackStatePlaying {
+        current_state.playback_state = MPMoviePlaybackStatePlaying;
+        
+        // Queue up the finish notification delayed by 150ms from *NOW*
+        retain(env, this);
+        State::get(env).pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            this,
+            Instant::now() + std::time::Duration::from_millis(150),
+        ));
+    }
 }
-           
+                
 - (())pause {
     log!("TODO: [(MPMoviePlayerController*){:?} pause]", this);
     env.objc
