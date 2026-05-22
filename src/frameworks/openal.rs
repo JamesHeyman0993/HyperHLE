@@ -342,23 +342,45 @@ fn alcGetProcAddress(
     _device: ConstPtr<GuestALCdevice>,
     func_name: ConstPtr<u8>,
 ) -> MutVoidPtr {
-    let mangled_func_name = format!("_{}", env.mem.cstr_at_utf8(func_name).unwrap());
+    let name_str = env.mem.cstr_at_utf8(func_name).unwrap();
+    let mangled_func_name = format!("_{}", name_str);
     assert!(mangled_func_name.starts_with("_al"));
 
+    // First, try to see if our dynamic linker can map the address automatically
     if let Ok(ptr) = env
         .dyld
         .create_proc_address(&mut env.mem, &mut env.cpu, &mangled_func_name)
     {
-        Ptr::from_bits(ptr.addr_with_thumb_bit())
-    } else {
-        if mangled_func_name == "_alcMacOSMixerOutputRate" {
-            log!("Допускаем несуществующую функцию alcMacOSMixerOutputRate() в alcGetProcAddress(), возвращаем NULL.");
-            return Ptr::null();
-        }
-        panic!("Запрос адреса процедуры для нереализованной функции OpenAL {mangled_func_name}");
+        return Ptr::from_bits(ptr.addr_with_thumb_bit());
     }
-}
 
+    // FALLBACK: Handle Apple-specific extensions if dyld lookup failed
+    match name_str {
+        "alcMacOSXMixerOutputRate" | "alcMacOSMixerOutputRate" => {
+            log!("Fixing layout request for alcMacOSXMixerOutputRate");
+            if let Ok(ptr) = env.dyld.create_proc_address(&mut env.mem, &mut env.cpu, "_alcMacOSXMixerOutputRate") {
+                return Ptr::from_bits(ptr.addr_with_thumb_bit());
+            }
+        }
+        "alcMacOSXGetMixerOutputRate" | "alcMacOSGetMixerOutputRate" => {
+            log!("Fixing layout request for alcMacOSXGetMixerOutputRate");
+            if let Ok(ptr) = env.dyld.create_proc_address(&mut env.mem, &mut env.cpu, "_alcMacOSXGetMixerOutputRate") {
+                return Ptr::from_bits(ptr.addr_with_thumb_bit());
+            }
+        }
+        "alBufferDataStatic" => {
+            log!("Fixing layout request for alBufferDataStatic");
+            if let Ok(ptr) = env.dyld.create_proc_address(&mut env.mem, &mut env.cpu, "_alBufferDataStatic") {
+                return Ptr::from_bits(ptr.addr_with_thumb_bit());
+            }
+        }
+        _ => {}
+    }
+
+    log!("Warning: Game requested unmapped extension function '{}', providing safe NULL fallback.", name_str);
+    Ptr::null()
+}
+    
 // TODO: больше функций
 
 // === al.h ===
