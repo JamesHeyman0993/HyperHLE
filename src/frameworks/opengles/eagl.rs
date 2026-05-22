@@ -196,7 +196,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let effective_api = effective_eagl_api(api, env.options.prefer_gles2_context);
 
     let mut gles_ins = match effective_api {
-        kEAGLRenderingAPIOpenGLES3 => create_gles3_ctx(env),
+        kEAGLRenderingAPIOpenGLES3 => {
+            log!("Warning: App requested GLES3 context. Mapping to GLES2 context engine allocation.");
+            create_gles2_ctx(env)
+        }
         kEAGLRenderingAPIOpenGLES2 => create_gles2_ctx(env),
         _ => create_gles1_ctx(env),
     };
@@ -212,7 +215,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     this
 }
-        
+           
 - (EAGLRenderingAPI)API {
     env.objc.borrow::<EAGLContextHostObject>(this).api
 }
