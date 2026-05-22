@@ -256,15 +256,28 @@ impl MachO {
 
         let file = OFile::parse(&mut cursor).map_err(|_| "Could not parse Mach-O file")?;
 
-        let (header, commands) = match file {
+                let (header, commands) = match file {
             OFile::MachFile { header, commands } => (header, commands),
             OFile::FatFile { files, .. } => {
                 let mut best_subslice = None;
                 let mut best_type = None;
+
+                // Сначала проверяем, есть ли в FAT-файле срез armv7
+                let has_armv7 = files.iter().any(|(arch, _)| {
+                    arch.cputype == mach_object::CPU_TYPE_ARM && arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V7
+                });
+
                 for (arch, _) in files {
                     if arch.cputype != mach_object::CPU_TYPE_ARM {
                         continue;
                     }
+
+                    // Если в файле есть armv7, полностью игнорируем armv6
+                    if has_armv7 && arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V6 {
+                        log!("Fat binary contains armv7 slice. Skipping armv6 slice for stability.");
+                        continue;
+                    }
+
                     if arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V7
                         || (arch.cpusubtype == mach_object::CPU_SUBTYPE_ARM_V6
                             && best_type != Some(mach_object::CPU_SUBTYPE_ARM_V7))
@@ -286,7 +299,7 @@ impl MachO {
                 return Err("Unexpected Mach-O file kind: not an executable");
             }
         };
-
+        
         if header.cputype != mach_object::CPU_TYPE_ARM {
             return Err("Executable is not for an ARM CPU!");
         }
