@@ -1364,26 +1364,54 @@ fn glCompressedTexImage2D(
             );
         }
     }
+
+    // PVRTC Formats: 0x8c00 (RGB 4BPP), 0x8c01 (RGB 2BPP), 0x8c02 (RGBA 4BPP), 0x8c03 (RGBA 2BPP)
+    let is_pvrtc = internalformat >= 0x8c00 && internalformat <= 0x8c03;
     let fix_filter = env.options.fix_texture_min_filter && level == 0;
+
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = mem
             .ptr_at(data.cast::<u8>(), image_size.try_into().unwrap())
             .cast();
-        gles.CompressedTexImage2D(
-            target,
-            level,
-            internalformat,
-            width,
-            height,
-            border,
-            image_size,
-            data,
-        );
+
+        if is_pvrtc {
+            // ИСПРАВЛЕНИЕ: Так как хост-драйвер декодирует PVRTC в RGBA программно,
+            // мы перенаправляем сжатый вызов в обычный TexImage2D с типом GL_RGBA (0x1908).
+            // Иначе Adreno вернет ошибку 0x500 (GL_INVALID_ENUM).
+            let gl_rgba = 0x1908;
+            let gl_unsigned_byte = 0x1401;
+
+            gles.TexImage2D(
+                target,
+                level,
+                gl_rgba as GLint,
+                width,
+                height,
+                border,
+                gl_rgba,
+                gl_unsigned_byte,
+                data,
+            );
+        } else {
+            // Стандартное поведение для несжатых или других поддерживаемых форматов
+            gles.CompressedTexImage2D(
+                target,
+                level,
+                internalformat,
+                width,
+                height,
+                border,
+                image_size,
+                data,
+            );
+        }
+
         if fix_filter {
             gles.TexParameteri(target, gles11::TEXTURE_MIN_FILTER, gles11::LINEAR as GLint);
         }
     })
 }
+
 fn glCopyTexImage2D(
     env: &mut Environment,
     target: GLenum,
