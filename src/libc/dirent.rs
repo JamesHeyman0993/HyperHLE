@@ -79,17 +79,30 @@ fn opendir(env: &mut Environment, filename: ConstPtr<u8>) -> MutPtr<DIR> {
 
 // TODO: return '.' and '..' entries as well
 fn readdir(env: &mut Environment, dirp: MutPtr<DIR>) -> MutPtr<dirent> {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
+    if dirp.is_null() {
+        log!("Warning: readdir called with null dirp pointer.");
+        return Ptr::null();
+    }
+
+    // Gracefully handle unmapped or missing directory structures instead of panicking
+    let vec = match env.libc_state.dirent.open_dirs.get(&dirp) {
+        Some(v) => v,
+        None => {
+            log!("Warning: readdir called with unknown or uninitialized handle: {:?}", dirp);
+            return Ptr::null();
+        }
+    };
+
     let mut dir = env.mem.read(dirp);
-    let vec = env.libc_state.dirent.open_dirs.get(&dirp).unwrap();
     log_dbg!(
         "readdir: dirp {:?}, idx {}, entry '{:?}'",
         dirp,
         dir.idx,
         vec.get(dir.idx)
     );
+    
     if let Some((str, type_)) = vec.get(dir.idx) {
         dir.idx += 1;
         env.mem.write(dirp, dir);
@@ -110,12 +123,12 @@ fn readdir(env: &mut Environment, dirp: MutPtr<DIR>) -> MutPtr<dirent> {
         };
         dirent.d_name[..len].copy_from_slice(str.as_bytes());
         let res = env.mem.alloc_and_write(dirent);
-        env.libc_state
-            .dirent
-            .read_dirs
-            .get_mut(&dirp)
-            .unwrap()
-            .push(res);
+        
+        // Safely push back the lookup without risk of panicking on tracking lists
+        if let Some(read_vec) = env.libc_state.dirent.read_dirs.get_mut(&dirp) {
+            read_vec.push(res);
+        }
+        
         res
     } else {
         Ptr::null()
