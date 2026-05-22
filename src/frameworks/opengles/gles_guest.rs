@@ -1364,46 +1364,87 @@ fn glCompressedTexImage2D(
             );
         }
     }
-
-    // PVRTC Formats: 0x8c00 (RGB 4BPP), 0x8c01 (RGB 2BPP), 0x8c02 (RGBA 4BPP), 0x8c03 (RGBA 2BPP)
-    let is_pvrtc = internalformat >= 0x8c00 && internalformat <= 0x8c03;
     let fix_filter = env.options.fix_texture_min_filter && level == 0;
-
     with_ctx_and_mem(env, |gles, mem| unsafe {
+        // Pre-flight: drain any sticky GL error left by the previous call
+        // (e.g. an oversized RGBA8 glTexImage2D on a strict Mali driver),
+        // so when we check post-upload below we can attribute a fresh error
+        // to *this* compressed upload only. Without this, every PVRTC /
+        // paletted upload that follows a failed glTexImage2D would report
+        // a misleading "compressed upload failed" on the very first call —
+        // that's exactly what was happening on Mali-G57 with Temple Run
+        // (HyperHLE log: 1024x1024 RGBA8 upload immediately followed by
+        // 256x256 PVRTC upload, both blamed on the PVRTC path).
+        let mut drained = 0u32;
+        loop {
+            let e = gles.GetError();
+            if e == 0 {
+                break;
+            }
+            drained += 1;
+            if drained > 16 {
+                // Pathological driver that won't clear; bail out instead of
+                // looping forever.
+                break;
+            }
+        }
+
         let data = mem
             .ptr_at(data.cast::<u8>(), image_size.try_into().unwrap())
             .cast();
+        gles.CompressedTexImage2D(
+            target,
+            level,
+            internalformat,
+            width,
+            height,
+            border,
+            image_size,
+            data,
+        );
 
-        if is_pvrtc {
-            // ИСПРАВЛЕНИЕ: Так как хост-драйвер декодирует PVRTC в RGBA программно,
-            // мы перенаправляем сжатый вызов в обычный TexImage2D с типом GL_RGBA (0x1908).
-            // Иначе Adreno вернет ошибку 0x500 (GL_INVALID_ENUM).
-            let gl_rgba = 0x1908;
-            let gl_unsigned_byte = 0x1401;
-
-            gles.TexImage2D(
-                target,
-                level,
-                gl_rgba as GLint,
-                width,
-                height,
-                border,
-                gl_rgba,
-                gl_unsigned_byte,
-                data,
-            );
-        } else {
-            // Стандартное поведение для несжатых или других поддерживаемых форматов
-            gles.CompressedTexImage2D(
-                target,
-                level,
-                internalformat,
-                width,
-                height,
-                border,
-                image_size,
-                data,
-            );
+        // Post-flight: if the upload itself produced a fresh error (and the
+        // backend didn't already software-decode the payload to RGBA8 via
+        // glTexImage2D, which is the success path), report it once with
+        // enough context for the user to file a bug. This is `log!`
+        // (visible at default level) but rate-limited per (format, error)
+        // pair so a frame-by-frame texture stream can't flood the console.
+        let post_err = gles.GetError();
+        if post_err != 0 {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            // Pack (internalformat << 32) | post_err into a single 64-bit
+            // slot per "ever seen" entry; cap at 8 distinct entries.
+            const MAX_REPORTED: usize = 8;
+            static REPORTED: [AtomicU64; MAX_REPORTED] = [
+                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+                AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0),
+            ];
+            let key: u64 = ((internalformat as u64) << 32) | (post_err as u64);
+            let mut already_seen = false;
+            for slot in &REPORTED {
+                let cur = slot.load(Ordering::Relaxed);
+                if cur == key {
+                    already_seen = true;
+                    break;
+                }
+                if cur == 0
+                    && slot
+                        .compare_exchange(0, key, Ordering::Relaxed, Ordering::Relaxed)
+                        .is_ok()
+                {
+                    break;
+                }
+            }
+            if !already_seen {
+                log!(
+                    "Warning: glCompressedTexImage2D: host driver returned \
+                     {post_err:#x} for {width}x{height} level {level} \
+                     internalformat {internalformat:#x} (image_size={image_size}). \
+                     This is the SOURCE of the GL error, not a sticky one — \
+                     {drained} pre-existing error(s) were drained beforehand. \
+                     [this format/error pair will be reported once]"
+                );
+            }
         }
 
         if fix_filter {
