@@ -32,13 +32,14 @@ mod selectors;
 mod synchronization;
 
 pub use classes::{
-    class_getInstanceMethod, class_getInstanceSize, class_getSuperclass, class_replaceMethod,
-    method_getImplementation, method_getTypeEncoding, method_setImplementation,
-    objc_autoreleasePoolPop, objc_autoreleasePoolPush, objc_autoreleaseReturnValue,
-    objc_begin_catch, objc_classes, objc_end_catch, objc_exception_throw, objc_getClass,
-    objc_getMetaClass, objc_release, objc_retain, objc_retainAutoreleaseReturnValue,
-    objc_retainAutoreleasedReturnValue, objc_setProperty_nonatomic, object_getClass,
-    object_getClassName, Class, ClassExports, ClassTemplate,
+    class_getInstanceMethod, class_getInstanceSize, class_getProperty, class_getSuperclass,
+    class_replaceMethod, method_getImplementation, method_getTypeEncoding,
+    method_setImplementation, objc_autoreleasePoolPop, objc_autoreleasePoolPush,
+    objc_autoreleaseReturnValue, objc_begin_catch, objc_classes, objc_end_catch,
+    objc_exception_throw, objc_getClass, objc_getMetaClass, objc_release, objc_retain,
+    objc_retainAutoreleaseReturnValue, objc_retainAutoreleasedReturnValue,
+    objc_setProperty_nonatomic, object_getClass, object_getClassName, Class, ClassExports,
+    ClassTemplate,
 };
 pub use messages::{
     autorelease, msg, msg_class, msg_send, msg_send_no_type_checking, msg_send_super2, msg_super,
@@ -223,6 +224,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch(_)),
     export_c_func!(class_getSuperclass(_)),
+    export_c_func!(class_getProperty(_, _)),
     export_c_func!(class_getInstanceSize(_, _)),
     export_c_func!(class_getInstanceMethod(_, _)),
     export_c_func!(class_replaceMethod(_, _)),
