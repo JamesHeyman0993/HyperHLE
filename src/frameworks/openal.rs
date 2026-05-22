@@ -342,7 +342,8 @@ fn alcGetProcAddress(
     _device: ConstPtr<GuestALCdevice>,
     func_name: ConstPtr<u8>,
 ) -> MutVoidPtr {
-    let name_str = env.mem.cstr_at_utf8(func_name).unwrap();
+    // Crucial Fix: Convert to an owned String to drop the reference to env.mem immediately
+    let name_str = env.mem.cstr_at_utf8(func_name).unwrap().to_string();
     let mangled_func_name = format!("_{}", name_str);
     assert!(mangled_func_name.starts_with("_al"));
 
@@ -355,7 +356,7 @@ fn alcGetProcAddress(
     }
 
     // FALLBACK: Handle Apple-specific extensions if dyld lookup failed
-    match name_str {
+    match name_str.as_str() {
         "alcMacOSXMixerOutputRate" | "alcMacOSMixerOutputRate" => {
             log!("Fixing layout request for alcMacOSXMixerOutputRate");
             if let Ok(ptr) = env.dyld.create_proc_address(&mut env.mem, &mut env.cpu, "_alcMacOSXMixerOutputRate") {
@@ -380,7 +381,7 @@ fn alcGetProcAddress(
     log!("Warning: Game requested unmapped extension function '{}', providing safe NULL fallback.", name_str);
     Ptr::null()
 }
-    
+        
 // TODO: больше функций
 
 // === al.h ===
