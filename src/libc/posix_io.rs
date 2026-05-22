@@ -365,39 +365,30 @@ pub fn read(
     };
 
     let buffer_slice = env.mem.bytes_at_mut(buffer.cast(), size);
-    match file.file.read(buffer_slice) {
-        Ok(bytes_read) => {
-            if bytes_read == 0 && size != 0 {
-                file.reached_eof = true;
+    
+    let mut total_bytes_read = 0;
+    let mut error_encountered = None;
+
+    // Цикл продолжается, пока не заполнится весь запрошенный буфер, 
+    // либо пока мы не упремся в реальный конец файла (EOF) или ошибку.
+    while total_bytes_read < buffer_slice.len() {
+        match file.file.read(&mut buffer_slice[total_bytes_read..]) {
+            Ok(0) => {
+                // Достигнут реальный конец файла
+                break;
             }
-            // ИСПРАВЛЕНИЕ 3: не выдавать Warning при нормальном EOF (bytes_read
-            // == 0).
-            // Многие приложения читают файлы побайтово до конца — это штатное
-            // поведение, не ошибка. Warning остаётся только для частичного
-            // чтения
-            // (когда прочитано больше 0 байт, но меньше запрошенного).
-            if bytes_read == 0 {
-                log_dbg!("read({:?}, {:?}, {:#x}) => 0 (EOF)", fd, buffer, size);
-            } else if bytes_read < buffer_slice.len() {
-                log!(
-                    "Warning: read({:?}, {:?}, {:#x}) read only {:#x} bytes",
-                    fd,
-                    buffer,
-                    size,
-                    bytes_read
-                );
-            } else {
-                log_dbg!(
-                    "read({:?}, {:?}, {:#x}) => {:#x}",
-                    fd,
-                    buffer,
-                    size,
-                    bytes_read
-                );
+            Ok(bytes_read) => {
+                total_bytes_read += bytes_read;
             }
-            bytes_read.try_into().unwrap_or(-1)
+            Err(e) => {
+                error_encountered = Some(e);
+                break;
+            }
         }
-        Err(e) => {
+    }
+
+    if let Some(e) = error_encountered {
+        if total_bytes_read == 0 {
             let res = match e.kind() {
                 std::io::ErrorKind::IsADirectory => {
                     set_errno(env, EISDIR);
@@ -406,17 +397,43 @@ pub fn read(
                 _ => -1,
             };
             log!(
-                "Warning: read({:?}, {:?}, {:#x}) encountered error {:?}, \
-                 returning {}",
+                "Warning: read({:?}, {:?}, {:#x}) encountered error {:?}, returning {}",
                 fd,
                 buffer,
                 size,
                 e,
                 res
             );
-            res
+            return res;
         }
     }
+
+    if total_bytes_read == 0 && size != 0 {
+        file.reached_eof = true;
+    }
+
+    if total_bytes_read == 0 {
+        log_dbg!("read({:?}, {:?}, {:#x}) => 0 (EOF)", fd, buffer, size);
+    } else if total_bytes_read < buffer_slice.len() {
+        // Логируем только если файл РЕАЛЬНО закончился раньше, чем просил движок игры
+        log!(
+            "Warning: read({:?}, {:?}, {:#x}) hit EOF early; read only {:#x} bytes",
+            fd,
+            buffer,
+            size,
+            total_bytes_read
+        );
+    } else {
+        log_dbg!(
+            "read({:?}, {:?}, {:#x}) => {:#x}",
+            fd,
+            buffer,
+            size,
+            total_bytes_read
+        );
+    }
+
+    total_bytes_read.try_into().unwrap_or(-1)
 }
 
 pub fn pread(
