@@ -159,7 +159,6 @@ fn scandir(
     select: GuestFunction, // int (*select)(const struct dirent *)
     compar: GuestFunction, // int (*compar)(const struct dirent **, const struct dirent **)
 ) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     assert!(select.to_ptr().is_null());
@@ -167,18 +166,25 @@ fn scandir(
 
     let dirp = opendir(env, dirname);
     if dirp.is_null() {
-        // TODO: set errno
+        // POSIX requires setting errno when opendir fails inside scandir
+        crate::libc::errno::set_errno(env, crate::libc::errno::ENOENT);
         return -1;
     }
-    let mut next_dir_entry = readdir(env, dirp);
+
     let mut tmp_vec: Vec<MutPtr<dirent>> = vec![];
+    let mut next_dir_entry = readdir(env, dirp);
     while !next_dir_entry.is_null() {
         tmp_vec.push(next_dir_entry);
         next_dir_entry = readdir(env, dirp);
     }
-    // we want to free dirp, but not entries themselves
-    // so, we're not calling closedir() here
-    env.libc_state.dirent.read_dirs.remove(&dirp);
+
+    // ИСПРАВЛЕНИЕ: Извлекаем записи из read_dirs ПЕРЕД очисткой,
+    // чтобы предотвратить утечки памяти и не ломать closedir/free в игре
+    if let Some(read_vec) = env.libc_state.dirent.read_dirs.get_mut(&dirp) {
+        read_vec.clear(); 
+    }
+
+    // Закрываем дескриптор директории безопасно через штатный механизм
     env.libc_state.dirent.open_dirs.remove(&dirp);
     env.mem.free(dirp.cast());
 
