@@ -119,20 +119,18 @@ impl Bundle {
             .get("UIRequiredDeviceCapabilities")
             .map(|v| {
                 if let Some(dict) = v.as_dictionary() {
-                    // TODO: support undesired capabilities
-                    assert!(dict.values().all(|x| x.as_boolean().unwrap()));
                     dict.keys().map(|o| o.as_str()).collect()
-                } else {
-                    v.as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|o| o.as_string().unwrap())
+                } else if let Some(arr) = v.as_array() {
+                    arr.iter()
+                        .filter_map(|o| o.as_string())
                         .collect()
+                } else {
+                    Vec::new()
                 }
             })
             .unwrap_or_default()
     }
-
+    
     pub fn executable_path(&self) -> GuestPathBuf {
         // FIXME: Is this key optional? All iPhone apps seem to have it.
         self.path
@@ -252,7 +250,7 @@ impl Bundle {
             .map(|v| v.as_string().unwrap())
     }
 
-    pub fn supported_interface_orientations(&self) -> Vec<&str> {
+        pub fn supported_interface_orientations(&self) -> Vec<&str> {
         // UIInterfaceOrientation (iPhone OS 2.0) is a single string
         // (or a comma separated list of strings).
         // UISupportedInterfaceOrientations (iOS 3.2) is an array of strings and
@@ -260,17 +258,23 @@ impl Bundle {
         self.plist
             .get("UISupportedInterfaceOrientations")
             .map(|v| {
-                v.as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|o| o.as_string().unwrap())
-                    .collect()
+                if let Some(arr) = v.as_array() {
+                    arr.iter()
+                        .map(|o| o.as_string().unwrap_or("UIInterfaceOrientationPortrait"))
+                        .collect()
+                } else if let Some(str) = v.as_string() {
+                    log!("Warning: UISupportedInterfaceOrientations is a string, not an array. Parsing anyway.");
+                    str.split(',').collect()
+                } else {
+                    log!("Warning: UISupportedInterfaceOrientations is a weird type. Falling back.");
+                    vec!["UIInterfaceOrientationPortrait"]
+                }
             })
             .unwrap_or_else(|| {
                 if let Some(v) = self
                     .plist
                     .get("UIInterfaceOrientation") {
-                    let str = v.as_string().unwrap();
+                    let str = v.as_string().unwrap_or("UIInterfaceOrientationPortrait");
                     if str.contains(',') {
                         log!("UIInterfaceOrientation is a comma separated list of strings ({}), splitting!", str);
                     }
@@ -279,18 +283,18 @@ impl Bundle {
                     vec!["UIInterfaceOrientationPortrait"]
                 }
             })
-    }
-
-    pub fn device_family_array(&self) -> Vec<DeviceFamily> {
+        }
+    
+        pub fn device_family_array(&self) -> Vec<DeviceFamily> {
         self.plist
             .get("UIDeviceFamily")
-            .map(|v| {
-                v.as_array()
-                    .unwrap()
-                    .iter()
-                    .map(|o| DeviceFamily::try_from(o.as_unsigned_integer().unwrap()).unwrap())
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|o| o.as_unsigned_integer())
+                    .filter_map(|num| DeviceFamily::try_from(num).ok())
                     .collect()
             })
             .unwrap_or_else(|| vec![DeviceFamily::iPhone])
-    }
-}
+        }
+    
