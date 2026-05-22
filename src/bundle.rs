@@ -250,7 +250,7 @@ impl Bundle {
             .map(|v| v.as_string().unwrap())
     }
 
-        pub fn supported_interface_orientations(&self) -> Vec<&str> {
+    pub fn supported_interface_orientations(&self) -> Vec<&str> {
         // UIInterfaceOrientation (iPhone OS 2.0) is a single string
         // (or a comma separated list of strings).
         // UISupportedInterfaceOrientations (iOS 3.2) is an array of strings and
@@ -283,9 +283,9 @@ impl Bundle {
                     vec!["UIInterfaceOrientationPortrait"]
                 }
             })
-        }
-    
-        pub fn device_family_array(&self) -> Vec<DeviceFamily> {
+    }
+
+    pub fn device_family_array(&self) -> Vec<DeviceFamily> {
         self.plist
             .get("UIDeviceFamily")
             .and_then(|v| v.as_array())
@@ -296,5 +296,5 @@ impl Bundle {
                     .collect()
             })
             .unwrap_or_else(|| vec![DeviceFamily::iPhone])
-        }
-    
+    }
+} // <--- This was the missing closing brace that fixes the build!
