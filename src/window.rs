@@ -1030,7 +1030,7 @@ impl Window {
 
     pub fn create_gl_context(&self, version: GLVersion) -> Result<GLContext, String> {
         let attr = self.video_ctx.gl_attr();
-        match version {
+                match version {
             GLVersion::GLES11 => {
                 attr.set_context_version(1, 1);
                 attr.set_context_profile(sdl2::video::GLProfile::GLES);
@@ -1043,8 +1043,17 @@ impl Window {
                 attr.set_context_version(2, 1);
                 attr.set_context_profile(sdl2::video::GLProfile::Compatibility);
             }
-        }
-
+            // 👇 ADD THESE TWO ARMS HERE 👇
+            GLVersion::GLES30 => {
+                attr.set_context_version(3, 0);
+                attr.set_context_profile(sdl2::video::GLProfile::GLES);
+            }
+            GLVersion::GL33Core => {
+                attr.set_context_version(3, 3);
+                attr.set_context_profile(sdl2::video::GLProfile::Core);
+            }
+                }
+        
         let gl_ctx = self.window.gl_create_context()?;
         Ok(GLContext(gl_ctx))
     }
