@@ -189,8 +189,12 @@ pub enum GLVersion {
     GLES11,
     /// OpenGL ES 2.0
     GLES20,
+    /// OpenGL ES 3.0
+    GLES30,
     /// OpenGL 2.1 compatibility profile
     GL21Compat,
+    /// OpenGL 3.3 core profile
+    GL33Core,
 }
 
 pub struct GLContext(sdl2::video::GLContext);
