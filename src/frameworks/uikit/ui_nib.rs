@@ -119,13 +119,28 @@ pub const CLASSES: ClassExports = objc_classes! {
         path = msg![env; bundle pathForResource:ipad_nss ofType:type_];
     }
 
-    if path == nil {
-        log!("Warning: UINib instantiateWithOwner: nib file {:?} not found. Handing back empty NSArray stub.", to_rust_string(env, nib_name));
-        let array_cls = env.objc.get_known_class("NSArray", &mut env.mem);
-        let empty_array: id = msg![env; array_cls array];
-        return empty_array;
-    }
-
+        if path == nil {
+        log!("Warning: UINib instantiateWithOwner: nib file {:?} not found. Injecting dummy UIView array fallback.", to_rust_string(env, nib_name));
+        
+        // 1. Allocate and initialize a dummy generic UIView
+        let view_cls = env.objc.get_known_class("UIView", &mut env.mem);
+        let dummy_view: id = msg![env; view_cls alloc];
+        let dummy_view: id = msg![env; dummy_view init];
+        
+        // 2. Allocate and initialize a mutable array
+        let array_cls = env.objc.get_known_class("NSMutableArray", &mut env.mem);
+        let mutable_array: id = msg![env; array_cls alloc];
+        let mutable_array: id = msg![env; mutable_array init];
+        
+        // 3. Add our dummy view into the array container
+        if mutable_array != nil && dummy_view != nil {
+            let () = msg![env; mutable_array addObject:dummy_view];
+        }
+        
+        // 4. Return the populated array wrapper safely
+        return autorelease(env, mutable_array);
+        }
+    
     let nib_path = to_rust_string(env, path).to_string();
     assert!(env.objc.borrow::<UINibHostObject>(this).file_owner == nil);
     env.objc.borrow_mut::<UINibHostObject>(this).file_owner = owner;
