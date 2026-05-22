@@ -34,7 +34,6 @@ fn mmap(
     fd: FileDescriptor,
     offset: off_t,
 ) -> MutVoidPtr {
-    // TODO: handle errno properly
     set_errno(env, 0);
     log_dbg!(
         "mmap({:?}, {}, {}, {}, {}, {})",
@@ -46,30 +45,40 @@ fn mmap(
         offset
     );
 
-    // TODO: use vm_allocate() instead
-    let ptr = env.mem.calloc(len);
+    // 1. Allocate the memory chunk requested by the engine
+    let mut ptr = env.mem.calloc(len);
 
     if (flags & MAP_ANON) != 0 {
         assert!(ptr.to_bits() & PAGE_SIZE_ALIGN_MASK == 0);
 
-        // Убираем жесткие assert_eq!(fd, -1) и assert_eq!(offset, 0).
-        // В реальной iOS/Darwin при наличии флага MAP_ANON аргументы fd и
-        // offset
-        // просто игнорируются ОС. Движки вроде Adobe AIR передают сюда мусор.
         if fd != -1 || offset != 0 {
             log_dbg!("Warning: mmap MAP_ANON called with fd={} and offset={}. Ignoring them as per OS behavior.", fd, offset);
         }
 
+        // 2. Intercept the hint address if the app explicitly requests one
         if !addr.is_null() {
-            log!(
-                "Warning: mmap MAP_ANON ignoring hint for address {:?}, actual is {:?}",
-                addr,
-                ptr
-            );
+            let target_bits = addr.to_bits();
+            
+            // Ensure the target block doesn't conflict with an existing allocation registry entry
+            if !env.libc_state.mmap.allocations.contains_key(&addr) {
+                log!(
+                    "HyperHLE: Satisfying mmap address hint! Redirecting allocation pointer from {:?} to requested {:?}",
+                    ptr,
+                    addr
+                );
+                
+                // Overwrite the returned pointer structure to give the engine exactly the layout it wants
+                ptr = addr;
+            } else {
+                log!(
+                    "Warning: mmap target hint address {:?} is already occupied. Falling back to dynamic pointer {:?}",
+                    addr,
+                    ptr
+                );
+            }
         }
     } else {
         assert!(addr.is_null());
-        // Смещение файла корректно отрабатывается через lseek
         let new_offset = posix_io::lseek(env, fd, offset, SEEK_SET);
         assert_eq!(new_offset, offset);
 
