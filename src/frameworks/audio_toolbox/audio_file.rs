@@ -433,14 +433,7 @@ pub fn AudioFileReadPackets(
         return paramErr;
     }
 
-    if !out_packet_descriptions.is_null() {
-        log!(
-            "Внимание: игнорирование не-null out_packet_descriptions \
-             в AudioFileReadPackets()"
-        );
-    }
-
-        // Intercept our virtual sound engine handle
+    // Intercept our virtual sound engine handle
     if in_audio_file.to_bits() == 9999 {
         let packets_to_read = env.mem.read(io_num_packets);
         let count = packets_to_read.min(1);
@@ -463,9 +456,14 @@ pub fn AudioFileReadPackets(
         None => return kAudioFileNotOpenError,
     };
 
-    let packet_size = match host_object {
-        AudioFileHostObject::Real(audio_file) => audio_file.packet_size_fixed(),
-        AudioFileHostObject::Dummy { format, .. } => format.bytes_per_packet,
+    let (packet_size, frames_per_packet) = match host_object {
+        AudioFileHostObject::Real(audio_file) => {
+            let desc = audio_file.audio_description();
+            (audio_file.packet_size_fixed(), desc.frames_per_packet)
+        }
+        AudioFileHostObject::Dummy { format, .. } => {
+            (format.bytes_per_packet, format.frames_per_packet)
+        }
     };
     
     let packets_to_read = env.mem.read(io_num_packets);
@@ -525,6 +523,26 @@ pub fn AudioFileReadPackets(
 
     let packets_read = (bytes_read as u32) / packet_size;
     env.mem.write(io_num_packets, packets_read);
+
+    // Populate out_packet_descriptions if requested by the game engine
+    if !out_packet_descriptions.is_null() && packets_read > 0 {
+        log_dbg!("HyperHLE: Generating safe AudioStreamPacketDescriptions for {} packets", packets_read);
+        
+        // Size of AudioStreamPacketDescription struct in bytes (mStartOffset: i64 = 8, mVariableFrames: u32 = 4, mDataByteSize: u32 = 4)
+        let desc_struct_size = 16; 
+        
+        for i in 0..packets_read {
+            let desc_offset = (i as u32) * desc_struct_size;
+            let target_ptr_bits = out_packet_descriptions.to_bits() + desc_offset;
+            
+            let packet_start_offset = (i * packet_size) as i64;
+            
+            // Write core properties back to the game layout context
+            env.mem.write_i64(target_ptr_bits, packet_start_offset);                       // mStartOffset
+            env.mem.write_u32(target_ptr_bits + 8, frames_per_packet);                     // mVariableFramesInPacket
+            env.mem.write_u32(target_ptr_bits + 12, packet_size);                          // mDataByteSize
+        }
+    }
 
     if (bytes_read as u32) < bytes_to_read {
         eofErr
