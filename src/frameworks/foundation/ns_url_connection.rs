@@ -182,7 +182,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (id)connectionWithRequest:(id)request
                    delegate:(id)delegate {
-    // Keep instantiation alive even on empty requests to maintain layout pipelines safely
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithRequest:request delegate:delegate];
     autorelease(env, new);
@@ -214,7 +213,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if delegate != nil {
         retain(env, delegate);
         
-        // FIXED: Using standard borrow_mut extraction check to safe-test layout alignment
         let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
         })).is_ok();
@@ -230,21 +228,22 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
 
-    // If start_immediately is true, manually fire off our mock completion sequence
-    // so the delegate receives its expected structural placeholders immediately.
     if start_immediately {
         log!("NSURLConnection: startImmediately is true, running network completion stub now.");
         () = msg![env; this start];
     }
 
-    // Always yield the instantiation pointer context 'this'
     this
 }
       
 // MARK: - Instance methods
 
 - (())start {
-    log!("NSURLConnection start: faking successful completion with valid mock JSON payload");
+    // ИСПРАВЛЕНИЕ: Вместо имитации успешного сетевого ответа с пустым словарем,
+    // который ломает аналитические SDK из-за неинициализированного NSURLResponse,
+    // мы безопасно возвращаем стандартную ошибку отсутствия интернета (-1009).
+    // Это заставляет движок игры переключиться в штатный офлайн-режим.
+    log!("NSURLConnection start: Faking graceful network failure (offline mode) to prevent engine panic.");
 
     let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         env.objc.borrow::<NSURLConnectionHostObject>(this);
@@ -262,37 +261,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         return;
     }
 
-    // Fake NSURLResponse
-    let response: id = msg_class![env; NSURLResponse new];
-    autorelease(env, response);
-
-    // FIX: Generate a valid empty JSON dictionary string "{}" instead of plain empty data
-    // This prevents analytics SDKs (like Crittercism/JSONKit) from throwing a null string panic.
-    let json_nsstr = crate::frameworks::foundation::ns_string::from_rust_string(
-        env,
-        "{}".to_string(),
-    );
-    let json_nsstr = autorelease(env, json_nsstr);
-
-    // Convert NSString "{}" -> NSData using UTF-8 encoding (4)
-    let data: id = msg![env; json_nsstr dataUsingEncoding:4];
-
-    // connection:didReceiveResponse:
-    () = msg![env;
-        delegate connection:this
-        didReceiveResponse:response
-    ];
-
-    // connection:didReceiveData:
-    () = msg![env;
-        delegate connection:this
-        didReceiveData:data
-    ];
-
-    // connectionDidFinishLoading:
-    () = msg![env;
-        delegate connectionDidFinishLoading:this
-    ];
+    notify_delegate_failure(env, this, delegate);
 }
     
 - (())cancel {
