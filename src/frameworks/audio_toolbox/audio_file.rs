@@ -537,13 +537,18 @@ pub fn AudioFileReadPackets(
             
             let packet_start_offset = (i * packet_size) as i64;
             
-            // Write core properties back to the game layout context
-            env.mem.write_i64(target_ptr_bits, packet_start_offset);                       // mStartOffset
-            env.mem.write_u32(target_ptr_bits + 8, frames_per_packet);                     // mVariableFramesInPacket
-            env.mem.write_u32(target_ptr_bits + 12, packet_size);                          // mDataByteSize
+            // Cast raw bits back to typed Pointers so touchHLE's generic .write() works perfectly
+            let m_start_offset_ptr = crate::mem::Ptr::from_bits(target_ptr_bits);
+            let m_variable_frames_ptr = crate::mem::Ptr::from_bits(target_ptr_bits + 8);
+            let m_data_byte_size_ptr = crate::mem::Ptr::from_bits(target_ptr_bits + 12);
+            
+            // Write core properties back to the game layout context using the generic .write() method
+            env.mem.write(m_start_offset_ptr, packet_start_offset);     // mStartOffset (i64)
+            env.mem.write(m_variable_frames_ptr, frames_per_packet);    // mVariableFramesInPacket (u32)
+            env.mem.write(m_data_byte_size_ptr, packet_size);           // mDataByteSize (u32)
         }
     }
-
+    
     if (bytes_read as u32) < bytes_to_read {
         eofErr
     } else {
