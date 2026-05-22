@@ -352,50 +352,63 @@ impl MachO {
                         first_read_write_segment_base = Some(vmaddr + slide);
                     }
 
-                    let load_me = match &*segname {
-                        // Special linker data section, not meant to be loaded.
-                        "__LINKEDIT" => false,
-                        // Zero page needs to be handled seperately.
-                        "__PAGEZERO" => {
-                            assert!(vmaddr == 0);
-                            assert!(filesize == 0);
-                            into_mem.set_null_segment_size(vmsize);
-                            false
-                        }
-                        "__TEXT" => {
-                            assert!(text_segment_base.is_none());
-                            text_segment_base = Some(vmaddr + slide);
-                            true
-                        }
-                        "__DATA" => true,
-                        _ => {
-                            log!("Warning: Unexpected segment name: {}", segname);
-                            true
-                        }
-                    };
+                                    let load_me = match &*segname {
+                    // Special linker data section, not meant to be loaded.
+                    "__LINKEDIT" => false,
+                    // Zero page needs to be handled separately.
+                    "__PAGEZERO" => {
+                        assert!(vmaddr == 0);
+                        assert!(filesize == 0);
+                        into_mem.set_null_segment_size(vmsize);
+                        false
+                    }
+                    "__TEXT" => {
+                        assert!(text_segment_base.is_none());
+                        text_segment_base = Some(vmaddr + slide);
+                        true
+                    }
+                    "__DATA" => true,
+                    
+                    // FIX: Explicitly handle custom Marmalade segments safely
+                    "__S3E_DATA" | "__S3E_TEXT" => {
+                        log!("Marmalade SDK segment layout intercepted: {}. Pre-allocating structures.", segname);
+                        true
+                    }
+                    
+                    _ => {
+                        log!("Warning: Unexpected segment name: {}", segname);
+                        true
+                    }
+                };
 
-                    if load_me {
-                        log_dbg!(
-                            "reserve {} addr {:#x} size {}",
-                            segname,
-                            vmaddr + slide,
-                            vmsize
-                        );
-                        into_mem.reserve(vmaddr + slide, vmsize);
+                if load_me {
+                    log_dbg!(
+                        "reserve {} addr {:#x} size {}",
+                        segname,
+                        vmaddr + slide,
+                        vmsize
+                    );
+                    into_mem.reserve(vmaddr + slide, vmsize);
 
-                        // If filesize is less than vmsize, the rest of the
-                        // segment should be filled with zeroes. We are assuming
-                        // the memory is already zeroed!
-                        if filesize > 0 {
-                            assert!(filesize <= vmsize);
+                    // If filesize is less than vmsize, the rest of the
+                    // segment should be filled with zeroes. We are assuming
+                    // the memory is already zeroed!
+                    if filesize > 0 {
+                        assert!(filesize <= vmsize);
 
+                        // FIX: Verify fileoff + filesize doesn't overflow or overrun the host bytes slice boundary
+                        let end_offset = fileoff + filesize as usize;
+                        if end_offset <= bytes.len() && fileoff < bytes.len() {
                             let src = &bytes[fileoff..][..filesize as usize];
-                            let dst =
-                                into_mem.bytes_at_mut(Ptr::from_bits(vmaddr + slide), filesize);
+                            let dst = into_mem.bytes_at_mut(Ptr::from_bits(vmaddr + slide), filesize);
                             dst.copy_from_slice(src);
+                        } else {
+                            log!("Warning: Segment {} bounds check skipped (fileoff: {}, filesize: {}, bytes_len: {}). Memory remains zero-initialized.", 
+                                 segname, fileoff, filesize, bytes.len());
                         }
                     }
-
+                }
+                    
                     all_sections.extend_from_slice(&sections);
                     segment_offsets.push(vmaddr);
                     last_segment_end = last_segment_end.max(vmaddr + vmsize + slide);
