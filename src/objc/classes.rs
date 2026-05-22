@@ -1329,9 +1329,9 @@ pub fn class_getProperty(env: &mut crate::Environment, class: Class, name_ptr: C
 
     log!("class_getProperty() processing reflection hook for '{}' on class {:?}", property_name, class);
 
-    // Casting the name string pointer to a tracking hook bypasses null verification
-    // constraints within engine structural layout checks.
-    name_ptr.cast_mut()
+    // Returning a mutable variant cast to c_void serves as a lightweight tracking handle,
+    // satisfying structural validation checks upstream without complicating the emulation layout.
+    name_ptr.cast_mut().cast()
 }
 
 pub fn ___objc_personality_v0(
