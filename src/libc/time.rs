@@ -60,8 +60,12 @@ fn time(env: &mut Environment, out: MutPtr<time_t>) -> time_t {
     time
 }
 
-fn tzset(_env: &mut Environment) {
-    log!("TODO: tzset()");
+fn tzset(env: &mut Environment) {
+    // Set errno to 0 to signal a clean execution environment
+    set_errno(env, 0);
+    
+    // Log the event to keep your boot debugging readable
+    log!("tzset() invoked: Setting timezone rules to standard GMT environment stub.");
 }
 
 #[allow(non_camel_case_types)]
