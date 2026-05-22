@@ -305,46 +305,33 @@ impl Environment {
             }
         }
 
-        let device_family_override = options.device_family;
+                let device_family_override = options.device_family;
         let device_family_array = bundle.device_family_array();
-        let device_family = match device_family_array.len() {
-            // iPhone only or iPad only
-            1 => {
-                let only_supported = device_family_array[0];
-                let mut result = only_supported; // ← mutable variable for flexible return
-
-                if let Some(dfo) = device_family_override {
-                    // Allow iPhone5 override unconditionally when explicitly
-                    // requested
-                    if dfo == DeviceFamily::iPhone5 {
-                        result = DeviceFamily::iPhone5; // ← assign, don't return
-                    } else if dfo != only_supported {
-                        log!("Warning: User-defined {:?} device family override is not supported by the app! ignoring", dfo);
-                    }
-                }
-                result // ← return the final value
+        
+        let device_family = if let Some(dfo) = device_family_override {
+            // 1. If the user forced an iPhone5 override, honor it immediately
+            if dfo == DeviceFamily::iPhone5 {
+                DeviceFamily::iPhone5
+            } else if !device_family_array.is_empty() && !device_family_array.contains(&dfo) {
+                // If the user picked something the app explicitly doesn't support, warn them
+                log!("Warning: User-defined {:?} device family override is not supported by the app! ignoring", dfo);
+                device_family_array.first().copied().unwrap_or(DeviceFamily::iPhone)
+            } else {
+                dfo
             }
-            // iPhone and iPad
-            2 => {
-                if let Some(dfo) = device_family_override {
-                    // Allow iPhone5 override unconditionally when explicitly
-                    // requested
-                    if dfo == DeviceFamily::iPhone5 {
-                        DeviceFamily::iPhone5 // ← direct return works here (last expr in branch)
-                    } else {
-                        assert!(device_family_array.contains(&dfo));
-                        dfo
-                    }
-                } else {
-                    assert!(device_family_array.contains(&DeviceFamily::iPhone));
-                    DeviceFamily::iPhone
-                }
+        } else {
+            // 2. No override provided, select best fit from the array
+            if device_family_array.contains(&DeviceFamily::iPad) && !device_family_array.contains(&DeviceFamily::iPhone) {
+                DeviceFamily::iPad
+            } else {
+                // Default to iPhone if empty, or if it explicitly supports iPhone
+                DeviceFamily::iPhone
             }
-            _ => unreachable!(),
         };
+
         log!("{:?} device family is chosen.", device_family);
         options.device_family = Some(device_family);
-
+        
         let window = if options.headless {
             None
         } else {
