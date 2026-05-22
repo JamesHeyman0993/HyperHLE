@@ -182,31 +182,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithAPI:(EAGLRenderingAPI)api {
-    log!("EAGL initWithAPI: {} requested", api);
-
-    // 1. Get the current app's bundle ID safely
-    let bundle_id = env.bundle.bundle_identifier();
-    
-    // 2. ONLY apply the GLES1 downgrade hack to this specific game
-    let effective_api = if api == kEAGLRenderingAPIOpenGLES2 && bundle_id == "com.gameloft.AmazingSpiderMan" {
-        log!("HACK: Target app 'The Amazing Spider-Man' detected. Downgrading GLES2 to GLES1 for stability.");
-        kEAGLRenderingAPIOpenGLES1
-    } else {
-        // Standard touchHLE behavior for every other game
-        effective_eagl_api(api, env.options.prefer_gles2_context)
-    };
-
-    if effective_api != kEAGLRenderingAPIOpenGLES1 && effective_api != kEAGLRenderingAPIOpenGLES2 {
+    if api != kEAGLRenderingAPIOpenGLES1
+        && api != kEAGLRenderingAPIOpenGLES2
+        && api != kEAGLRenderingAPIOpenGLES3
+    {
+        log!(
+            "App requested EAGL initWithAPI:{}, returning nil as we only support APIs 1, 2 and 3",
+            api
+        );
         return nil;
     }
 
-    // 3. Select the correct context creator based on the isolated effective API
-    let mut gles_ins = if effective_api == kEAGLRenderingAPIOpenGLES2 {
-        create_gles2_ctx(env)
-    } else {
-        create_gles1_ctx(env)
+    let effective_api = effective_eagl_api(api, env.options.prefer_gles2_context);
+
+    let mut gles_ins = match effective_api {
+        kEAGLRenderingAPIOpenGLES3 => create_gles3_ctx(env),
+        kEAGLRenderingAPIOpenGLES2 => create_gles2_ctx(env),
+        _ => create_gles1_ctx(env),
     };
-    
+
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
         let gles_ctx = gles_ins.make_current(window);
