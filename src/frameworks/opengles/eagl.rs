@@ -185,26 +185,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     // Log what the game actually wants
     log!("EAGL initWithAPI: {} requested", api);
 
-        // 1. Determine if we should apply the hack based on user options
-    // (Ensure you add 'force_gles1' or similar to your Options struct)
-    let effective_api = if api == kEAGLRenderingAPIOpenGLES2 && env.options.force_gles1 {
-        log!("HACK: Downgrading GLES2 to GLES1 via user option.");
-        kEAGLRenderingAPIOpenGLES1
-    } else {
-        // Use the helper function already in your file for standard upgrades/checks
-        effective_eagl_api(api, env.options.prefer_gles2_context)
-    };
+    // FORCE DOWNGRADE: Ignore what the game wants (API 2) and force GLES 1.1 (API 1)
+    log!("HACK: Forcing GLES2 downgrade to GLES1 for compatibility.");
+    let effective_api = kEAGLRenderingAPIOpenGLES1;
 
-    if effective_api != kEAGLRenderingAPIOpenGLES1 && effective_api != kEAGLRenderingAPIOpenGLES2 {
-        return nil;
-    }
-
-    // 2. Select the correct context creator based on the result
-    let mut gles_ins = if effective_api == kEAGLRenderingAPIOpenGLES2 {
-        create_gles2_ctx(env)
-    } else {
-        create_gles1_ctx(env)
-    };
+    // Select the correct context creator based on the forced result
+    let mut gles_ins = create_gles1_ctx(env);
     
     let window = env.window.as_mut().expect("OpenGL ES is not supported in headless mode");
     {
@@ -213,13 +199,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     env.objc.borrow_mut::<EAGLContextHostObject>(this).gles_ctx = Some(gles_ins);
-    // Change "forced_api" to "effective_api" to match the variable at the top
     env.objc.borrow_mut::<EAGLContextHostObject>(this).api = effective_api;
 
     this
-    
 }
-    
+      
 - (EAGLRenderingAPI)API {
     env.objc.borrow::<EAGLContextHostObject>(this).api
 }
