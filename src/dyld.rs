@@ -667,7 +667,7 @@ impl Dyld {
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
 
-        // --- NEW: CRYPTO SHA256 PASSTHROUGH INTERCEPT ---
+                // --- NEW: CRYPTO SHA256 PASSTHROUGH INTERCEPT ---
         if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
              log!("HyperHLE: Catching static crypt engine link: {}. Setting pass-through safety buffer alignment.", symbol);
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
@@ -676,7 +676,21 @@ impl Dyld {
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
 
+        // --- BYPASS HACK FOR MARMALADE SDK / PES 2012 ---
+        if symbol == "_kUTTypeBMP" 
+           || symbol == "_kCAGravityTopLeft" 
+           || symbol == "_UIPasteboardTypeListString"
+           || symbol.starts_with("_kAB") 
+        {
+             log!("HyperHLE: Catching lazy link for Marmalade engine dependency: {}", symbol);
+             let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
+             let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
+             let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
+             return Some(self.linked_host_functions[idx_f as usize].1);
+        }
+
         // --- NEW: CRITTERCISM PARSER INTERCEPT ---
+        
         if symbol == "_CrittercismJKParseUTF8String" || symbol == "CrittercismJKParseUTF8String" {
              log!("HyperHLE: Catching lazy link for Crittercism JSON Parser. Bypassing crash engine.");
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
@@ -752,11 +766,27 @@ impl Dyld {
         Ok(function_ptr)
     }
 
-        fn create_proc_address_no_inval(
+            fn create_proc_address_no_inval(
         &mut self,
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
+        // --- BYPASS HACK FOR MARMALADE SDK / PES 2012 ---
+        if symbol == "_kUTTypeBMP" 
+           || symbol == "_kCAGravityTopLeft" 
+           || symbol == "_UIPasteboardTypeListString"
+           || symbol.starts_with("_kAB") 
+        {
+            log!("HyperHLE: Intercepting and patching missing Marmalade symbol: {}", symbol);
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get("___dynamic_cast") { 
+                return Ok(cached_fn); 
+            }
+            let f: HostFunction = &(touchHLE_dynamic_cast as fn(&mut Environment, u32, u32, u32, i32) -> u32);
+            let function_ptr = self.create_guest_function(mem, "___dynamic_cast", f);
+            self.non_lazy_host_functions.insert("___dynamic_cast", function_ptr);
+            return Ok(function_ptr);
+        }
+
         if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol) { return Ok(cached_fn); }
             let f: HostFunction = &(touchhle_cc_sha256_stub as fn(&mut Environment, u32, u32, u32) -> u32);
