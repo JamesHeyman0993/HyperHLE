@@ -676,19 +676,29 @@ impl Dyld {
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
 
-        // --- BYPASS HACK FOR MARMALADE SDK / PES 2012 ---
+                // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
         if symbol == "_kUTTypeBMP" 
            || symbol == "_kCAGravityTopLeft" 
            || symbol == "_UIPasteboardTypeListString"
-           || symbol.starts_with("_kAB") 
+           || symbol.starts_with("_kAB")
+           || symbol.starts_with("kAB")
+           || symbol.starts_with("_MPMedia")
+           || symbol.starts_with("MPMedia")
         {
-             log!("HyperHLE: Catching lazy link for Marmalade engine dependency: {}", symbol);
+             log!("HyperHLE: Catching lazy link for dependency symbol: {}", symbol);
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
              let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
+             
+             // Check if we can safely pull a valid host execution index
+             if self.linked_host_functions.is_empty() {
+                 let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+                 let stub_f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
+                 self.linked_host_functions.push((leaked_symbol, stub_f));
+             }
              let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
-
+        
         // --- NEW: CRITTERCISM PARSER INTERCEPT ---
         
         if symbol == "_CrittercismJKParseUTF8String" || symbol == "CrittercismJKParseUTF8String" {
@@ -771,22 +781,24 @@ impl Dyld {
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
-        // --- BYPASS HACK FOR MARMALADE SDK / PES 2012 ---
+                // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
         if symbol == "_kUTTypeBMP" 
            || symbol == "_kCAGravityTopLeft" 
            || symbol == "_UIPasteboardTypeListString"
-           || symbol.starts_with("_kAB") 
+           || symbol.starts_with("_kAB")
+           || symbol.starts_with("kAB")
+           || symbol.starts_with("_MPMedia")
+           || symbol.starts_with("MPMedia")
         {
-            log!("HyperHLE: Intercepting and patching missing Marmalade symbol: {}", symbol);
-            if let Some(&cached_fn) = self.non_lazy_host_functions.get("___dynamic_cast") { 
-                return Ok(cached_fn); 
-            }
-            let f: HostFunction = &(touchHLE_dynamic_cast as fn(&mut Environment, u32, u32, u32, i32) -> u32);
-            let function_ptr = self.create_guest_function(mem, "___dynamic_cast", f);
-            self.non_lazy_host_functions.insert("___dynamic_cast", function_ptr);
-            return Ok(function_ptr);
+            log!("HyperHLE: Intercepting and patching missing dependency symbol: {}", symbol);
+            
+            // Allocate an actual structural memory address alignment payload block 
+            // instead of a bare function pointer. This satisfies structural data reads.
+            let dummy_data_block = mem.alloc(16);
+            let dummy_func = GuestFunction::from_addr_with_thumb_bit(dummy_data_block.to_bits());
+            return Ok(dummy_func);
         }
-
+                
         if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol) { return Ok(cached_fn); }
             let f: HostFunction = &(touchhle_cc_sha256_stub as fn(&mut Environment, u32, u32, u32) -> u32);
