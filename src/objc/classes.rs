@@ -491,7 +491,7 @@ impl ObjC {
                 self,
             ));
                 } else {
-            // ЗДЕСЬ ДОБАВЛЕНА ЛОГИКА ДЛЯ ДИНАМИЧЕСКИХ КЛАССОВ (GAD и др.)
+                        // ЗДЕСЬ ДОБАВЛЕНА ЛОГИКА ДЛЯ ДИНАМИЧЕСКИХ КЛАССОВ (GAD и др.)
             let is_fake = name.starts_with("AdMob")
                 || name.starts_with("AltAds")
                 || name.starts_with("Mobclix")
@@ -506,11 +506,11 @@ impl ObjC {
                 || name.starts_with("SBSystem")
                 || name.starts_with("PH")          // Prevents PlayHaven crash
                 || name.starts_with("PlayHaven")   // Prevents PlayHaven crash
+                || name == "GCController"          // FIXED HACK: Prevents Game Controller frameworks crash
+                || name == "NSCache"               // Intercepts and fakes NSCache lookups
                 || name.contains("NSArray")        // Handles explicit array lookups
                 || name.contains("NSMutableArray") // Handles explicit array lookups
-                || name.contains("ns_array_class") // Catch any macro literal string variations safely
-                || name == "GCController"          // FIXED HACK: Prevents Game Controller frameworks crash
-                || name == "NSCache";              // Intercepts and fakes NSCache lookups
+                || name.contains("ns_array_class"); // Catch any macro literal string variations safely
             
             if !use_placeholder && !is_fake {
                 panic!("Missing implementation for class {name}!");
