@@ -706,11 +706,12 @@ pub const CLASSES: ClassExports = objc_classes! {
       usedLength:(MutPtr<NSUInteger>)used_length_ptr
         encoding:(NSStringEncoding)encoding
          options:(NSUInteger)_options
-           range:(NSRange)range
+   rangeLocation:(NSUInteger)range_loc
+     rangeLength:(NSUInteger)range_len
   remainingRange:(MutPtr<NSRange>)remaining_range_ptr {
 
-    let search_loc = range.location as usize;
-    let search_len = range.length as usize;
+    let search_loc = range_loc as usize;
+    let search_len = range_len as usize;
     let initial_length: NSUInteger = msg![env; this length];
 
     if search_loc + search_len > initial_length as usize {
@@ -737,8 +738,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     if !remaining_range_ptr.is_null() {
         let processed_chars_count = string_slice[..copy_len].chars().count();
-        let remainder_loc = range.location + processed_chars_count as NSUInteger;
-        let remainder_len = range.length - processed_chars_count as NSUInteger;
+        let remainder_loc = range_loc + processed_chars_count as NSUInteger;
+        let remainder_len = range_len - processed_chars_count as NSUInteger;
 
         let out_range = NSRange {
             location: remainder_loc,
@@ -749,7 +750,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     true
   }
-    
+      
 - (id)componentsSeparatedByString:(id)separator {
     if separator == nil {
         let res = ns_array::from_vec(env, vec![this]);
