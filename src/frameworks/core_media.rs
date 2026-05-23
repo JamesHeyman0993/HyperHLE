@@ -7,12 +7,9 @@
 //!
 //! On iOS, CoreMedia provides time-related types (`CMTime`, `CMTimeRange`),
 //! sample buffer plumbing (`CMSampleBufferRef`), and format descriptions used
-//! mostly by AVFoundation. Apps that link against CoreMedia (directly or
-//! transitively, e.g. via AVFoundation cutscene playback) put the path
-//! `/System/Library/Frameworks/CoreMedia.framework/CoreMedia` in their Mach-O
-//! load commands.
+//! mostly by AVFoundation.
 
-use crate::dyld::{export_c_func, FunctionExports, HostConstant};
+use crate::dyld::{export_c_func_aliased, FunctionExports, HostConstant};
 use crate::Environment;
 
 /// CoreMedia CMTime specification function stub.
@@ -33,7 +30,8 @@ pub const CONSTANTS: crate::dyld::ConstantExports = &[
 ];
 
 pub const FUNCTIONS: FunctionExports = &[
-    export_c_func!(CMTimeMake(_, _, _)),
+    // FIXED: Using explicit aliased mapping to bypass the wildcard argument casting bug
+    export_c_func_aliased!("CMTimeMake", CMTimeMake(i64, i32)),
 ];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
