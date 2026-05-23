@@ -601,4 +601,35 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())intersectWithCharacterSet:(id)other { // NSCharacterSet*
-    let other_set: Hash
+    let other_set: HashSet<unichar> = {
+         let h = env.objc.borrow::<CharacterSetHostObject>(other);
+        h.set.clone()
+    };
+    let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
+    host.set.retain(|c| other_set.contains(c));
+}
+
+- (())invert {
+    let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
+    host.inverted = !host.inverted;
+}
+
+- (id)invertedSet {
+    let old = env.objc.borrow::<CharacterSetHostObject>(this);
+    let new_host = Box::new(CharacterSetHostObject {
+        set: old.set.clone(),
+        inverted: !old.inverted,
+    });
+    let class = env.objc.get_known_class("_touchHLE_NSCharacterSet", &mut env.mem);
+    let new = env.objc.alloc_object(class, new_host, &mut env.mem);
+    autorelease(env, new)
+}
+
+- (bool)characterIsMemberOfSet:(unichar)code_unit {
+    let host_object = env.objc.borrow::<CharacterSetHostObject>(this);
+    host_object.set.contains(&code_unit) ^ host_object.inverted
+}
+
+@end
+
+};
