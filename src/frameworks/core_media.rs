@@ -11,35 +11,47 @@
 //! transitively, e.g. via AVFoundation cutscene playback) put the path
 //! `/System/Library/Frameworks/CoreMedia.framework/CoreMedia` in their Mach-O
 //! load commands.
-//!
-//! Without a [crate::dyld::HostDylib] entry for that path, touchHLE prints a
-//! `Warning: app binary depends on unimplemented or missing dylib
-//! "/System/Library/Frameworks/CoreMedia.framework/CoreMedia"` at startup,
-//! which can spook users into reporting otherwise-fine apps as broken (e.g.
-//! HyperHLE appdb report #22, GhostToasters).
-//!
-//! This stub exists so that the dependency is recognized and the warning is
-//! suppressed. The few CoreMedia functions touchHLE currently implements
-//! (`CMSampleBufferGetImageBuffer`, `CMSampleBufferDataIsReady`, …) are
-//! registered with [crate::frameworks::core_video] for historical reasons;
-//! `dyld` searches all framework `function_exports` regardless of which
-//! dylib they were declared under, so the binding still resolves correctly
-//! whether the app links CoreMedia or CoreVideo.
 
-use crate::dyld::{FunctionExports, HostConstant};
+use crate::dyld::{export_c_func, FunctionExports, HostConstant};
+use crate::Environment;
+
+/// CoreMedia CMTime specification function stub.
+/// 
+/// CMTime is structurally represented on 32-bit iOS/ARMv7 architectures as:
+/// - CMTimeValue (i64, takes R0 and R1 registers)
+/// - CMTimeScale (i32, takes R2 register)
+/// - CMTimeFlags (u32, takes R3 register)
+/// - CMTimeEpoch (i64, pushed to stack)
+///
+/// For simple engine initializations, filling out the primary value and scale registers 
+/// prevents Marmalade loader threads from looping on undefined behavior.
+fn CMTimeMake(env: &mut Environment, value: i64, timescale: i32) {
+    log!("Stub: CMTimeMake(value: {}, timescale: {}) called.", value, timescale);
+    
+    // We modify the guest registers directly via CPU state to safely pass a valid 64-bit split CMTimeValue layout back to the caller
+    let val_bytes = value.to_ne_bytes();
+    let r0 = u32::from_ne_bytes([val_bytes[0], val_bytes[1], val_bytes[2], val_bytes[3]]);
+    let r1 = u32::from_ne_bytes([val_bytes[4], val_bytes[5], val_bytes[6], val_bytes[7]]);
+    
+    env.cpu.set_r(0, r0);
+    env.cpu.set_r(1, r1);
+    env.cpu.set_r(2, timescale as u32);
+    env.cpu.set_r(3, 1); // CMTimeFlags: kCMTimeFlags_Valid = 1
+}
 
 // Populated missing symbol mapping table for structural time constraints
 pub const CONSTANTS: crate::dyld::ConstantExports = &[
     ("_kCMTimeInvalid", HostConstant::NSString("kCMTimeInvalid")),
 ];
 
-pub const FUNCTIONS: FunctionExports = &[];
+pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(CMTimeMake(_, _, _)),
+];
 
-// FIXED: Wrapped CONSTANTS and FUNCTIONS in reference slices `&[...]` to satisfy the expected double-reference type dimension
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/CoreMedia.framework/CoreMedia",
     aliases: &[],
     class_exports: &[],
-    constant_exports: &[CONSTANTS], // Wrapped here
-    function_exports: &[FUNCTIONS], // Wrapped here
+    constant_exports: &[CONSTANTS],
+    function_exports: &[FUNCTIONS],
 };
