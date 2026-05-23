@@ -597,9 +597,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // Legacy name fallback support mapping
 - (())unionWithCharacterSet:(id)other {
-    msg![env; this formUnionWithCharacterSet:other];
+    let (): () = msg![env; this formUnionWithCharacterSet:other];
 }
-
+    
 - (())intersectWithCharacterSet:(id)other { // NSCharacterSet*
     let other_set: HashSet<unichar> = {
          let h = env.objc.borrow::<CharacterSetHostObject>(other);
