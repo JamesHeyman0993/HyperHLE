@@ -497,8 +497,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             for i in 0..len {
                 if is_match_at_position(env, this, search_string, i, len, len_search, compare) {
                     return NSRange { location: i, length: len_search }
-                }
-            }
+                }}
         },
         NSBackwardsSearch => {
             for i in (0..len).rev() {
@@ -701,56 +700,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert!(res);
 }
     
-- (bool)getBytes:(MutPtr<u8>)buffer
-       maxLength:(NSUInteger)max_length
-      usedLength:(MutPtr<NSUInteger>)used_length_ptr
-        encoding:(NSStringEncoding)encoding
-         options:(NSUInteger)_options
-   rangeLocation:(NSUInteger)range_loc
-     rangeLength:(NSUInteger)range_len
-  remainingRange:(MutPtr<NSRange>)remaining_range_ptr {
-
-    let search_loc = range_loc as usize;
-    let search_len = range_len as usize;
-    let initial_length: NSUInteger = msg![env; this length];
-
-    if search_loc + search_len > initial_length as usize {
-        return false;
-    }
-
-    let mut extracted_units = Vec::new();
-    for i in search_loc..(search_loc + search_len) {
-        let c: u16 = msg![env; this characterAtIndex:i];
-        extracted_units.push(c);
-    }
-
-    let string_slice = String::from_utf16_lossy(&extracted_units);
-    let bytes = string_slice.as_bytes();
-    let copy_len = std::cmp::min(bytes.len(), max_length as usize);
-
-    if !buffer.is_null() && copy_len > 0 {
-        _ = env.mem.bytes_at_mut(buffer, copy_len as GuestUSize).write(&bytes[..copy_len]);
-    }
-
-    if !used_length_ptr.is_null() {
-        env.mem.write(used_length_ptr, copy_len as NSUInteger);
-    }
-
-    if !remaining_range_ptr.is_null() {
-        let processed_chars_count = string_slice[..copy_len].chars().count();
-        let remainder_loc = range_loc + processed_chars_count as NSUInteger;
-        let remainder_len = range_len - processed_chars_count as NSUInteger;
-
-        let out_range = NSRange {
-            location: remainder_loc,
-            length: remainder_len,
-        };
-        env.mem.write(remaining_range_ptr, out_range);
-    }
-
-    true
-  }
-      
 - (id)componentsSeparatedByString:(id)separator {
     if separator == nil {
         let res = ns_array::from_vec(env, vec![this]);
@@ -963,7 +912,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new_string = with_format(env, format,  args.start());
     let new_string = from_rust_string(env, new_string);
     let new_string = msg![env; this stringByAppendingString:new_string];
-    autorelease(env, new_string)
+autorelease(env, new_string)
 }
 
 - (id)stringByDeletingLastPathComponent {
@@ -1024,9 +973,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let new: id = from_rust_string(env, escaped);
     autorelease(env, new)
-}
-
-- (id)stringByAppendingPathComponent:(id)component {
+    }
+    - (id)stringByAppendingPathComponent:(id)component {
     let base_str = to_rust_string(env, this);
     let component_str = to_rust_string(env, component);
     let res = path_algorithms::string_by_appending_path_component(&base_str, &component_str);
@@ -1398,7 +1346,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         return nil;
     }
     let slice = env.mem.bytes_at(bytes, len);
-    let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
+let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
     *env.objc.borrow_mut(this) = host_object;
     this
 }
@@ -1567,7 +1515,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let mut remaining = string[start_byte..].char_indices();
     let end_byte = if range.length == 0 { start_byte } else {
         remaining.nth(range.length as usize - 1).map(|(i, c): (usize, char)| start_byte + i + c.len_utf8()).unwrap_or(string.len())
-    };
+         };
     let mut result = String::with_capacity(string.len() - (end_byte - start_byte) + repl.len());
     result.push_str(&string[..start_byte]);
     result.push_str(&repl);
@@ -1799,7 +1747,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)initWithBytesNoCopy:(MutPtr<u8>)bytes
-                   length:(NSUInteger)len
+length:(NSUInteger)len
                  encoding:(NSStringEncoding)encoding
              freeWhenDone:(bool)_free {
     msg![env; this initWithBytes:(bytes.cast_const()) length:len encoding:encoding]
@@ -1859,6 +1807,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+
+// This implementation block forces registration into the runtime method registry map, 
+// safely breaking past the macro parameter limit constraints entirely.
+impl ClassExports for State {
+    fn register_methods(registry: &mut crate::objc::MethodRegistry) {
+        registry.add_method(
+            "getBytes:maxLength:usedLength:encoding:options:range:remainingRange:",
+            ns_string_get_bytes,
+        );
+    }
+}
 
 fn init_with_format_inner(env: &mut Environment, this: id, format: id, args: VaList) -> id {
     let res = with_format(env, format, args);
@@ -2198,7 +2157,7 @@ pub fn get_bytes_buffer_inner(
         NSUTF8StringEncoding | NSWindowsCP1252StringEncoding => string.as_bytes().to_vec(),
         NSUTF16LittleEndianStringEncoding | NSUTF16StringEncoding | NSUnicodeStringEncoding => {
             string.encode_utf16().flat_map(u16::to_le_bytes).collect()
-        }
+}
         NSUTF16BigEndianStringEncoding => {
             string.encode_utf16().flat_map(u16::to_be_bytes).collect()
         }
@@ -2359,3 +2318,57 @@ pub fn CFStringGetCharactersPtr(env: &mut Environment, the_string: id) -> ConstP
         Ptr::null()
     }
 }
+
+// Standalone function bypasses macro restrictions completely
+fn ns_string_get_bytes(
+    env: &mut Environment,
+    this: id,
+    _cmd: crate::objc::SEL,
+    buffer: MutPtr<u8>,
+    max_length: NSUInteger,
+    used_length_ptr: MutPtr<NSUInteger>,
+    encoding: NSStringEncoding,
+    _options: NSUInteger,
+    range: NSRange,
+    remaining_range_ptr: MutPtr<NSRange>,
+) -> bool {
+    let search_loc = range.location as usize;
+    let search_len = range.length as usize;
+    let initial_length: NSUInteger = msg![env; this length];
+
+    if search_loc + search_len > initial_length as usize {
+        return false;
+    }
+
+    let mut extracted_units = Vec::new();
+    for i in search_loc..(search_loc + search_len) {
+        let c: u16 = msg![env; this characterAtIndex:i];
+        extracted_units.push(c);
+    }
+
+    let string_slice = String::from_utf16_lossy(&extracted_units);
+    let bytes = string_slice.as_bytes();
+    let copy_len = std::cmp::min(bytes.len(), max_length as usize);
+
+    if !buffer.is_null() && copy_len > 0 {
+        _ = env.mem.bytes_at_mut(buffer, copy_len as GuestUSize).write(&bytes[..copy_len]);
+    }
+
+    if !used_length_ptr.is_null() {
+        env.mem.write(used_length_ptr, copy_len as NSUInteger);
+    }
+
+    if !remaining_range_ptr.is_null() {
+        let processed_chars_count = string_slice[..copy_len].chars().count();
+        let remainder_loc = range.location + processed_chars_count as NSUInteger;
+        let remainder_len = range.length - processed_chars_count as NSUInteger;
+
+        let out_range = NSRange {
+            location: remainder_loc,
+            length: remainder_len,
+        };
+        env.mem.write(remaining_range_ptr, out_range);
+    }
+
+    true
+        }
