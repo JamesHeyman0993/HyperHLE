@@ -107,34 +107,26 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array)
 }
     
-// PASTE THE NEW METHOD HERE:
 - (())enumerateObjectsUsingBlock:(id)block {
     if block == nil { return; }
 
     let count: NSUInteger = msg![env; this count];
     
-    // FIX: Chain the casts. First cast to the right type (u32), then ensure it's a ConstPtr.
-    // block.cast::<u32>() changes the type, and .cast_const() ensures it's Ptr<u32, false>.
     let block_ptr: ConstPtr<u32> = block.cast::<u32>().cast_const(); 
     let invoke_ptr: u32 = env.mem.read(block_ptr + 3); 
 
-    // Use the explicit constructor found in your abi.rs
     let invoke = GuestFunction::from_addr_with_thumb_bit(invoke_ptr);
 
     for i in 0..count {
         let obj: id = msg![env; this objectAtIndex:i];
         
-        // Allocate 1 byte for the 'stop' boolean
         let stop_ptr: MutPtr<bool> = env.mem.alloc(1).cast();
         env.mem.write(stop_ptr, false);
 
-        // Arguments: (block_ptr, object, index, stop_ptr)
         let _: () = invoke.call_from_host(env, (block, obj, i, stop_ptr));
 
         let stop: bool = env.mem.read(stop_ptr);
         
-        // FIX: If env.mem doesn't have .free(), use .realloc(ptr, 0)
-        // This is a common pattern in C-style memory managers to free memory.
         env.mem.realloc(stop_ptr.cast(), 0); 
 
         if stop {
@@ -184,8 +176,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // ---- MATCH COMPLETION FIXED STUBS ----
 
-- (())sortUsingDescriptors:(id)_sort_descriptors {
-    log!("Intercepted sortUsingDescriptors: Bypassing score depth sorting safely.");
+- (id)sortedArrayUsingDescriptors:(id)descriptors { // NSArray* of NSSortDescriptor*
+    if descriptors == nil {
+        return retain(env, this);
+    }
+    let mut_copy: id = msg![env; this mutableCopy];
+    crate::frameworks::foundation::ns_sort_descriptor::sort_with_descriptors(env, mut_copy, descriptors);
+    let result: id = msg![env; mut_copy copy];
+    release(env, mut_copy);
+    autorelease(env, result)
 }
 
 - (())advanceTime:(f64)_time {
@@ -263,8 +262,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     release(env, array);
     autorelease(env, array_imm)
 }
-
-// Add to NSArray @implementation:
 
 - (id)objectsAtIndexes:(id)index_set { // NSIndexSet*
     let count: NSUInteger = msg![env; index_set count];
@@ -415,14 +412,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     if env.objc.class_is_subclass_of(class, keyed_arch_class) {
         let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
-        // NSKeyedArchiver stores arrays as NS.objects.0, NS.objects.1 ...
         for (i, obj) in array.iter().copied().enumerate() {
             let key = from_rust_string(env, format!("NS.objects.{}", i));
             () = msg![env; coder encodeObject:obj forKey:key];
             release(env, key);
         }
 
-        // Encode total count so decoder knows how many to read
         let count_key = from_rust_string(env, "NS.count".to_string());
         let count = array.len() as NSUInteger;
         () = msg![env; coder encodeInt:count forKey:count_key];
@@ -472,13 +467,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 // - (void)addObject:(id)object;
 // - (void)removeLastObject
 // - (void)replaceObjectAtIndex:(NSUInteger)index withObject:(id)object;
-// Note that it inherits from NSArray, so we must ensure we override any default
-// methods that would be inappropriate for mutability.
 @implementation NSMutableArray: NSArray
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    // NSArray might be subclassed by something which needs allocWithZone:
-    // to have the normal behaviour. Unimplemented: call superclass alloc then.
     assert!(this == env.objc.get_known_class("NSMutableArray", &mut env.mem));
     msg_class![env; _touchHLE_NSMutableArray allocWithZone:zone]
 }
@@ -511,7 +502,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array)
 }
 
-// These probably comes from some category related to plists.
 - (id)initWithContentsOfFile:(id)path { // NSString*
     release(env, this);
     let path = ns_string::to_rust_string(env, path);
@@ -523,7 +513,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if tmp == nil {
         return nil;
     }
-    // We should respect mutability of the top most container!
     let res = msg_class![env; NSMutableArray alloc];
     let res = msg![env; res initWithArray:tmp];
     release(env, tmp);
@@ -536,7 +525,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if tmp == nil {
         return nil;
     }
-    // We should respect mutability of the top most container!
     let res = msg_class![env; NSMutableArray alloc];
     let res = msg![env; res initWithArray:tmp];
     release(env, tmp);
@@ -554,8 +542,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-// NSCopying implementation
-    - (id)copyWithZone:(NSZonePtr)_zone {
+- (id)copyWithZone:(NSZonePtr)_zone {
     let other: id = msg_class![env; NSArray alloc];
     let other: id = msg![env; other initWithArray:this];
     other
@@ -570,7 +557,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())removeObjectsInRange:(NSRange)range {
-    // Remove in reverse order to preserve indices.
     let end = range.location + range.length;
     let mut i = end;
     while i > range.location {
@@ -627,7 +613,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         log!("Warning: insertObjects:atIndexes: count mismatch, ignoring");
         return;
     }
-    // Collect sorted indices and insert in ascending order.
     let arr_count: NSUInteger = msg![env; this count];
     let mut pairs: Vec<(NSUInteger, id)> = Vec::new();
     let mut obj_i: NSUInteger = 0;
@@ -639,16 +624,20 @@ pub const CLASSES: ClassExports = objc_classes! {
             obj_i += 1;
         }
     }
-    // Insert in reverse so earlier insertions don't shift later indices.
     for (idx, obj) in pairs.into_iter().rev() {
         () = msg![env; this insertObject:obj atIndex:idx];
     }
 }
 
+- (())sortUsingDescriptors:(id)descriptors { // NSArray* of NSSortDescriptor*
+    if descriptors != nil {
+        crate::frameworks::foundation::ns_sort_descriptor::sort_with_descriptors(env, this, descriptors);
+    }
+}
+
 @end
 
-// Our private subclass that is the single implementation of NSArray for the
-// time being.
+// Our private subclass that is the single implementation of NSArray for the time being.
 @implementation _touchHLE_NSArray: NSArray
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -658,25 +647,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
     let class: Class = msg![env; coder class];
     let keyed_unarch_class: Class = msg_class![env; NSKeyedUnarchiver class];
     let nib_archive_class: Class = msg_class![env; _touchHLE_NIBArchiveDecoder class];
     let objects = if env.objc.class_is_subclass_of(class, keyed_unarch_class) {
-    // It seems that every NSArray item in an NSKeyedArchiver plist looks like:
-    // {
-    //   "$class" => (uid of NSArray class goes here),
-    //   "NS.objects" => [
-    //     // objects here
-    //   ]
-    // }
-    // Presumably we need to call a `decodeFooBarForKey:` method on the NSCoder
-    // here, passing in an NSString for "NS.objects". There is no method for
-    // arrays though (maybe it's `decodeObjectForKey:`), and in any case
-    // allocating an NSString here would be inconvenient, so let's just take a
-    // shortcut.
-    ns_keyed_unarchiver::decode_current_array(env, coder)
+        ns_keyed_unarchiver::decode_current_array(env, coder)
     } else if env.objc.class_is_subclass_of(class, nib_archive_class) {
         _nib_archive_decoder::decode_current_array(env, coder)
     } else {
@@ -685,7 +661,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     assert!(host_object.array.is_empty());
     host_object.array = objects;
-    // objects are already retained
     this
 }
 
@@ -737,11 +712,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     for object in array {
         release(env, object);
     }
-
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
-// NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
     mutable_copy_inner(env, this)
 }
@@ -753,7 +726,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     reverse_object_enumerator_inner(env, this)
 }
 
-// NSFastEnumeration implementation
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
@@ -766,8 +738,6 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }, state, stackbuf, len)
 }
-
-// TODO: more init methods, etc
 
 - (NSUInteger)count {
     env.objc.borrow::<ArrayHostObject>(this).array.len().try_into().unwrap()
@@ -810,8 +780,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-// Special variant for use by CFArray with NULL callbacks: objects aren't
-// necessarily Objective-C objects and won't be retained/released.
 @implementation _touchHLE_NSArray_non_retaining: _touchHLE_NSArray
 
 - (())dealloc {
@@ -835,8 +803,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @end
 
-// Our private subclass that is the single implementation of NSMutableArray for
-// the time being.
+// Our private subclass that is the single implementation of NSMutableArray for the time being.
 @implementation _touchHLE_NSMutableArray: NSMutableArray
 
 + (id)allocWithZone:(NSZonePtr)_zone {
@@ -893,7 +860,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-// NSCoding implementation
 - (id)initWithCoder:(id)coder {
     let class: Class = msg![env; coder class];
     let keyed_unarch_class: Class = msg_class![env; NSKeyedUnarchiver class];
@@ -909,11 +875,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     assert!(host_object.array.is_empty());
     host_object.array = objects;
-    // objects are already retained
     this
 }
 
-// NSCopying implementation
 - (id)copyWithZone:(NSZonePtr)_zone {
     let arr: id = msg_class![env; NSArray alloc];
     let array = env.objc.borrow::<ArrayHostObject>(this).array.clone();
@@ -924,7 +888,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     arr
 }
 
-// NSMutableCopying implementation
 - (id)mutableCopyWithZone:(NSZonePtr)_zone {
     mutable_copy_inner(env, this)
 }
@@ -932,11 +895,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())dealloc {
     let host_object: &mut ArrayHostObject = env.objc.borrow_mut(this);
     let array = std::mem::take(&mut host_object.array);
-
     for object in array {
         release(env, object);
     }
-
     env.objc.dealloc_object(this, &mut env.mem)
 }
 
@@ -998,12 +959,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     let (env, _) = user_data;
     env.objc.borrow_mut::<ArrayHostObject>(this).array = array;
 }
-       
-// NSFastEnumeration implementation
+
 - (NSUInteger)countByEnumeratingWithState:(MutPtr<NSFastEnumerationState>)state
                                   objects:(MutPtr<id>)stackbuf
                                     count:(NSUInteger)len {
-    // TODO: check that array wasn't mutated!
     let count: NSUInteger = msg![env; this count];
     fast_enumeration_helper(env, this, |env, idx| {
         if idx < count {
@@ -1031,8 +990,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     build_description(env, this)
 }
 
-// TODO: more mutation methods
-
 - (())insertObject:(id)object
            atIndex:(NSUInteger)index {
     let len = env.objc.borrow::<ArrayHostObject>(this).array.len();
@@ -1059,7 +1016,6 @@ pub const CLASSES: ClassExports = objc_classes! {
             to_remove.push(i);
         }
     }
-    // TODO: runtime here is O(n^2), it could be O(n) instead
     for i in to_remove {
         () = msg![env; this removeObjectAtIndex:i];
     }
@@ -1101,14 +1057,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     for object in array {
         release(env, object);
     }
-
     env.objc.borrow_mut::<ArrayHostObject>(this).array = Vec::new()
 }
 
 @end
 
-// Special variant for use by CFArray with NULL callbacks: objects aren't
-// necessarily Objective-C objects and won't be retained/released.
 @implementation _touchHLE_NSMutableArray_non_retaining: _touchHLE_NSMutableArray
 
 - (())dealloc {
@@ -1138,29 +1091,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-/// Shortcut for host code, roughly equivalent to
-/// `[[NSArray alloc] initWithObjects:count]` but without copying.
-/// The elements should already be "retained by" the `Vec`.
+
 pub fn from_vec(env: &mut Environment, objects: Vec<id>) -> id {
     let array: id = msg_class![env; NSArray alloc];
     env.objc.borrow_mut::<ArrayHostObject>(array).array = objects;
     array
 }
 
-/// Shortcut for host code, roughly equivalent to
-/// `[[NSMutableArray alloc] initWithObjects:count]` but without copying.
-/// The elements should already be "retained by" the `Vec`.
 pub fn mutable_from_vec(env: &mut Environment, objects: Vec<id>) -> id {
     let array: id = msg_class![env; NSMutableArray alloc];
     env.objc.borrow_mut::<ArrayHostObject>(array).array = objects;
     array
 }
 
-/// A helper to build a description NSString
-/// for a NSArray or a NSMutableArray.
 fn build_description(env: &mut Environment, arr: id) -> id {
-    // According to docs, this description should be formatted as property list.
-    // But by the same docs, it's meant to be used for debugging purposes only.
     let desc: id = msg_class![env; NSMutableString new];
     let prefix: id = ns_string::from_rust_string(env, "(\n".to_string());
     () = msg![env; desc appendString:prefix];
@@ -1168,7 +1112,6 @@ fn build_description(env: &mut Environment, arr: id) -> id {
     let values: Vec<id> = env.objc.borrow_mut::<ArrayHostObject>(arr).array.clone();
     for value in values {
         let value_desc: id = msg![env; value description];
-        // TODO: respect nesting and padding
         let format = format!("\t{},\n", ns_string::to_rust_string(env, value_desc));
         let format = ns_string::from_rust_string(env, format);
         () = msg![env; desc appendString:format];
@@ -1182,17 +1125,14 @@ fn build_description(env: &mut Environment, arr: id) -> id {
     autorelease(env, desc_imm)
 }
 
-/// A shared objectEnumerator helper method.
 fn object_enumerator_inner(env: &mut Environment, arr: id) -> id {
     let array_host_object: &mut ArrayHostObject = env.objc.borrow_mut(arr);
     let vec = array_host_object.array.to_vec();
     object_enumerator_inner_helper(env, arr, vec)
 }
 
-/// A shared reverseObjectEnumerator helper method.
 fn reverse_object_enumerator_inner(env: &mut Environment, arr: id) -> id {
     let array_host_object: &mut ArrayHostObject = env.objc.borrow_mut(arr);
-    // TODO: avoid copying?
     let vec = array_host_object
         .array
         .iter()
@@ -1223,4 +1163,4 @@ fn mutable_copy_inner(env: &mut Environment, arr: id) -> id {
     }
     env.objc.borrow_mut::<ArrayHostObject>(mut_arr).array = array;
     mut_arr
-}
+    }
