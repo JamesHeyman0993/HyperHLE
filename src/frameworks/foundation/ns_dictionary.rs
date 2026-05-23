@@ -588,10 +588,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     env.objc.dealloc_object(this, &mut env.mem)
     }
 
-- (id)initWithObjectsAndKeys:(id)first_object, ...dots {
-    init_with_objects_and_keys(env, this, first_object, dots.start())
-}
-
 - (id)init {
     *env.objc.borrow_mut(this) = <DictionaryHostObject as Default>::default();
     this
@@ -880,7 +876,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         host_obj.insert(env, key, object_to_insert, /* copy_key: */ true);
         *env.objc.borrow_mut(this) = host_obj;
     }
-    - (())removeObjectForKey:(id)key {
+
+- (())removeObjectForKey:(id)key {
     if key.is_null() {
         log!("Warning: [NSMutableDictionary removeObjectForKey:] key is nil — ignored");
         return;
@@ -972,8 +969,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 @end
-
-@implementation _touchHLE_NSMutableDictionary_non_retaining: _touchHLE_NSMutableDictionary
+    @implementation _touchHLE_NSMutableDictionary_non_retaining: _touchHLE_NSMutableDictionary
 
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::<CFDictionaryHostObject>::default();
@@ -1019,7 +1015,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     panic!("Unexpected call to valueForKey: for _touchHLE_NSMutableDictionary_non_retaining object {this:?}");
 }
 
-- (())setObject:(id)object forKey:(id)key {
+- (())setObject:(id)object extern_key:(id)key {
     if object == nil {
         log!("Warning: [_touchHLE_NSMutableDictionary_non_retaining setObject:forKey:] attempt to insert nil object — ignoring");
         return;
@@ -1087,7 +1083,7 @@ pub fn mutable_dict_from_keys_and_objects(
 }
 
 fn build_description(env: &mut Environment, dict: id) -> id {
-    let desc: id = msg_class![env; Web_String_Mutable || NSMutableString new];
+    let desc: id = msg_class![env; NSMutableString new];
     let prefix: id = from_rust_string(env, "{\n".to_string());
     () = msg![env; desc appendString:prefix];
     release(env, prefix);
