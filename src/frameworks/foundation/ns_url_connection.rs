@@ -200,8 +200,15 @@ pub const CLASSES: ClassExports = objc_classes! {
              delegate:(id)delegate
      startImmediately:(bool)start_immediately {
 
+    // FIXED: Invoke the root NSObject initializer layout to fully form the base class variables 
+    // and protect struct memory pipeline allocations at critical offsets (like 0x0c)
+    let initialized_this: id = msg![env; this init];
+    if initialized_this == nil {
+        return nil;
+    }
+
     if request == nil {
-        log!("NSURLConnection initWithRequest: nil request — Creating structured dummy object to protect offset memory pipelines");
+        log!("NSURLConnection initWithRequest: nil request handled safely.");
     }
 
     log!(
@@ -214,35 +221,31 @@ pub const CLASSES: ClassExports = objc_classes! {
         retain(env, delegate);
         
         let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
+            env.objc.borrow_mut::<NSURLConnectionHostObject>(initialized_this);
         })).is_ok();
 
         if is_valid_connection {
-            let mut host = env.objc.borrow_mut::<NSURLConnectionHostObject>(this);
+            let mut host = env.objc.borrow_mut::<NSURLConnectionHostObject>(initialized_this);
             host.delegate  = delegate;
             host.cancelled = false;
         } else {
             log!("Warning: initWithRequest called on a non-NSURLConnection generic instance. Binding delegate via KVC fallback.");
             let key = crate::frameworks::foundation::ns_string::get_static_str(env, "delegate");
-            () = msg![env; this setValue:delegate forKey:key];
+            () = msg![env; initialized_this setValue:delegate forKey:key];
         }
     }
 
     if start_immediately {
         log!("NSURLConnection: startImmediately is true, running network completion stub now.");
-        () = msg![env; this start];
+        () = msg![env; initialized_this start];
     }
 
-    this
+    initialized_this
 }
       
 // MARK: - Instance methods
 
 - (())start {
-    // ИСПРАВЛЕНИЕ: Вместо имитации успешного сетевого ответа с пустым словарем,
-    // который ломает аналитические SDK из-за неинициализированного NSURLResponse,
-    // мы безопасно возвращаем стандартную ошибку отсутствия интернета (-1009).
-    // Это заставляет движок игры переключиться в штатный офлайн-режим.
     log!("NSURLConnection start: Faking graceful network failure (offline mode) to prevent engine panic.");
 
     let is_valid_connection = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
