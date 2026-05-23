@@ -506,12 +506,12 @@ impl ObjC {
                 || name.starts_with("SBSystem")
                 || name.starts_with("PH")          // Prevents PlayHaven crash
                 || name.starts_with("PlayHaven")   // Prevents PlayHaven crash
-                || name == "NSArray"               // Handles explicit array lookups
-                || name == "NSMutableArray"        // Handles explicit array lookups
-                || name == "ns_array_class!"       // Intercepts the macro literal string typo
+                || name.contains("NSArray")        // Handles explicit array lookups
+                || name.contains("NSMutableArray") // Handles explicit array lookups
+                || name.contains("ns_array_class") // Catch any macro literal string variations safely
                 || name == "GCController"          // FIXED HACK: Prevents Game Controller frameworks crash
                 || name == "NSCache";              // Intercepts and fakes NSCache lookups
-
+            
             if !use_placeholder && !is_fake {
                 panic!("Missing implementation for class {name}!");
             }
