@@ -190,10 +190,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithRequest:(id)request
              delegate:(id)delegate {
-    msg![env;
-        this initWithRequest:request
-                    delegate:delegate
-            startImmediately:true]
+    // Invoke full initialization wrapper directly to preserve setup sequence
+    let initialized_this: id = msg![env; this initWithRequest:request delegate:delegate startImmediately:true];
+    initialized_this
 }
 
 - (id)initWithRequest:(id)request
