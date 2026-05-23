@@ -232,12 +232,21 @@ impl CodeUnitIterator<'_> {
                 Some(prefix_c) => {
                     let self_c = self_match.next();
                     if case_insensitive {
-                        self_c?;
-                        let (Some(a_c), Some(b_c)) = (
-                            char::from_u32(self_c.unwrap() as u32),
-                            char::from_u32(prefix_c as u32),
-                        ) else {
-                            panic!("Invalid chars in the strings!");
+                        let self_c_value = self_c?;
+                        let Some(a_c) = char::from_u32(self_c_value as u32) else {
+                            // Half of a surrogate pair or an otherwise-invalid
+                            // code unit; fall back to a direct comparison so
+                            // we don't crash the host on malformed strings.
+                            if self_c_value != prefix_c {
+                                return None;
+                            }
+                            continue;
+                        };
+                        let Some(b_c) = char::from_u32(prefix_c as u32) else {
+                            if self_c_value != prefix_c {
+                                return None;
+                            }
+                            continue;
                         };
                         if !a_c.to_lowercase().eq(b_c.to_lowercase()) {
                             return None;
@@ -334,9 +343,9 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, new)
 }
 
-+ (id)stringWithContentsOfURL:(id)path {
++ (id)stringWithContentsOfURL:(id)url {
     let new: id = msg![env; this alloc];
-    let new: id = msg![env; new initWithContentsOfFile:path];
+    let new: id = msg![env; new initWithContentsOfURL:url];
     autorelease(env, new)
 }
 
@@ -353,9 +362,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)stringWithContentsOfURL:(id)url encoding:(NSStringEncoding)encoding error:(MutPtr<id>)error {
-    if url == nil { return nil; }
-    let path: id = msg![env; url path];
-    msg![env; this stringWithContentsOfFile:path encoding:encoding error:error]
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithContentsOfURL:url encoding:encoding error:error];
+    autorelease(env, new)
+}
+
++ (id)stringWithContentsOfURL:(id)url usedEncoding:(MutPtr<NSUInteger>)enc error:(MutPtr<id>)error {
+    let new: id = msg![env; this alloc];
+    let new: id = msg![env; new initWithContentsOfURL:url usedEncoding:enc error:error];
+    autorelease(env, new)
 }
 
 + (id)stringWithFormat:(id)format, ...args {
@@ -422,6 +437,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     utf16.len().try_into().unwrap()
 }
 
+- (NSStringEncoding)fastestEncoding {
+    fastest_encoding(env, this)
+}
+
+- (NSStringEncoding)smallestEncoding {
+    smallest_encoding(env, this)
+}
+
 - (u16)characterAtIndex:(NSUInteger)index {
     let host_object = env.objc.borrow_mut::<StringHostObject>(this);
     let (utf16, did_convert) = host_object.convert_to_utf16_inplace();
@@ -473,6 +496,36 @@ pub const CLASSES: ClassExports = objc_classes! {
     NSRange { location: NSNotFound as NSUInteger, length: 0 }
 }
 
+- (NSUInteger)lengthOfBytesUsingEncoding:(NSStringEncoding)encoding {
+    let string = to_rust_string(env, this);
+    if C_STRING_FRIENDLY_ENCODINGS.contains(&encoding) {
+        // For byte-compatible encodings, the byte length equals the
+        // string's UTF-8 byte length (for ASCII content) or the
+        // character count (for single-byte charsets). Use the UTF-8
+        // byte length as a safe upper bound — this matches what
+        // Apple's implementation returns for UTF-8.
+        string.len().try_into().unwrap()
+    } else if encoding == NSUnicodeStringEncoding || encoding == NSUTF16StringEncoding {
+        // UTF-16: each code unit is 2 bytes. Rust's encode_utf16()
+        // gives exact code unit count.
+        (string.encode_utf16().count() * 2) as NSUInteger
+    } else if encoding == NSUTF16BigEndianStringEncoding {
+        (string.encode_utf16().count() * 2) as NSUInteger
+    } else if encoding == NSUTF32StringEncoding || encoding == NSUTF32LittleEndianStringEncoding {
+        // UTF-32: each character is 4 bytes.
+        (string.chars().count() * 4) as NSUInteger
+    } else {
+        // Fallback: return UTF-8 byte length rather than crashing.
+        // This is a safe approximation and prevents the emulator from
+        // aborting on an uncommon encoding.
+        log!(
+            "Warning: lengthOfBytesUsingEncoding: unknown encoding {}; returning UTF-8 byte count as fallback.",
+            encoding
+        );
+        string.len().try_into().unwrap()
+    }
+}
+
 - (NSRange)rangeOfString:(id)search_string {
     msg![env; this rangeOfString:search_string options:0u32]
 }
@@ -497,7 +550,8 @@ pub const CLASSES: ClassExports = objc_classes! {
             for i in 0..len {
                 if is_match_at_position(env, this, search_string, i, len, len_search, compare) {
                     return NSRange { location: i, length: len_search }
-                }}
+                }
+            }
         },
         NSBackwardsSearch => {
             for i in (0..len).rev() {
@@ -626,7 +680,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         num
     }
 
-    assert_ne!(other, nil);
+    // Apple's documentation says `[NSString compare:]` raises
+    // `NSInvalidArgumentException` if `other` is nil, but real-world iPhone
+    // OS apps (e.g. Angry Birds Crystal init path — HyperHLE log shows
+    // `assertion 'left != right' failed; left: (null), right: (null)`)
+    // pass nil and rely on a soft failure. touchHLE doesn't implement
+    // Objective-C exceptions, so the closest "documented" behaviour is to
+    // treat the non-nil receiver as ordered after nil instead of crashing
+    // the emulator. (`isEqualToString:` in this file already follows the
+    // same lenient convention.)
+    if other == nil {
+        log!(
+            "Warning: [NSString {:?} compare:nil options:{:#x}] — returning \
+             NSOrderedDescending instead of raising NSInvalidArgumentException.",
+            this,
+            mask
+        );
+        return NSOrderedDescending;
+    }
     let mut a_iter = env.objc.borrow::<StringHostObject>(this).iter_code_units().peekable();
     let mut b_iter = env.objc.borrow::<StringHostObject>(other).iter_code_units().peekable();
     let mask = if mask == 0 { NSLiteralSearch } else { mask };
@@ -636,7 +707,23 @@ pub const CLASSES: ClassExports = objc_classes! {
                 let a_next = a_iter.next();
                 let b_next = b_iter.next();
                 let (Some(a_unit), Some(b_unit)) = (a_next, b_next) else { return from_rust_ordering(a_next.cmp(&b_next)); };
-                let (Some(a_c), Some(b_c)) = (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) else { panic!("Invalid chars!"); };
+                let (a_c, b_c) = match (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => {
+                        // One of the code units is a UTF-16 surrogate half
+                        // (`char::from_u32` rejects U+D800..=U+DFFF). Fall
+                        // back to byte-order comparison on the raw u16s
+                        // rather than panicking the host.
+                        log!(
+                            "Warning: NSString compare: unpaired surrogate(s) at U+{:04X}/U+{:04X}; falling back to code-unit compare.",
+                            a_unit,
+                            b_unit
+                        );
+                        let ord = a_unit.cmp(&b_unit);
+                        if ord != std::cmp::Ordering::Equal { return from_rust_ordering(ord); }
+                        continue;
+                    }
+                };
 
                 let insensitive_order = a_c.to_lowercase().cmp(b_c.to_lowercase());
                 if insensitive_order != std::cmp::Ordering::Equal { return from_rust_ordering(insensitive_order); }
@@ -648,7 +735,19 @@ pub const CLASSES: ClassExports = objc_classes! {
                 let a_next = a_iter.next();
                 let b_next = b_iter.next();
                 let (Some(a_unit), Some(b_unit)) = (a_next, b_next) else { return from_rust_ordering(a_next.cmp(&b_next)); };
-                let (Some(a_c), Some(b_c)) = (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) else { panic!("Invalid chars!"); };
+                let (a_c, b_c) = match (char::from_u32(a_unit as u32), char::from_u32(b_unit as u32)) {
+                    (Some(a), Some(b)) => (a, b),
+                    _ => {
+                        log!(
+                            "Warning: NSString compare (numeric): unpaired surrogate(s) at U+{:04X}/U+{:04X}; falling back to code-unit compare.",
+                            a_unit,
+                            b_unit
+                        );
+                        let ord = a_unit.cmp(&b_unit);
+                        if ord != std::cmp::Ordering::Equal { return from_rust_ordering(ord); }
+                        continue;
+                    }
+                };
                 if a_c.is_ascii_digit() && b_c.is_ascii_digit() {
                     let a_int = ascii_number(&mut a_iter, a_c);
                     let b_int = ascii_number(&mut b_iter, b_c);
@@ -699,7 +798,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let res: bool = msg![env; this getCString:buffer maxLength:length encoding:encoding];
     assert!(res);
 }
-    
+
 - (id)componentsSeparatedByString:(id)separator {
     if separator == nil {
         let res = ns_array::from_vec(env, vec![this]);
@@ -912,7 +1011,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let new_string = with_format(env, format,  args.start());
     let new_string = from_rust_string(env, new_string);
     let new_string = msg![env; this stringByAppendingString:new_string];
-autorelease(env, new_string)
+    autorelease(env, new_string)
 }
 
 - (id)stringByDeletingLastPathComponent {
@@ -973,8 +1072,9 @@ autorelease(env, new_string)
     }
     let new: id = from_rust_string(env, escaped);
     autorelease(env, new)
-    }
-    - (id)stringByAppendingPathComponent:(id)component {
+}
+
+- (id)stringByAppendingPathComponent:(id)component {
     let base_str = to_rust_string(env, this);
     let component_str = to_rust_string(env, component);
     let res = path_algorithms::string_by_appending_path_component(&base_str, &component_str);
@@ -1098,7 +1198,7 @@ autorelease(env, new_string)
         NSUTF32LittleEndianStringEncoding => string.chars().flat_map(|c| (c as u32).to_le_bytes()).collect(),
         NSUTF32BigEndianStringEncoding | NSUTF32StringEncoding => string.chars().flat_map(|c| (c as u32).to_be_bytes()).collect(),
         _ => string.as_bytes().to_vec(),
-    };
+       };
     let length: NSUInteger = bytes.len().try_into().unwrap();
     let buf_ptr: MutPtr<u8> = env.mem.alloc(length as u32).cast();
     env.mem.bytes_at_mut(buf_ptr, length as u32).copy_from_slice(&bytes);
@@ -1346,7 +1446,7 @@ autorelease(env, new_string)
         return nil;
     }
     let slice = env.mem.bytes_at(bytes, len);
-let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
+    let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
     *env.objc.borrow_mut(this) = host_object;
     this
 }
@@ -1453,6 +1553,64 @@ let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
     this
 }
 
+// NSString URL-based initializers. Per Apple's Foundation docs
+// (https://developer.apple.com/documentation/foundation/nsstring),
+// these methods load the contents of the resource at the given URL.
+// We currently only support file URLs; we extract the path and reuse
+// the file-based implementation. For non-file URLs we fail gracefully
+// instead of letting the message dispatcher fall through to a stub.
+
+- (id)initWithContentsOfURL:(id)url {
+    if url == nil {
+        release(env, this);
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    if path == nil {
+        release(env, this);
+        return nil;
+    }
+    msg![env; this initWithContentsOfFile:path]
+}
+
+- (id)initWithContentsOfURL:(id)url encoding:(NSStringEncoding)encoding error:(MutPtr<id>)error {
+    if url == nil {
+        if !error.is_null() {
+            env.mem.write(error, nil);
+        }
+        release(env, this);
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    if path == nil {
+        if !error.is_null() {
+            env.mem.write(error, nil);
+        }
+        release(env, this);
+        return nil;
+    }
+    msg![env; this initWithContentsOfFile:path encoding:encoding error:error]
+}
+
+- (id)initWithContentsOfURL:(id)url usedEncoding:(MutPtr<NSUInteger>)enc error:(MutPtr<id>)error {
+    if url == nil {
+        if !error.is_null() {
+            env.mem.write(error, nil);
+        }
+        release(env, this);
+        return nil;
+    }
+    let path: id = msg![env; url path];
+    if path == nil {
+        if !error.is_null() {
+            env.mem.write(error, nil);
+        }
+        release(env, this);
+        return nil;
+    }
+    msg![env; this initWithContentsOfFile:path usedEncoding:enc error:error]
+}
+
 - (id)systemUptime {
     nil
 }
@@ -1515,7 +1673,7 @@ let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
     let mut remaining = string[start_byte..].char_indices();
     let end_byte = if range.length == 0 { start_byte } else {
         remaining.nth(range.length as usize - 1).map(|(i, c): (usize, char)| start_byte + i + c.len_utf8()).unwrap_or(string.len())
-         };
+    };
     let mut result = String::with_capacity(string.len() - (end_byte - start_byte) + repl.len());
     result.push_str(&string[..start_byte]);
     result.push_str(&repl);
@@ -1747,7 +1905,7 @@ let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
 }
 
 - (id)initWithBytesNoCopy:(MutPtr<u8>)bytes
-length:(NSUInteger)len
+                   length:(NSUInteger)len
                  encoding:(NSStringEncoding)encoding
              freeWhenDone:(bool)_free {
     msg![env; this initWithBytes:(bytes.cast_const()) length:len encoding:encoding]
@@ -1807,18 +1965,6 @@ length:(NSUInteger)len
 @end
 
 };
-
-// This implementation block forces registration into the runtime method registry map, 
-// safely breaking past the macro parameter limit constraints entirely.
-// Direct, clean, and idiomatic Rust for this use-case
-impl State {
-    pub fn register_methods(registry: &mut crate::objc::ClassTemplate) {
-        registry.add_method(
-            "getBytes:maxLength:usedLength:encoding:options:range:remainingRange:",
-            ns_string_get_bytes,
-        );
-    }
-}
 
 fn init_with_format_inner(env: &mut Environment, this: id, format: id, args: VaList) -> id {
     let res = with_format(env, format, args);
@@ -1920,7 +2066,19 @@ pub fn register_constant_strings(bin: &MachO, mem: &mut Mem, objc: &mut ObjC) {
                 "_touchHLE_NSString_CFConstantString_UTF16",
             )
         } else {
-            panic!("Bad CFTypeID for constant string: {flags:#x}");
+            // The constant string flags field encodes the underlying encoding.
+            // We support 0x7C8 (UTF-8) and 0x7D0 (UTF-16LE). Anything else is
+            // a brand-new variant we have not seen in iPhoneOS 2/3 binaries;
+            // skip the constant rather than panic the host. The CFString
+            // contents will then look empty to the guest, which is closer to
+            // how a real device behaves under unknown flag values.
+            log!(
+                "Warning: register_constant_strings: unknown CFTypeID flags {:#x} at {:?}; \
+                 skipping constant string entry.",
+                flags,
+                cfstr_ptr
+            );
+            continue;
         };
 
         objc.register_static_object(cfstr_ptr.cast().cast_mut(), Box::new(host_object));
@@ -1969,6 +2127,51 @@ pub fn to_rust_string(env: &mut Environment, string: id) -> Cow<'static, str> {
         .borrow_mut::<StringHostObject>(string)
         .to_utf8()
         .unwrap()
+}
+
+/// Returns the encoding in which `string`'s underlying code units can be
+/// retrieved without conversion.
+///
+/// This mirrors `CFStringGetFastestEncoding` and Cocoa's
+/// `-[NSString fastestEncoding]`: an `NSString` stored as UTF-16 reports
+/// `NSUnicodeStringEncoding`, a pure-ASCII UTF-8 string reports
+/// `NSASCIIStringEncoding`, and any other UTF-8 string reports
+/// `NSUTF8StringEncoding`. `nil` is treated as the empty string (ASCII).
+pub fn fastest_encoding(env: &mut Environment, string: id) -> NSStringEncoding {
+    if string == nil {
+        return NSASCIIStringEncoding;
+    }
+    match env.objc.borrow::<StringHostObject>(string) {
+        StringHostObject::Utf8(s) => {
+            if s.is_ascii() {
+                NSASCIIStringEncoding
+            } else {
+                NSUTF8StringEncoding
+            }
+        }
+        StringHostObject::Utf16(_) => NSUnicodeStringEncoding,
+    }
+}
+
+/// Returns the smallest encoding that can losslessly represent `string`.
+///
+/// This mirrors `CFStringGetSmallestEncoding` and `-[NSString smallestEncoding]`:
+/// pure-ASCII content reports `NSASCIIStringEncoding`, otherwise we report
+/// `NSUTF8StringEncoding` because every Unicode scalar value fits in UTF-8.
+pub fn smallest_encoding(env: &mut Environment, string: id) -> NSStringEncoding {
+    if string == nil {
+        return NSASCIIStringEncoding;
+    }
+    let host = env.objc.borrow::<StringHostObject>(string);
+    let is_ascii = match host {
+        StringHostObject::Utf8(s) => s.is_ascii(),
+        StringHostObject::Utf16(v) => v.iter().all(|&c| c <= 0x7F),
+    };
+    if is_ascii {
+        NSASCIIStringEncoding
+    } else {
+        NSUTF8StringEncoding
+    }
 }
 
 pub fn for_each_code_unit<F>(env: &mut Environment, string: id, mut f: F)
@@ -2158,7 +2361,7 @@ pub fn get_bytes_buffer_inner(
         NSUTF8StringEncoding | NSWindowsCP1252StringEncoding => string.as_bytes().to_vec(),
         NSUTF16LittleEndianStringEncoding | NSUTF16StringEncoding | NSUnicodeStringEncoding => {
             string.encode_utf16().flat_map(u16::to_le_bytes).collect()
-}
+        }
         NSUTF16BigEndianStringEncoding => {
             string.encode_utf16().flat_map(u16::to_be_bytes).collect()
         }
@@ -2318,58 +2521,4 @@ pub fn CFStringGetCharactersPtr(env: &mut Environment, the_string: id) -> ConstP
     } else {
         Ptr::null()
     }
-}
-
-// Standalone function bypasses macro restrictions completely
-fn ns_string_get_bytes(
-    env: &mut Environment,
-    this: id,
-    _cmd: crate::objc::SEL,
-    buffer: MutPtr<u8>,
-    max_length: NSUInteger,
-    used_length_ptr: MutPtr<NSUInteger>,
-    encoding: NSStringEncoding,
-    _options: NSUInteger,
-    range: NSRange,
-    remaining_range_ptr: MutPtr<NSRange>,
-) -> bool {
-    let search_loc = range.location as usize;
-    let search_len = range.length as usize;
-    let initial_length: NSUInteger = msg![env; this length];
-
-    if search_loc + search_len > initial_length as usize {
-        return false;
-    }
-
-    let mut extracted_units = Vec::new();
-    for i in search_loc..(search_loc + search_len) {
-        let c: u16 = msg![env; this characterAtIndex:i];
-        extracted_units.push(c);
-    }
-
-    let string_slice = String::from_utf16_lossy(&extracted_units);
-    let bytes = string_slice.as_bytes();
-    let copy_len = std::cmp::min(bytes.len(), max_length as usize);
-
-    if !buffer.is_null() && copy_len > 0 {
-        _ = env.mem.bytes_at_mut(buffer, copy_len as GuestUSize).write(&bytes[..copy_len]);
-    }
-
-    if !used_length_ptr.is_null() {
-        env.mem.write(used_length_ptr, copy_len as NSUInteger);
-    }
-
-    if !remaining_range_ptr.is_null() {
-        let processed_chars_count = string_slice[..copy_len].chars().count();
-        let remainder_loc = range.location + processed_chars_count as NSUInteger;
-        let remainder_len = range.length - processed_chars_count as NSUInteger;
-
-        let out_range = NSRange {
-            location: remainder_loc,
-            length: remainder_len,
-        };
-        env.mem.write(remaining_range_ptr, out_range);
-    }
-
-    true
-        }
+                                  }
