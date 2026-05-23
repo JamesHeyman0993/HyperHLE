@@ -82,7 +82,7 @@ pub enum HostConstant {
 }
 
 /// Type for lists of constants exported by host implementations of dynamic
-/// libraries (usually frameworks).
+//! libraries (usually frameworks).
 pub type ConstantExports = &'static [(&'static str, HostConstant)];
 
 /// Search the list of [HostDylib]s for a class/constant/function by its symbol.
@@ -483,7 +483,7 @@ impl Dyld {
                 || symbol == "_NSMetadataQueryDidFinishGatheringNotification" 
                 || symbol == "_NSMetadataQueryUbiquitousDocumentsScope" 
             {
- let dummy = mem.alloc(16);
+   let dummy = mem.alloc(16);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
                 continue;
             }
@@ -653,21 +653,29 @@ impl Dyld {
             return None;
         }
         
-                // --- FIXED CRITICAL MATH INTERCEPT ---
+        // --- FIXED CRITICAL MATH INTERCEPT ---
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
         if symbol == vector_math_mangled {
              log!("HyperHLE: Catching unmapped vector routine: {}. Allocating host adapter bridge.", symbol);
              
-             // Instead of an infinite loop return-None loop, intercept it and build a clean host-side execution binding.
              let addr = self.create_proc_address_no_inval(mem, vector_math_mangled).unwrap();
              let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
              
-             // Return the allocated host procedure runner so emulation handles the tick instantly
              let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
 
-                // --- NEW: CRYPTO SHA256 PASSTHROUGH INTERCEPT ---
+        // --- NEW: RED-BLACK TREE C++ STRUCTURAL INTERCEPT ---
+        let rb_tree_mangled = "__ZNSt8_Rb_treeISsSt4pairIKSsN4lang13FastDelegate0INS2_3PtrIN4game9ComponentEEEEEESt10_Select1stIS9_ESt4lessISsESaIS9_EE16_M_insert_uniqueESt17_Rb_tree_iteratorIS9_ERKS9_";
+        if symbol == rb_tree_mangled {
+             log!("HyperHLE: Intercepted unmapped C++ Rb_tree insertion routine. Binding structural memory handler.");
+             let addr = self.create_proc_address_no_inval(mem, rb_tree_mangled).unwrap();
+             let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
+             let idx_f: u32 = (self.linked_host_functions.len() - 1).try_into().unwrap();
+             return Some(self.linked_host_functions[idx_f as usize].1);
+        }
+
+        // --- NEW: CRYPTO SHA256 PASSTHROUGH INTERCEPT ---
         if symbol == "_CC_SHA256" || symbol == "CC_SHA256" {
              log!("HyperHLE: Catching static crypt engine link: {}. Setting pass-through safety buffer alignment.", symbol);
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
@@ -676,7 +684,7 @@ impl Dyld {
              return Some(self.linked_host_functions[idx_f as usize].1);
         }
 
-                // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
+        // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
         if symbol == "_kUTTypeBMP" 
            || symbol == "_kCAGravityTopLeft" 
            || symbol == "_UIPasteboardTypeListString"
@@ -689,7 +697,6 @@ impl Dyld {
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
              let _ = link_by_restoring_stub(mem, cpu, addr.addr_with_thumb_bit(), svc_pc, info.entry_size, pic_offset);
              
-             // Check if we can safely pull a valid host execution index
              if self.linked_host_functions.is_empty() {
                  let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
                  let stub_f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
@@ -700,7 +707,6 @@ impl Dyld {
         }
         
         // --- NEW: CRITTERCISM PARSER INTERCEPT ---
-        
         if symbol == "_CrittercismJKParseUTF8String" || symbol == "CrittercismJKParseUTF8String" {
              log!("HyperHLE: Catching lazy link for Crittercism JSON Parser. Bypassing crash engine.");
              let addr = self.create_proc_address_no_inval(mem, symbol).unwrap();
@@ -745,7 +751,7 @@ impl Dyld {
                 return None;
             }
         }
-      log!("Warning: call to unimplemented function {}; installing return-0 stub", symbol);
+        log!("Warning: call to unimplemented function {}; installing return-0 stub", symbol);
         
         let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
         let f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
@@ -776,12 +782,12 @@ impl Dyld {
         Ok(function_ptr)
     }
 
-            fn create_proc_address_no_inval(
+    fn create_proc_address_no_inval(
         &mut self,
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
-                // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
+        // --- BYPASS HACK FOR MARMALADE SDK & MEDIAPLAYER CONSTANTS ---
         if symbol == "_kUTTypeBMP" 
            || symbol == "_kCAGravityTopLeft" 
            || symbol == "_UIPasteboardTypeListString"
@@ -792,8 +798,6 @@ impl Dyld {
         {
             log!("HyperHLE: Intercepting and patching missing dependency symbol: {}", symbol);
             
-            // Allocate an actual structural memory address alignment payload block 
-            // instead of a bare function pointer. This satisfies structural data reads.
             let dummy_data_block = mem.alloc(16);
             let dummy_func = GuestFunction::from_addr_with_thumb_bit(dummy_data_block.to_bits());
             return Ok(dummy_func);
@@ -818,13 +822,23 @@ impl Dyld {
 
         let vector_math_mangled = "__ZNSt6vectorIPN5Maths10cMatrix4x4ESaIS2_EE13_M_insert_auxEN9__gnu_cxx17__normal_iteratorIPS2_S4_EERKS2_";
         if symbol == vector_math_mangled {
-            
             if let Some(&cached_fn) = self.non_lazy_host_functions.get(vector_math_mangled) {
                 return Ok(cached_fn);
             }
             let f: HostFunction = &(touchhle_vector_matrix_insert_aux as fn(&mut Environment, u32, u32, u32));
             let function_ptr = self.create_guest_function(mem, vector_math_mangled, f);
             self.non_lazy_host_functions.insert(vector_math_mangled, function_ptr);
+            return Ok(function_ptr);
+        }
+
+        let rb_tree_mangled = "__ZNSt8_Rb_treeISsSt4pairIKSsN4lang13FastDelegate0INS2_3PtrIN4game9ComponentEEEEEESt10_Select1stIS9_ESt4lessISsESaIS9_EE16_M_insert_uniqueESt17_Rb_tree_iteratorIS9_ERKS9_";
+        if symbol == rb_tree_mangled {
+            if let Some(&cached_fn) = self.non_lazy_host_functions.get(rb_tree_mangled) {
+                return Ok(cached_fn);
+            }
+            let f: HostFunction = &(touchhle_rb_tree_insert_stub as fn(&mut Environment, u32, u32, u32) -> u32);
+            let function_ptr = self.create_guest_function(mem, rb_tree_mangled, f);
+            self.non_lazy_host_functions.insert(rb_tree_mangled, function_ptr);
             return Ok(function_ptr);
         }
 
@@ -850,8 +864,7 @@ impl Dyld {
             let function_ptr = self.create_guest_function(mem, "_sqlite3_step", f);
             self.non_lazy_host_functions.insert("_sqlite3_step", function_ptr);
             return Ok(function_ptr);
-        }
-
+                }
         if symbol == "_sqlite3_errmsg" {
             if let Some(&cached_fn) = self.non_lazy_host_functions.get("_sqlite3_errmsg") { return Ok(cached_fn); }
             let f: HostFunction = &(touchhle_sqlite3_errmsg as fn(&mut Environment, u32) -> u32);
@@ -935,35 +948,27 @@ fn unimplemented_function_stub(_env: &mut Environment) -> i32 {
 fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, position_iterator: u32, matrix_ptr_val: u32) {
     let vec_ptr: MutPtr<u32> = Ptr::from_bits(vector_this);
     
-    // Read the vector internal structure bounds pointers:
-    // +0: M_start (pointer to array begin)
-    // +4: M_finish (pointer to current end element)
-    // +8: M_end_of_storage (allocated memory ceiling)
     let start: u32 = env.mem.read(vec_ptr + 0);
     let mut finish: u32 = env.mem.read(vec_ptr + 1);
     let end_of_storage: u32 = env.mem.read(vec_ptr + 2);
 
     if finish < end_of_storage {
-        // If there is existing padding headroom, push the memory block over by 4 bytes (1 pointer size)
         let mut current = finish;
         while current > position_iterator {
             let prev_val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(current - 4));
             env.mem.write(Ptr::from_bits(current), prev_val);
             current -= 4;
         }
-        // Safely write the matrix pointer element value directly into the slot position
         env.mem.write(Ptr::from_bits(position_iterator), matrix_ptr_val);
         finish += 4;
         env.mem.write(vec_ptr + 1, finish);
     } else {
-        // Handle array reallocation if storage is maxed out
         let current_size = finish.saturating_sub(start);
         let new_capacity = if current_size == 0 { 4 } else { current_size * 2 };
         
         let new_start_ptr = (*env.mem).alloc(new_capacity);
         let new_start = new_start_ptr.to_bits();
         
-        // Loop copy for prefix elements (before insertion point)
         let mut offset = 0;
         while start + offset < position_iterator {
             let val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(start + offset));
@@ -971,10 +976,8 @@ fn touchhle_vector_matrix_insert_aux(env: &mut Environment, vector_this: u32, po
             offset += 4;
         }
             
-        // Write the newly inserted matrix pointer element
         env.mem.write(Ptr::from_bits(new_start + offset), matrix_ptr_val);
         
-        // Loop copy for suffix elements (after insertion point)
         let mut suffix_offset = 0;
         while position_iterator + suffix_offset < finish {
             let val: u32 = env.mem.read(Ptr::<u32, false>::from_bits(position_iterator + suffix_offset));
@@ -1014,7 +1017,6 @@ fn touchhle_dyld_register_func_for_remove_image(_env: &mut Environment, _func: u
 
 fn touchhle_cc_sha256_stub(env: &mut Environment, _data: u32, _len: u32, md_output_buffer: u32) -> u32 {
     log!("HyperHLE: Bypassing CC_SHA256 calculation. Passthrough target buffer pointer: {:#x}", md_output_buffer);
-    // If the game provided an allocated address structure, echo it back to fulfill pointer registration
     if md_output_buffer != 0 {
         return md_output_buffer;
     }
@@ -1023,7 +1025,25 @@ fn touchhle_cc_sha256_stub(env: &mut Environment, _data: u32, _len: u32, md_outp
 
 fn touchhle_crittercism_json_stub(_env: &mut Environment, _string_bytes_ptr: u32, _length: u32, _encoding: u32, _error_out_ptr: u32) -> u32 {
     log!("HyperHLE: Intercepted and bypassed _CrittercismJKParseUTF8String to eliminate empty JSON parsing crash.");
-    // Return 0 (nil / NULL object reference) to signal an empty or safe initialization result 
-    // without triggering an assembly-level null pointer dereference.
     0
-                                                                                               }  
+}
+
+// --- SAFE STRUCTURAL SIMULATION STUB FOR STD::_RB_TREE_INSERT ---
+/// Emulates an insert event for the C++ internal red-black tree structures.
+/// Allocates backing metadata tracking space dynamically to avoid NULL pointer exceptions.
+fn touchhle_rb_tree_insert_stub(env: &mut Environment, _tree_this: u32, _iterator_pos: u32, _pair_val_ptr: u32) -> u32 {
+    log!("HyperHLE: Executing C++ structural map allocation bridge layer.");
+    
+    // Allocate 32 bytes of aligned structural memory to act as a placeholder node 
+    // for the binary's internal C++ _Rb_tree properties (left, right, parent, color flags).
+    let structural_node = (*env.mem).alloc(32);
+    
+    // Initialize the allocated space safely with zeroes
+    let node_u32_ptr: MutPtr<u32> = structural_node.cast();
+    for i in 0..8 {
+        (*env.mem).write(node_u32_ptr + i, 0u32);
+    }
+    
+    // Return the tracking memory address back to the application register stack
+    structural_node.to_bits()
+        }
