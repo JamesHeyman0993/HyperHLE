@@ -700,8 +700,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     let res: bool = msg![env; this getCString:buffer maxLength:length encoding:encoding];
     assert!(res);
 }
-
-    - (bool)getBytes:(MutPtr<u8>)buffer
+    
+- (bool)getBytes:(MutPtr<u8>)buffer
        maxLength:(NSUInteger)max_length
       usedLength:(MutPtr<NSUInteger>)used_length_ptr
         encoding:(NSStringEncoding)encoding
