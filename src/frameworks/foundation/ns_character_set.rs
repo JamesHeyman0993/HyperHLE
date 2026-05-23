@@ -554,45 +554,51 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())unionWithCharacterSet:(id)other { // NSCharacterSet*
-    let other_chars: Vec<unichar> = {
+// FIXED: Added formUnionWithCharacterSet: selector layout to map CoreFoundation parsing engines
+- (())formUnionWithCharacterSet:(id)other { // NSCharacterSet*
+    if other == nil {
+        return;
+    }
+
+    let (other_chars, other_inverted) = {
         let h = env.objc.borrow::<CharacterSetHostObject>(other);
-        h.set.iter().copied().collect()
+        (h.set.clone(), h.inverted)
     };
+
     let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
-    for c in other_chars { host.set.insert(c); }
+    
+    if host.inverted {
+        if other_inverted {
+            // Inverted + Inverted: Keep elements common to both structures
+            host.set.retain(|c| other_chars.contains(c));
+        } else {
+            // Inverted + Normal: Strip elements added by target structure
+            for c in other_chars {
+                host.set.remove(&c);
+            }
+        }
+    } else {
+        if other_inverted {
+            // Normal + Inverted: Invert target bounds and populate tracking index
+            let mut new_set = other_chars;
+            for c in &host.set {
+                new_set.remove(c);
+            }
+            host.set = new_set;
+            host.inverted = true;
+        } else {
+            // Normal + Normal: Simple procedural union sequence
+            for c in other_chars {
+                host.set.insert(c);
+            }
+        }
+    }
+}
+
+// Legacy name fallback support mapping
+- (())unionWithCharacterSet:(id)other {
+    msg![env; this formUnionWithCharacterSet:other];
 }
 
 - (())intersectWithCharacterSet:(id)other { // NSCharacterSet*
-    let other_set: HashSet<unichar> = {
-        let h = env.objc.borrow::<CharacterSetHostObject>(other);
-        h.set.clone()
-    };
-    let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
-    host.set.retain(|c| other_set.contains(c));
-}
-
-- (())invert {
-    let host = env.objc.borrow_mut::<CharacterSetHostObject>(this);
-    host.inverted = !host.inverted;
-}
-
-- (id)invertedSet {
-    let old = env.objc.borrow::<CharacterSetHostObject>(this);
-    let new_host = Box::new(CharacterSetHostObject {
-        set: old.set.clone(),
-        inverted: !old.inverted,
-    });
-    let class = env.objc.get_known_class("_touchHLE_NSCharacterSet", &mut env.mem);
-    let new = env.objc.alloc_object(class, new_host, &mut env.mem);
-    autorelease(env, new)
-}
-
-- (bool)characterIsMemberOfSet:(unichar)code_unit {
-    let host_object = env.objc.borrow::<CharacterSetHostObject>(this);
-    host_object.set.contains(&code_unit) ^ host_object.inverted
-}
-
-@end
-
-};
+    let other_set: Hash
