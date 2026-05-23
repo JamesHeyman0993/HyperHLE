@@ -701,6 +701,55 @@ pub const CLASSES: ClassExports = objc_classes! {
     assert!(res);
 }
 
+    - (bool)getBytes:(MutPtr<u8>)buffer
+       maxLength:(NSUInteger)max_length
+      usedLength:(MutPtr<NSUInteger>)used_length_ptr
+        encoding:(NSStringEncoding)encoding
+         options:(NSUInteger)_options
+           range:(NSRange)range
+  remainingRange:(MutPtr<NSRange>)remaining_range_ptr {
+
+    let search_loc = range.location as usize;
+    let search_len = range.length as usize;
+    let initial_length: NSUInteger = msg![env; this length];
+
+    if search_loc + search_len > initial_length as usize {
+        return false;
+    }
+
+    let mut extracted_units = Vec::new();
+    for i in search_loc..(search_loc + search_len) {
+        let c: u16 = msg![env; this characterAtIndex:i];
+        extracted_units.push(c);
+    }
+
+    let string_slice = String::from_utf16_lossy(&extracted_units);
+    let bytes = string_slice.as_bytes();
+    let copy_len = std::cmp::min(bytes.len(), max_length as usize);
+
+    if !buffer.is_null() && copy_len > 0 {
+        _ = env.mem.bytes_at_mut(buffer, copy_len as GuestUSize).write(&bytes[..copy_len]);
+    }
+
+    if !used_length_ptr.is_null() {
+        env.mem.write(used_length_ptr, copy_len as NSUInteger);
+    }
+
+    if !remaining_range_ptr.is_null() {
+        let processed_chars_count = string_slice[..copy_len].chars().count();
+        let remainder_loc = range.location + processed_chars_count as NSUInteger;
+        let remainder_len = range.length - processed_chars_count as NSUInteger;
+
+        let out_range = NSRange {
+            location: remainder_loc,
+            length: remainder_len,
+        };
+        env.mem.write(remaining_range_ptr, out_range);
+    }
+
+    true
+  }
+    
 - (id)componentsSeparatedByString:(id)separator {
     if separator == nil {
         let res = ns_array::from_vec(env, vec![this]);
