@@ -1810,8 +1810,9 @@ length:(NSUInteger)len
 
 // This implementation block forces registration into the runtime method registry map, 
 // safely breaking past the macro parameter limit constraints entirely.
-impl ClassExports for State {
-    fn register_methods(registry: &mut crate::objc::MethodRegistry) {
+// Direct, clean, and idiomatic Rust for this use-case
+impl State {
+    pub fn register_methods(registry: &mut crate::objc::MethodRegistry) {
         registry.add_method(
             "getBytes:maxLength:usedLength:encoding:options:range:remainingRange:",
             ns_string_get_bytes,
