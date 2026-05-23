@@ -82,7 +82,7 @@ pub enum HostConstant {
 }
 
 /// Type for lists of constants exported by host implementations of dynamic
-//! libraries (usually frameworks).
+/// libraries (usually frameworks).
 pub type ConstantExports = &'static [(&'static str, HostConstant)];
 
 /// Search the list of [HostDylib]s for a class/constant/function by its symbol.
