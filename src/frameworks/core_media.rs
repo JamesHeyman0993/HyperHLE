@@ -17,26 +17,14 @@ use crate::Environment;
 
 /// CoreMedia CMTime specification function stub.
 /// 
-/// CMTime is structurally represented on 32-bit iOS/ARMv7 architectures as:
-/// - CMTimeValue (i64, takes R0 and R1 registers)
-/// - CMTimeScale (i32, takes R2 register)
-/// - CMTimeFlags (u32, takes R3 register)
-/// - CMTimeEpoch (i64, pushed to stack)
-///
-/// For simple engine initializations, filling out the primary value and scale registers 
-/// prevents Marmalade loader threads from looping on undefined behavior.
-fn CMTimeMake(env: &mut Environment, value: i64, timescale: i32) {
-    log!("Stub: CMTimeMake(value: {}, timescale: {}) called.", value, timescale);
+/// Instead of manually breaking down registers, returning a u64 allows touchHLE's 
+/// internal framework macro runner to automatically split the 64-bit integer values 
+/// across guest registers R0 and R1 to fulfill the ARM EABI calling convention.
+fn CMTimeMake(_env: &mut Environment, value: i64, _timescale: i32) -> u64 {
+    log!("Stub: CMTimeMake(value: {}, timescale: {}) called.", value, _timescale);
     
-    // We modify the guest registers directly via CPU state to safely pass a valid 64-bit split CMTimeValue layout back to the caller
-    let val_bytes = value.to_ne_bytes();
-    let r0 = u32::from_ne_bytes([val_bytes[0], val_bytes[1], val_bytes[2], val_bytes[3]]);
-    let r1 = u32::from_ne_bytes([val_bytes[4], val_bytes[5], val_bytes[6], val_bytes[7]]);
-    
-    env.cpu.set_r(0, r0);
-    env.cpu.set_r(1, r1);
-    env.cpu.set_r(2, timescale as u32);
-    env.cpu.set_r(3, 1); // CMTimeFlags: kCMTimeFlags_Valid = 1
+    // Cast the i64 timeline parameter into a clean u64 structure payload
+    value as u64
 }
 
 // Populated missing symbol mapping table for structural time constraints
