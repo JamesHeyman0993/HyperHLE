@@ -24,23 +24,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation GCController : NSObject
 
-    // Class method fallback handler
+    // ==========================================
+    // CLASS METHODS (+) MUST GO FIRST
+    // ==========================================
     + (bool)respondsToSelector:(SEL)selector {
         log!("HyperHLE: GCController class respondsToSelector check bypass -> returning true");
         true
     }
 
-    // Instance method fallback handler
+    + (id)controllers {
+        log!("HyperHLE: [GCController controllers] called -> returning empty array representation");
+        nil 
+    }
+
+    // ==========================================
+    // INSTANCE METHODS (-) MUST GO SECOND
+    // ==========================================
     - (bool)respondsToSelector:(SEL)selector {
         log!("HyperHLE: GCController instance respondsToSelector check bypass -> returning true");
         true
-    }
-
-    // Provide a standard array initializer in case it checks connected controllers
-    + (id)controllers {
-        log!("HyperHLE: [GCController controllers] called -> returning empty array representation");
-        // Fallback to nil or an empty array instance if your foundation layer supports it
-        nil 
     }
     @end
 };
@@ -48,7 +50,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 pub const DYLIB: HostDylib = HostDylib {
     path: "/System/Library/Frameworks/GameController.framework/GameController",
     aliases: &[],
-    class_exports: &[CLASSES], // <--- Added the exported class structure here
+    class_exports: &[CLASSES],
     constant_exports: &[CONSTANTS],
     function_exports: &[],
 };
