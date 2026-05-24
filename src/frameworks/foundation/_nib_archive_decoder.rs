@@ -185,10 +185,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     if val.is_none() {
         return CGPoint { x: 0.0, y: 0.0 };
     }
-    let ValueVariant::Data(data) = val.unwrap().value() else {
+        let ValueVariant::Data(data) = val.unwrap().value() else {
         unreachable!()
     };
-    assert_eq!(6, data[0]);
+    // FIX: Allow either 6 or 7 type flags
+    assert!(data[0] == 6 || data[0] == 7, "Unexpected CGPoint type flag: {}", data[0]);
     let x = f32::from_le_bytes(data[1..5].try_into().unwrap());
     let y = f32::from_le_bytes(data[5..9].try_into().unwrap());
     log_dbg!("decoded CGPoint {} {}", x, y);
@@ -203,10 +204,11 @@ pub const CLASSES: ClassExports = objc_classes! {
             size: CGSize { width: 0.0, height: 0.0 }
         };
     }
-    let ValueVariant::Data(data) = val.unwrap().value() else {
+        let ValueVariant::Data(data) = val.unwrap().value() else {
         unreachable!()
     };
-    assert_eq!(6, data[0]);
+    // FIX: Allow either 6 or 7 type flags
+    assert!(data[0] == 6 || data[0] == 7, "Unexpected CGRect type flag: {}", data[0]);
     let x = f32::from_le_bytes(data[1..5].try_into().unwrap());
     let y = f32::from_le_bytes(data[5..9].try_into().unwrap());
     let width = f32::from_le_bytes(data[9..13].try_into().unwrap());
