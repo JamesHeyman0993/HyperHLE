@@ -16,7 +16,7 @@ use crate::objc::{
     NSZonePtr, SEL,
 };
 use crate::window::DeviceOrientation;
-use crate::{todo_objc_setter, Environment};
+use crate::Environment;
 
 #[derive(Default)]
 pub struct State {
@@ -31,6 +31,8 @@ pub struct State {
 struct UIApplicationHostObject {
     delegate: id,
     delegate_is_retained: bool,
+    status_bar_style: UIStatusBarStyle,
+    application_icon_badge_number: NSInteger,
 }
 impl HostObject for UIApplicationHostObject {}
 
@@ -40,8 +42,6 @@ pub const UIInterfaceOrientationPortrait: UIInterfaceOrientation = UIDeviceOrien
 #[allow(unused)]
 pub const UIInterfaceOrientationPortraitUpsideDown: UIInterfaceOrientation =
     UIDeviceOrientationPortraitUpsideDown;
-// These are intentionally swapped and documented as such (the UI on the device
-// rotates in the opposite direction to how the device is rotated).
 pub const UIInterfaceOrientationLandscapeLeft: UIInterfaceOrientation =
     UIDeviceOrientationLandscapeRight;
 pub const UIInterfaceOrientationLandscapeRight: UIInterfaceOrientation =
@@ -59,11 +59,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 (env, this, _cmd);
 @implementation UIApplication: UIResponder
 
-// This should only be called by UIApplicationMain
 + (id)allocWithZone:(NSZonePtr)_zone {
     let host_object = Box::new(UIApplicationHostObject {
         delegate: nil,
         delegate_is_retained: false,
+        status_bar_style: 0,
+        application_icon_badge_number: 0,
     });
     env.objc.alloc_static_object(this, host_object, &mut env.mem)
 }
@@ -73,24 +74,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setNetworkActivityIndicatorVisible:(bool)visible {
-    // touchHLE doesn't render the iOS status bar, so we just stub this
-    // and ignore the request to show/hide the spinner.
     log_dbg!("Stubbed setNetworkActivityIndicatorVisible: {}", visible);
 }
 
 - (bool)isNetworkActivityIndicatorVisible {
-    // Always report that it's hidden.
     false
 }
 
-// This should only be called by UIApplicationMain
 - (id)init {
     assert!(env.framework_state.uikit.ui_application.shared_application.is_none());
     env.framework_state.uikit.ui_application.shared_application = Some(this);
     this
 }
 
-// This is a singleton, it shouldn't be deallocated.
 - (id)retain { this }
 - (id)autorelease { this }
 - (())release {}
@@ -98,9 +94,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)delegate {
     env.objc.borrow::<UIApplicationHostObject>(this).delegate
 }
-- (())setDelegate:(id)delegate { // something implementing UIApplicationDelegate
+- (())setDelegate:(id)delegate {
     let host_object = env.objc.borrow_mut::<UIApplicationHostObject>(this);
-    // This property is quasi-non-retaining: https://stackoverflow.com/a/14271150/736162
     let old_delegate = std::mem::replace(&mut host_object.delegate, delegate);
     if host_object.delegate_is_retained {
         host_object.delegate_is_retained = false;
@@ -116,32 +111,28 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setStatusBarHidden:(bool)hidden {
     env.framework_state.uikit.ui_application.status_bar_hidden = hidden;
 }
-- (())setStatusBarHidden:(bool)hidden
-                animated:(bool)_animated {
-    // TODO: animation
-    msg![env; this setStatusBarHidden:hidden]
+- (())setStatusBarHidden:(bool)hidden animated:(bool)_animated {
+    () = msg![env; this setStatusBarHidden:hidden];
 }
-- (())setStatusBarHidden:(bool)hidden
-           withAnimation:(UIStatusBarAnimation)_animation {
-    // TODO: animation
-    msg![env; this setStatusBarHidden:hidden]
+- (())setStatusBarHidden:(bool)hidden withAnimation:(UIStatusBarAnimation)_animation {
+    () = msg![env; this setStatusBarHidden:hidden];
 }
 
 - (())setStatusBarStyle:(UIStatusBarStyle)style {
-    todo_objc_setter!(this, style);
+    env.objc.borrow_mut::<UIApplicationHostObject>(this).status_bar_style = style;
 }
-
-- (())setStatusBarStyle:(UIStatusBarStyle)style
-               animated:(bool)_animated {
-    msg![env; this setStatusBarStyle:style]
+- (UIStatusBarStyle)statusBarStyle {
+    env.objc.borrow::<UIApplicationHostObject>(this).status_bar_style
+}
+- (())setStatusBarStyle:(UIStatusBarStyle)style animated:(bool)_animated {
+    () = msg![env; this setStatusBarStyle:style];
 }
 
 - (UIInterfaceOrientation)statusBarOrientation {
-                // Fix for Fast & Furious AND Power Rangers: Force landscape
+    // Preserve layout force for landscape locked titles
     if !env.bundle.is_null() {
         let bundle = env.bundle.as_ref();
         let bundle_id = bundle.bundle_identifier();
-        // Check for BOTH games here using ||
         if bundle_id == "com.iplay.ff63d" || bundle_id == "com.saban.powerrangersbash" {
             return UIInterfaceOrientationLandscapeRight;
         }
@@ -153,13 +144,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         DeviceOrientation::LandscapeRight => UIDeviceOrientationLandscapeRight
     }
 }
-    
+
 - (f64)statusBarOrientationAnimationDuration {
     0.3
 }
 
 - (())setStatusBarOrientation:(UIInterfaceOrientation)orientation {
     match orientation {
+        UIDeviceOrientationUnknown => {}
         UIDeviceOrientationPortrait => {
             env.on_parent_stack_in_coroutine(|window, _| window.rotate_device(DeviceOrientation::Portrait));
         }
@@ -175,38 +167,60 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())setStatusBarOrientation:(UIInterfaceOrientation)orientation
-                     animated:(bool)_animated {
-    // TODO: animation
-    msg![env; this setStatusBarOrientation:orientation]
+- (())setStatusBarOrientation:(UIInterfaceOrientation)orientation animated:(bool)_animated {
+    () = msg![env; this setStatusBarOrientation:orientation];
 }
 
 - (bool)isIdleTimerDisabled {
     !env.window().is_screen_saver_enabled()
 }
 - (())setIdleTimerDisabled:(bool)disabled {
-    env.on_parent_stack_in_coroutine(|window, _| window.set_screen_saver_enabled(!disabled))
+    env.on_parent_stack_in_coroutine(|window, _| window.set_screen_saver_enabled(!disabled));
 }
 
-- (bool)canOpenURL:(id)_url { // NSURL
-    log!("TODO: stubbed canOpenURL:");
+- (bool)canOpenURL:(id)url {
+    if url == nil { return false; }
+    let ns_string: id = msg![env; url scheme];
+    if ns_string == nil { return false; }
+    let scheme = ns_string::to_rust_string(env, ns_string);
+    let scheme_lower = scheme.to_lowercase();
+
+    const HOST_HANDLED_SCHEMES: &[&str] = &[
+        "http", "https", "ftp", "tel", "telprompt", "facetime", "facetime-audio",
+        "mailto", "sms", "imessage", "file", "data", "itms", "itms-apps",
+        "itms-services", "itmss", "maps",
+    ];
+    if HOST_HANDLED_SCHEMES.contains(&scheme_lower.as_str()) {
+        return true;
+    }
+
+    let main_bundle: id = msg_class![env; NSBundle mainBundle];
+    if main_bundle != nil {
+        let key_str = ns_string::get_static_str(env, "LSApplicationQueriesSchemes");
+        let allowed_arr: id = msg![env; main_bundle objectForInfoDictionaryKey:key_str];
+        if allowed_arr != nil {
+            let count: u32 = msg![env; allowed_arr count];
+            for i in 0..count {
+                let entry: id = msg![env; allowed_arr objectAtIndex:i];
+                if entry == nil { continue; }
+                let entry_str = ns_string::to_rust_string(env, entry);
+                if entry_str.to_lowercase() == scheme_lower {
+                    return false;
+                }
+            }
+        }
+    }
     false
 }
 
-- (bool)openURL:(id)url { // NSURL
+- (bool)openURL:(id)url {
     let ns_string = msg![env; url absoluteString];
     let url_string = ns_string::to_rust_string(env, ns_string);
     if let Err(e) = crate::window::open_url(env, &url_string) {
-        echo!(
-            "App opened URL {:?} unsuccessfully ({})",
-            url_string,
-            e
-        );
+        echo!("App opened URL {:?} unsuccessfully ({})", url_string, e);
     } else {
         echo!("App opened URL {:?}", url_string);
     }
-
-    // Real iOS backgrounds the app here instead of killing it.
     log!("UIApplication openURL: ignoring forced exit for compatibility");
     true
 }
@@ -228,32 +242,28 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())sendEvent:(id)event { // UIEvent*
+- (())sendEvent:(id)event {
     log_dbg!("UIApplication sendEvent: forwarding to key window");
     let window: id = msg![env; this keyWindow];
     if window != nil {
-        msg![env; window sendEvent:event]
+        () = msg![env; window sendEvent:event];
     }
 }
 
-- (bool)sendAction:(SEL)action
-                to:(id)target
-              from:(id)sender
-          forEvent:(id)event { // UIEvent*
+- (bool)sendAction:(SEL)action to:(id)target from:(id)sender forEvent:(id)event {
     if target != nil {
         let responds: bool = msg![env; target respondsToSelector:action];
         if responds {
-            let _: () = msg![env; target performSelector:action withObject:sender];
+            () = msg![env; target performSelector:action withObject:sender];
             return true;
         }
         return false;
     }
-    // Walk responder chain if target is nil.
     let mut responder: id = sender;
     while responder != nil {
         let responds: bool = msg![env; responder respondsToSelector:action];
         if responds {
-            let _: () = msg![env; responder performSelector:action withObject:sender];
+            () = msg![env; responder performSelector:action withObject:sender];
             return true;
         }
         responder = msg![env; responder nextResponder];
@@ -287,20 +297,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())registerForRemoteNotificationTypes:(UIRemoteNotificationType)types {
     log!("Intercepted registerForRemoteNotificationTypes: {}. Simulating safe environment.", types);
-    
     let delegate: id = msg![env; this delegate];
     if delegate != nil {
         if env.objc.object_has_method_named(&env.mem, delegate, "application:didFailToRegisterForRemoteNotificationsWithError:") {
-            log!("Forwarding notification failure to app delegate to satisfy memory layout.");
-            // We pass nil as the error parameter to act as a generic failure payload
-            let _: () = msg![env; delegate application:this didFailToRegisterForRemoteNotificationsWithError:nil];
-        } else {
-            log!("App delegate does not catch registration errors. Bypassing cleanly.");
+            () = msg![env; delegate application:this didFailToRegisterForRemoteNotificationsWithError:nil];
         }
     }
 }
-        
-- (())unregisterForRemoteNotifications {
+
+- ((()))unregisterForRemoteNotifications {
     log!("UIApplication unregisterForRemoteNotifications: stubbed");
 }
 
@@ -317,15 +322,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())cancelAllLocalNotifications {
-    log!("UIApplication cancelAllLocalNotifications: stubbed");
+    log_dbg!("UIApplication cancelAllLocalNotifications: stubbed");
 }
 
 - (())cancelLocalNotification:(id)_notification {
-    log!("UIApplication cancelLocalNotification: stubbed");
+    log_dbg!("UIApplication cancelLocalNotification: stubbed");
 }
 
 - (())scheduleLocalNotification:(id)_notification {
-    log!("UIApplication scheduleLocalNotification: stubbed");
+    log_dbg!("UIApplication scheduleLocalNotification: stubbed");
 }
 
 - (id)scheduledLocalNotifications {
@@ -360,7 +365,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())presentLocalNotificationNow:(id)_notification {
-    log!("UIApplication presentLocalNotificationNow: stubbed");
+    log_dbg!("UIApplication presentLocalNotificationNow: stubbed");
 }
 
 - (id)keyWindow {
@@ -379,11 +384,16 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, windows)
 }
 
-- (NSInteger)applicationIconBadgeNumber {
+- (UIRemoteNotificationType)enabledRemoteNotificationTypes {
     0
 }
+
+- (NSInteger)applicationIconBadgeNumber {
+    env.objc.borrow::<UIApplicationHostObject>(this).application_icon_badge_number
+}
 - (())setApplicationIconBadgeNumber:(NSInteger)bn {
-    log!("TODO: ignoring setApplicationIconBadgeNumber:{}", bn);
+    log_dbg!("setApplicationIconBadgeNumber:{}", bn);
+    env.objc.borrow_mut::<UIApplicationHostObject>(this).application_icon_badge_number = bn;
 }
 
 - (id)nextResponder {
@@ -458,9 +468,9 @@ pub(super) fn UIApplicationMain(
         let pool: id = msg_class![env; NSAutoreleasePool new];
         let delegate: id = msg![env; ui_application delegate];
         
-        // Toy Story Mania Fallback Hack: Force the emulator to use the legacy launch path
+        // Retain your custom Toy Story Mania legacy loop override logic
         let has_options_method = if env.bundle.bundle_identifier().starts_with("com.disney.toystory") {
-            log!("Applying Toy Story Mania Hack: Hiding didFinishLaunchingWithOptions to force legacy, un-dictionaried startup path.");
+            log!("Applying Toy Story Mania Hack: Hiding didFinishLaunchingWithOptions to force legacy startup path.");
             false 
         } else {
             env.objc.object_has_method_named(&env.mem, delegate, "application:didFinishLaunchingWithOptions:")
@@ -496,6 +506,16 @@ pub(super) fn UIApplicationMain(
         let _: () = msg![env; pool drain];
     }
 
+    {
+        let pool: id = msg_class![env; NSAutoreleasePool new];
+        let current_device: id = msg_class![env; UIDevice currentDevice];
+        let is_generating: bool = msg![env; current_device isGeneratingDeviceOrientationNotifications];
+        if is_generating {
+            let _: () = msg![env; current_device _postOrientationChangeNotification];
+        }
+        let _: () = msg![env; pool drain];
+    }
+
     let run_loop: id = msg_class![env; NSRunLoop mainRunLoop];
     let _: () = msg![env; run_loop run];
 }
@@ -528,7 +548,7 @@ pub(super) fn exit(env: &mut Environment) {
         let _: () = msg![env; pool drain];
     };
     std::process::exit(0);
-}
+    }
 
 const UIApplicationDidFinishLaunchingNotification: &str = "UIApplicationDidFinishLaunchingNotification";
 const UIApplicationDidBecomeActiveNotification: &str = "UIApplicationDidBecomeActiveNotification";
@@ -538,7 +558,33 @@ const UIApplicationWillResignActiveNotification: &str = "UIApplicationWillResign
 const UIApplicationWillTerminateNotification: &str = "UIApplicationWillTerminateNotification";
 const UIApplicationLaunchOptionsRemoteNotificationKey: &str = "UIApplicationLaunchOptionsRemoteNotificationKey";
 const UIApplicationDidReceiveMemoryWarningNotification: &str = "UIApplicationDidReceiveMemoryWarningNotification";
-    pub const CONSTANTS: ConstantExports = &[
+const UIApplicationProtectedDataDidBecomeAvailable: &str = "UIApplicationProtectedDataDidBecomeAvailable";
+const UIApplicationProtectedDataWillBecomeUnavailable: &str = "UIApplicationProtectedDataWillBecomeUnavailable";
+const UIApplicationSignificantTimeChangeNotification: &str = "UIApplicationSignificantTimeChangeNotification";
+const UIApplicationDidChangeStatusBarFrameNotification: &str = "UIApplicationDidChangeStatusBarFrameNotification";
+const UIApplicationWillChangeStatusBarFrameNotification: &str = "UIApplicationWillChangeStatusBarFrameNotification";
+const UIApplicationDidChangeStatusBarOrientationNotification: &str = "UIApplicationDidChangeStatusBarOrientationNotification";
+const UIApplicationWillChangeStatusBarOrientationNotification: &str = "UIApplicationWillChangeStatusBarOrientationNotification";
+const UIApplicationStatusBarFrameUserInfoKey: &str = "UIApplicationStatusBarFrameUserInfoKey";
+const UIApplicationStatusBarOrientationUserInfoKey: &str = "UIApplicationStatusBarOrientationUserInfoKey";
+const UIApplicationBackgroundFetchIntervalMinimum: &str = "UIApplicationBackgroundFetchIntervalMinimum";
+const UIApplicationBackgroundFetchIntervalNever: &str = "UIApplicationBackgroundFetchIntervalNever";
+const UIApplicationLaunchOptionsURLKey: &str = "UIApplicationLaunchOptionsURLKey";
+const UIApplicationLaunchOptionsSourceApplicationKey: &str = "UIApplicationLaunchOptionsSourceApplicationKey";
+const UIApplicationLaunchOptionsAnnotationKey: &str = "UIApplicationLaunchOptionsAnnotationKey";
+const UIApplicationLaunchOptionsLocalNotificationKey: &str = "UIApplicationLaunchOptionsLocalNotificationKey";
+const UIApplicationLaunchOptionsLocationKey: &str = "UIApplicationLaunchOptionsLocationKey";
+const UIApplicationLaunchOptionsNewsstandDownloadsKey: &str = "UIApplicationLaunchOptionsNewsstandDownloadsKey";
+const UIApplicationLaunchOptionsBluetoothCentralsKey: &str = "UIApplicationLaunchOptionsBluetoothCentralsKey";
+const UIApplicationLaunchOptionsBluetoothPeripheralsKey: &str = "UIApplicationLaunchOptionsBluetoothPeripheralsKey";
+const UIApplicationLaunchOptionsShortcutItemKey: &str = "UIApplicationLaunchOptionsShortcutItemKey";
+const UIApplicationOpenSettingsURLString: &str = "app-settings:";
+const UIApplicationOpenURLOptionsSourceApplicationKey: &str = "UIApplicationOpenURLOptionsSourceApplicationKey";
+const UIApplicationOpenURLOptionsAnnotationKey: &str = "UIApplicationOpenURLOptionsAnnotationKey";
+const UIApplicationOpenURLOptionsOpenInPlaceKey: &str = "UIApplicationOpenURLOptionsOpenInPlaceKey";
+const UIApplicationOpenURLOptionUniversalLinksOnly: &str = "UIApplicationOpenURLOptionUniversalLinksOnly";
+
+pub const CONSTANTS: ConstantExports = &[
     ("_UIApplicationDidFinishLaunchingNotification", HostConstant::NSString(UIApplicationDidFinishLaunchingNotification)),
     ("_UIApplicationDidBecomeActiveNotification", HostConstant::NSString(UIApplicationDidBecomeActiveNotification)),
     ("_UIApplicationDidEnterBackgroundNotification", HostConstant::NSString(UIApplicationDidEnterBackgroundNotification)),
@@ -547,6 +593,31 @@ const UIApplicationDidReceiveMemoryWarningNotification: &str = "UIApplicationDid
     ("_UIApplicationWillTerminateNotification", HostConstant::NSString(UIApplicationWillTerminateNotification)),
     ("_UIApplicationDidReceiveMemoryWarningNotification", HostConstant::NSString(UIApplicationDidReceiveMemoryWarningNotification)),
     ("_UIApplicationLaunchOptionsRemoteNotificationKey", HostConstant::NSString(UIApplicationLaunchOptionsRemoteNotificationKey)),
+    ("_UIApplicationProtectedDataDidBecomeAvailable", HostConstant::NSString(UIApplicationProtectedDataDidBecomeAvailable)),
+    ("_UIApplicationProtectedDataWillBecomeUnavailable", HostConstant::NSString(UIApplicationProtectedDataWillBecomeUnavailable)),
+    ("_UIApplicationSignificantTimeChangeNotification", HostConstant::NSString(UIApplicationSignificantTimeChangeNotification)),
+    ("_UIApplicationDidChangeStatusBarFrameNotification", HostConstant::NSString(UIApplicationDidChangeStatusBarFrameNotification)),
+    ("_UIApplicationWillChangeStatusBarFrameNotification", HostConstant::NSString(UIApplicationWillChangeStatusBarFrameNotification)),
+    ("_UIApplicationDidChangeStatusBarOrientationNotification", HostConstant::NSString(UIApplicationDidChangeStatusBarOrientationNotification)),
+    ("_UIApplicationWillChangeStatusBarOrientationNotification", HostConstant::NSString(UIApplicationWillChangeStatusBarOrientationNotification)),
+    ("_UIApplicationStatusBarFrameUserInfoKey", HostConstant::NSString(UIApplicationStatusBarFrameUserInfoKey)),
+    ("_UIApplicationStatusBarOrientationUserInfoKey", HostConstant::NSString(UIApplicationStatusBarOrientationUserInfoKey)),
+    ("_UIApplicationBackgroundFetchIntervalMinimum", HostConstant::NSString(UIApplicationBackgroundFetchIntervalMinimum)),
+    ("_UIApplicationBackgroundFetchIntervalNever", HostConstant::NSString(UIApplicationBackgroundFetchIntervalNever)),
+    ("_UIApplicationLaunchOptionsURLKey", HostConstant::NSString(UIApplicationLaunchOptionsURLKey)),
+    ("_UIApplicationLaunchOptionsSourceApplicationKey", HostConstant::NSString(UIApplicationLaunchOptionsSourceApplicationKey)),
+    ("_UIApplicationLaunchOptionsAnnotationKey", HostConstant::NSString(UIApplicationLaunchOptionsAnnotationKey)),
+    ("_UIApplicationLaunchOptionsLocalNotificationKey", HostConstant::NSString(UIApplicationLaunchOptionsLocalNotificationKey)),
+    ("_UIApplicationLaunchOptionsLocationKey", HostConstant::NSString(UIApplicationLaunchOptionsLocationKey)),
+    ("_UIApplicationLaunchOptionsNewsstandDownloadsKey", HostConstant::NSString(UIApplicationLaunchOptionsNewsstandDownloadsKey)),
+    ("_UIApplicationLaunchOptionsBluetoothCentralsKey", HostConstant::NSString(UIApplicationLaunchOptionsBluetoothCentralsKey)),
+    ("_UIApplicationLaunchOptionsBluetoothPeripheralsKey", HostConstant::NSString(UIApplicationLaunchOptionsBluetoothPeripheralsKey)),
+    ("_UIApplicationLaunchOptionsShortcutItemKey", HostConstant::NSString(UIApplicationLaunchOptionsShortcutItemKey)),
+    ("_UIApplicationOpenSettingsURLString", HostConstant::NSString(UIApplicationOpenSettingsURLString)),
+    ("_UIApplicationOpenURLOptionsSourceApplicationKey", HostConstant::NSString(UIApplicationOpenURLOptionsSourceApplicationKey)),
+    ("_UIApplicationOpenURLOptionsAnnotationKey", HostConstant::NSString(UIApplicationOpenURLOptionsAnnotationKey)),
+    ("_UIApplicationOpenURLOptionsOpenInPlaceKey", HostConstant::NSString(UIApplicationOpenURLOptionsOpenInPlaceKey)),
+    ("_UIApplicationOpenURLOptionUniversalLinksOnly", HostConstant::NSString(UIApplicationOpenURLOptionUniversalLinksOnly)),
 ];
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(UIApplicationMain(_, _, _, _))];
