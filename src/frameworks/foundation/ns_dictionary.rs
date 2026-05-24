@@ -14,6 +14,8 @@ use super::{_nib_archive_decoder, ns_array, ns_keyed_unarchiver, ns_string, ns_u
 use crate::abi::{CallFromHost, GuestFunction, VaList};
 use crate::frameworks::core_foundation::{CFHashCode, CFIndex};
 use crate::frameworks::foundation::ns_enumerator::{
+use crate::msg_super;
+
     fast_enumeration_helper, NSFastEnumerationState,
 };
 use crate::frameworks::foundation::ns_file_manager::{
