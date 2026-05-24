@@ -368,7 +368,7 @@ fn substitute_classes(
         || name.starts_with("UA")
         || name.starts_with("GAD")
         || name.starts_with("iSimulate")
-        || name == "GCController") // <-- FIXED HACK FOR COCOS2DX / CONTROLLERS
+        //|| name == "GCController") // <-- FIXED HACK FOR COCOS2DX / CONTROLLERS
     {
         // TODO : try to remove when sqlite3 is supported.
         if (bundle.bundle_identifier() == "com.chillingo.defenderchronicles")
@@ -506,7 +506,7 @@ impl ObjC {
                 || name.starts_with("SBSystem")
                 || name.starts_with("PH")          // Prevents PlayHaven crash
                 || name.starts_with("PlayHaven")   // Prevents PlayHaven crash
-                || name == "GCController"          // FIXED HACK: Prevents Game Controller frameworks crash
+                //|| name == "GCController"          // FIXED HACK: Prevents Game Controller frameworks crash
                 || name == "NSCache"               // Intercepts and fakes NSCache lookups
                 || name.contains("NSArray")        // Handles explicit array lookups
                 || name.contains("NSMutableArray") // Handles explicit array lookups
