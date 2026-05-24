@@ -110,20 +110,20 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     log!("NSURLConnection sendSynchronousRequest: stub called");
 
+    let bundle_id = env.bundle.bundle_identifier();
+    let is_power_rangers = bundle_id.contains("powerrangers") || bundle_id.contains("saban");
+
     // --- START HACK ---
+    // If the request is valid, check if it's our target file
     if request != nil {
-        // Safe way to get the URL from the request
         let url: id = msg![env; request URL];
-        
         if url != nil {
-            // Get the absoluteString to check the filename
             let absolute_url: id = msg![env; url absoluteString];
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
             
             if url_str.contains("localfeed.xml") {
-                log!("HACK: Detected localfeed.xml request. Generating structural responses.");
+                log!("HACK: Detected localfeed.xml request string. Generating explicit mock data response.");
 
-                // Create a dummy mock response mapping so the game can verify status/headers
                 if !response_ptr.is_null() {
                     let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
                     let mock_response: id = msg![env; mock_response initWithURL:url 
@@ -138,27 +138,50 @@ pub const CLASSES: ClassExports = objc_classes! {
                     env.mem.write(error_ptr, nil);
                 }
 
-                // Well-formed base config framework payload
-                let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>success</status>\n</config>".to_string();
+                // A much more robust structural configuration payload that handles common properties game systems check for
+                let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
                 let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
                 autorelease(env, xml);
 
-                // Convert NSString -> NSData (4 = NSUTF8StringEncoding)
                 let data: id = msg![env; xml dataUsingEncoding:4];
-
                 return data;
             }
         }
     }
-    // --- END HACK ---
-
-    // Default behavior for everything else (which currently fails)
+            
+    // Foolproof safety net: If the request came in as nil but we are running Power Rangers,
+    // intercept it anyway and supply the successful payload to stop the game from stalling.
     if request == nil {
+        if is_power_rangers {
+            log!("HACK: Caught nil request inside Power Rangers. Forcing mock localfeed.xml data recovery layout.");
+
+            if !response_ptr.is_null() {
+                let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
+                let mock_response: id = msg![env; mock_response initWithURL:nil 
+                                                               statusCode:200 
+                                                              HTTPVersion:nil 
+                                                             headerFields:nil];
+                autorelease(env, mock_response);
+                env.mem.write(response_ptr, mock_response);
+            }
+
+            if !error_ptr.is_null() {
+                env.mem.write(error_ptr, nil);
+            }
+
+            let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
+            let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
+            autorelease(env, xml);
+
+            let data: id = msg![env; xml dataUsingEncoding:4];
+            return data;
+        }
+
         log!("NSURLConnection sendSynchronousRequest: nil request — returning empty NSData");
 
         if !response_ptr.is_null() {
             env.mem.write(response_ptr, nil);
-                }
+        }
 
         if !error_ptr.is_null() {
             env.mem.write(error_ptr, nil);
@@ -166,6 +189,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
         return msg_class![env; NSData data];
     }
+    // --- END HACK ---
 
     if !response_ptr.is_null() {
         env.mem.write(response_ptr, nil);
@@ -192,7 +216,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithRequest:(id)request
              delegate:(id)delegate {
-    // Invoke full initialization wrapper directly to preserve setup sequence
     let initialized_this: id = msg![env; this initWithRequest:request delegate:delegate startImmediately:true];
     initialized_this
 }
@@ -201,8 +224,6 @@ pub const CLASSES: ClassExports = objc_classes! {
              delegate:(id)delegate
      startImmediately:(bool)start_immediately {
 
-    // FIXED: Invoke the root NSObject initializer layout to fully form the base class variables 
-    // and protect struct memory pipeline allocations at critical offsets (like 0x0c)
     let initialized_this: id = msg![env; this init];
     if initialized_this == nil {
         return nil;
@@ -297,3 +318,4 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
+                       
