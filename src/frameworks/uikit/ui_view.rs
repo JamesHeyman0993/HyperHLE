@@ -822,16 +822,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setNeedsLayout {
-    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    let _: () = msg![env; layer setNeedsLayout];
+    // Instead of sending to the layer, early iOS/touchHLE view cycles 
+    // can trigger a direct subview layout update, or track a boolean flag.
+    // To fix the immediate crash/freeze safely:
+    let _: () = msg![env; this layoutSubviews];
 }
     
 - (())layoutIfNeeded {
-    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
-    let _: () = msg![env; layer layoutIfNeeded];
+    // Stop trying to invoke layoutIfNeeded on the CALayer instance.
+    // Simply proxy down to the view's layout structure directly.
     let _: () = msg![env; this layoutSubviews];
 }
-
+    
 - (CGRect)bounds {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer bounds]
