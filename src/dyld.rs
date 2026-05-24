@@ -1060,6 +1060,26 @@ impl Dyld {
             cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
             return Some(f);
         }
+
+        // =========================================================================
+        // FIX: Handle talk_base::CriticalSection and std::shared_ptr Ref Counting
+        // =========================================================================
+        if symbol == "__ZN9talk_base15CriticalSectionC2Ev"
+            || symbol == "__ZNSt3__119__shared_weak_count12__add_sharedEv"
+            || symbol == "__ZNSt3__119__shared_weak_count16__release_sharedEv"
+        {
+            log!("HyperHLE: Intercepted Object Lifecycle / Ref Count -> Preserving R0 ({})", symbol);
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let f: HostFunction = &(boost_and_glf_constructor_handler as fn(&mut Environment));
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
         
         // Fallback: Default system handler for unspecified symbols
         log!(
