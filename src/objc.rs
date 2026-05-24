@@ -196,11 +196,26 @@ fn objc_retainAutorelease(env: &mut Environment, obj: id) -> id {
     obj
 }
 
+fn objc_alloc(env: &mut Environment, class_ptr: id) -> id {
+    if class_ptr == nil {
+        return nil;
+    }
+    
+    // Get the name of the class for debugging visibility
+    let class_name = env.objc.get_class_name(class_ptr, &env.mem).unwrap_or_else(|| "Unknown".to_string());
+    log!("HyperHLE: Intercepted _objc_alloc optimization invocation for class: {}", class_name);
+    
+    // Execute standard touchHLE object instance allocation: [class_ptr alloc]
+    let allocated_object: id = crate::objc::msg![env; class_ptr alloc];
+    allocated_object
+}
+
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend(_, _)),
     export_c_func!(objc_msgSend_stret(_, _, _)),
     export_c_func!(objc_msgSendSuper2_stret(_, _)),
     export_c_func!(objc_msgSendSuper2(_, _)),
+    export_c_func!(objc_alloc(_)),
     export_c_func!(objc_getProperty(_, _, _, _)),
     export_c_func!(objc_setProperty(_, _, _, _, _, _)),
     export_c_func!(objc_copyStruct(_, _, _, _, _)),
