@@ -13,8 +13,8 @@ use super::ns_string::{from_rust_string, get_static_str, to_rust_string};
 use super::{_nib_archive_decoder, ns_array, ns_keyed_unarchiver, ns_string, ns_url, NSUInteger};
 use crate::abi::{CallFromHost, GuestFunction, VaList};
 use crate::frameworks::core_foundation::{CFHashCode, CFIndex};
-use crate::frameworks::foundation::ns_enumerator::{
 use crate::msg_super;
+use crate::frameworks::foundation::ns_enumerator::{
 
     fast_enumeration_helper, NSFastEnumerationState,
 };
