@@ -55,6 +55,9 @@ pub use selectors::{selector, SEL};
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr};
 use crate::objc::classes::___objc_personality_v0;
 use crate::Environment;
+// NEW: Import the execution trait required to use `.call_guest()` on the CPU context
+use crate::abi::CallFromHost;
+
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
 use messages::{
     objc_msgSendSuper2, objc_msgSendSuper2_stret, objc_msgSend_stret, MsgSendSignature,
@@ -291,9 +294,9 @@ fn dispatch_once_f(
 
         log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
 
-        // FIXED: Dereference env.cpu explicit to bypass NullableBox wrapping layers
+        // Execute function payload in guest context passing the user-context pointer inside register R0
         let argument_registers = vec![context.to_bits()];
-        if let Err(err) = (*env.cpu).call_guest(function_ptr.to_bits(), &argument_registers) {
+        if let Err(err) = (*env.cpu).call_guest(env, function_ptr.to_bits(), &argument_registers) {
             log!("Warning: dispatch_once_f invocation tracking encountered an error block execution thread failure: {:?}", err);
         }
     }
