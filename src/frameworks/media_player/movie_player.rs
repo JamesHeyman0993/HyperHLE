@@ -233,14 +233,24 @@ pub const CLASSES: ClassExports = objc_classes! {
         Instant::now(),
     ));
 
-    // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
-    // Это дает игре время зарегистрировать свои наблюдатели уведомлений (NSNotificationCenter observers).
-    retain(env, this);
-    State::get(env).pending_notifications.push_back((
-        MPMoviePlayerPlaybackDidFinishNotification,
-        this,
-        Instant::now() + std::time::Duration::from_millis(150),
-    ));
+    let bundle_id = env.bundle.bundle_identifier();
+
+    // If it's a known crashing title or Power Rangers, skip the initialization placeholder delay entirely.
+    if bundle_id.starts_with("jp.co.capcom.res4") 
+        || bundle_id.starts_with("com.disney.toystory")
+        || bundle_id.starts_with("com.saban") 
+    {
+        log!("Bypassing init placeholder notification delay for target app: {}", bundle_id);
+    } else {
+        // ХАК ДЛЯ ЗАГЛУШКИ: Автоматически завершаем видео через 150мс.
+        // Это дает игре время зарегистрировать свои наблюдатели уведомлений (NSNotificationCenter observers).
+        retain(env, this);
+        State::get(env).pending_notifications.push_back((
+            MPMoviePlayerPlaybackDidFinishNotification,
+            this,
+            Instant::now() + std::time::Duration::from_millis(150),
+        ));
+    }
 
     this
 }
@@ -448,7 +458,10 @@ UIColor blackColor] // TODO
     let bundle_id = env.bundle.bundle_identifier();
     
     // --- VIDEO COMPLETION BYPASS FOR STALLING / CRASHING TITLES ---
-    if bundle_id.starts_with("jp.co.capcom.res4") || bundle_id.starts_with("com.disney.toystory") {
+    if bundle_id.starts_with("jp.co.capcom.res4") 
+        || bundle_id.starts_with("com.disney.toystory") 
+        || bundle_id.starts_with("com.saban") 
+    {
         log!("Applying Game Hack: Forcing instant loop push bypassing playback state checks for: {}", bundle_id);
         let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
         current_state.playback_state = MPMoviePlaybackStatePlaying;
