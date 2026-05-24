@@ -68,6 +68,32 @@ fn malloc(env: &mut Environment, mut size: GuestUSize) -> MutVoidPtr {
     ptr.cast()
 }
 
+fn posix_memalign(env: &mut Environment, memptr: MutPtr<MutVoidPtr>, alignment: GuestUSize, mut size: GuestUSize) -> i32 {
+    set_errno(env, 0);
+
+    if alignment < 4 || (alignment & (alignment - 1)) != 0 {
+        return EINVAL;
+    }
+
+    if size == 0 {
+        size = 1;
+    }
+
+    if size > 0x0800_0000 {
+        log!("TouchHLE::libc::stdlib: posix_memalign({:#x}) out of range", size);
+        return crate::libc::errno::ENOMEM;
+    }
+
+    let ptr = env.mem.alloc(size as u32);
+    if ptr.is_null() {
+        return crate::libc::errno::ENOMEM;
+    }
+
+    env.mem.write(memptr, ptr.cast());
+
+    0
+}
+
 fn malloc_size(env: &mut Environment, ptr: ConstVoidPtr) -> GuestUSize {
     env.mem.malloc_size(ptr)
 }
@@ -1133,6 +1159,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(malloc(_)),
     export_c_func!(malloc_size(_)),
     export_c_func!(calloc(_, _)),
+    export_c_func!(posix_memalign(_, _, _)),
     export_c_func!(realloc(_, _)),
     export_c_func!(reallocf(_, _)),
     export_c_func!(free(_)),
