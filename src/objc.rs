@@ -294,13 +294,16 @@ fn dispatch_once_f(
 
         log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
 
-        // Execute function payload in guest context passing the user-context pointer inside register R0
-        let argument_registers = vec![context.to_bits()];
+        // Map the raw context memory pointer as a native single-parameter signature block argument
+        let args = (context,);
         
-        // FIXED: Call the global ABI module's call_guest function directly instead of calling a method on Cpu
-        if let Err(err) = crate::abi::call_guest(env, function_ptr.to_bits(), &argument_registers) {
-            log!("Warning: dispatch_once_f invocation tracking encountered an error block execution thread failure: {:?}", err);
-        }
+        // Form a transient function pointer type and call it directly using the CallFromHost abstraction layer
+        let target_func = function_ptr.to_bits();
+        let guest_call: fn(&mut Environment, MutVoidPtr) = unsafe { std::mem::transmute(target_func) };
+        
+        // Import the trait explicitly right inside the function scope to ensure lookup visibility
+        use crate::abi::CallFromHost;
+        let _: () = guest_call.call_from_host(env, args);
     }
 }
 
