@@ -174,11 +174,6 @@ pub fn search_host_dylibs<T, F>(get_exports: F, symbol: &str) -> Option<&'static
 where
     F: Fn(&HostDylib) -> &'static [&'static [(&'static str, T)]],
 {
-    // TODO: In general, we should rarely if ever need to search the full set
-    //       of dylibs for a symbol. Now that we know which symbols belong to
-    //       which libraries, we should at least only search libraries that are
-    //       referenced by the app and currently "loaded". We probably should
-    //       also implement the Mach-O two-level symbol namespacing eventually.
     DYLIB_LIST
         .iter()
         .copied()
@@ -211,9 +206,6 @@ fn encode_a32_trap() -> u32 {
 fn write_return_to_host_routine(mem: &mut Mem, svc: u32) -> GuestFunction {
     let routine = [
         encode_a32_svc(svc),
-        // When a return-to-host occurs, it's the host's responsibility
-        // to reset the PC to somewhere else. So something has gone
-        // wrong if this is executed.
         encode_a32_trap(),
     ];
     let ptr: MutPtr<u32> = mem.alloc(4 * 2).cast();
@@ -225,10 +217,6 @@ fn write_return_to_host_routine(mem: &mut Mem, svc: u32) -> GuestFunction {
 }
 
 pub struct Dyld {
-    /// List of host functions that have been "linked" and had SVCs assigned.
-    ///
-    /// The `&'static str` part here is purely for debugging and could be
-    /// removed in release builds if it's ever necessary.
     linked_host_functions: Vec<(&'static str, HostFunction)>,
     return_to_host_routine: Option<GuestFunction>,
     thread_exit_routine: Option<GuestFunction>,
@@ -237,23 +225,13 @@ pub struct Dyld {
 }
 
 impl Dyld {
-    /// We reserve this SVC ID for invoking the lazy linker.
     pub const SVC_LAZY_LINK: u32 = 0;
-    /// We reserve this SVC ID for the exit routine for spawned threads.
     pub const SVC_THREAD_EXIT: u32 = 1;
-    /// We reserve this SVC ID for the special return-to-host routine.
     pub const SVC_RETURN_TO_HOST: u32 = 2;
-    /// The range of SVC IDs `SVC_LINKED_FUNCTIONS_BASE..` is used to reference
-    /// [Self::linked_host_functions] entries.
     pub const SVC_LINKED_FUNCTIONS_BASE: u32 = Self::SVC_RETURN_TO_HOST + 1;
-    /// We reserve this SVC ID for lazy linking and returning right after.
-    /// It is also a mask for the linked functions to indicate that an
-    /// additional return instruction needs to be manually executed after
-    /// handling the SVC.
     pub const SVC_LAZY_LINK_RET_FLAG: u32 = 0x800000;
 
     const SYMBOL_STUB1_INSTRUCTIONS: [u32; 1] = [0xe59ff000];
-    // mask this with lowest 12 bits to restore instructions
     const SYMBOL_STUB_INSTRUCTIONS: [u32; 2] = [0xe59fc000, 0xe59cf000];
     const PIC_SYMBOL_STUB_INSTRUCTIONS: [u32; 3] = [0xe59fc004, 0xe08fc00c, 0xe59cf000];
 
@@ -275,8 +253,6 @@ impl Dyld {
         self.thread_exit_routine.unwrap()
     }
 
-    /// Do linking-related tasks that need doing right after loading the
-    /// binaries.
     pub fn do_initial_linking(
         &mut self,
         bundle: &bundle::Bundle,
@@ -289,14 +265,11 @@ impl Dyld {
         self.return_to_host_routine =
             Some(write_return_to_host_routine(mem, Self::SVC_RETURN_TO_HOST));
         self.thread_exit_routine = Some(write_return_to_host_routine(mem, Self::SVC_THREAD_EXIT));
-        // Currently assuming only the app binary contains Objective-C things.
 
         objc.register_bin_selectors(&bins[0], mem);
         objc.register_host_selectors(mem);
         for bin in bins {
             self.setup_lazy_linking(bin, mem);
-            // Must happen before `register_bin_classes`, else superclass
-            // pointers will be wrong.
             self.do_non_lazy_linking(bin, bins, mem, objc);
         }
 
@@ -305,31 +278,6 @@ impl Dyld {
 
         ns_string::register_constant_strings(&bins[0], mem, objc);
 
-        // The `std::__throw_*` helpers in the bundled libstdc++ dylib are
-        // `noreturn` — they construct and throw a C++ exception. touchHLE
-        // has no real unwinder, so a thrown exception inside libstdc++
-        // calls `__cxa_terminate()`, which aborts the host process. The
-        // user-visible message is something like:
-        //
-        //   terminate called after throwing an instance of 'std::logic_error'
-        //     what():  basic_string::_S_construct NULL not valid
-        //
-        // To allow games to recover from "soft" failures (e.g. Geometry
-        // Dash 1.0 hitting `std::string(const char*)` with a NULL argument
-        // during Cocos2d initialization), we splice an immediate `BX LR` at
-        // the entry of each `__throw_*` helper. Callers in libstdc++
-        // already check the failure condition before calling the helper —
-        // making the helper a no-op causes them to continue with the
-        // failed state (e.g. `_S_construct` continues with NULL/zero
-        // iterators and produces an empty string).
-        //
-        // This is undefined behaviour in strict ISO C++, but in practice
-        // the caller paths in libstdc++ degrade to a no-op or empty
-        // result, which is far less disruptive than aborting the entire
-        // emulator. iOS dyld did roughly the same thing for these games:
-        // historically `std::string(NULL)` would yield an empty string on
-        // Apple's libstdc++ as well (and Geometry Dash 1.0 launched on
-        // Adreno devices that hit this code path).
         for dylib in bins.iter().skip(1) {
             let mut patch_count = 0;
             for sym in [
@@ -354,13 +302,9 @@ impl Dyld {
                 let entry = entry_with_thumb_bit & !1;
                 let is_thumb = (entry_with_thumb_bit & 1) != 0;
                 if is_thumb {
-                    // Thumb-1 BX LR = 0x4770. Pad the 32-bit word with a NOP
-                    // (0x46C0 = mov r8, r8) so the surrounding code stays
-                    // valid if execution somehow falls through.
                     let function_ptr: MutPtr<u32> = Ptr::from_bits(entry);
                     mem.write(function_ptr, 0x46C0_4770);
                 } else {
-                    // ARM `BX LR` = 0xE12FFF1E.
                     let function_ptr: MutPtr<u32> = Ptr::from_bits(entry);
                     mem.write(function_ptr, 0xE12FFF1E);
                 }
@@ -383,30 +327,12 @@ impl Dyld {
         }
     }
 
-    /// Dumps all lazy symbols (functions) referenced by the binary
-    /// as JSON to stdout.
-    ///
-    /// The JSON has the following form:
-    /// ```json
-    /// {
-    ///     "object": "lazy_symbols",
-    ///     "symbols": [
-    ///         {
-    ///             "symbol": ((name of symbol)),
-    ///             "linked_to": "host" | "dylib" | null,
-    ///             "dylib": ((name of dylib)) | null,
-    ///         },
-    ///         ...
-    ///     ]
-    /// }
-    /// ```
     pub fn dump_lazy_symbols(
         &mut self,
         bins: &[MachO],
         file: &mut std::fs::File,
     ) -> Result<(), std::io::Error> {
         use std::io::Write;
-        // Guest binary is always bin 0.
         let stubs = bins[0].get_section(SectionType::SymbolStubs).unwrap();
         let info = stubs.dyld_indirect_symbol_info.as_ref().unwrap();
         writeln!(
@@ -414,7 +340,6 @@ impl Dyld {
             "{{\n    \"object\":\"lazy_symbols\",\n    \"symbols\": ["
         )?;
         'sym: for (i, symbol) in info.indirect_undef_symbols.iter().enumerate() {
-            // Why doesn't json allow trailing commas...
             let comma = if i == info.indirect_undef_symbols.len() - 1 {
                 ""
             } else {
@@ -443,12 +368,6 @@ impl Dyld {
         writeln!(file, "    ]\n}}")
     }
 
-    /// Dumps all non-objc symbols provided by touchHLE.
-    ///
-    /// The dump format is Objective-C code (with meaningless types) that can be
-    /// compiled to generate stub libraries that can be linked against, with
-    /// comments providing the paths each library would be installed to.
-    /// This is used for building the integration tests.
     pub fn dump_host_symbols(file: &mut std::fs::File) -> Result<(), std::io::Error> {
         use std::io::Write;
         for dylib in DYLIB_LIST {
@@ -476,8 +395,6 @@ impl Dyld {
         Ok(())
     }
 
-    /// [Self::do_initial_linking] but for when this is the app picker's special
-    /// environment with no binary (see [crate::Environment::new_without_app]).
     pub fn do_initial_linking_with_no_bins(&mut self, mem: &mut Mem, objc: &mut ObjC) {
         assert!(self.return_to_host_routine.is_none());
         assert!(self.thread_exit_routine.is_none());
@@ -488,18 +405,6 @@ impl Dyld {
         objc.register_host_selectors(mem);
     }
 
-    /// Set up lazy-linking stubs for a loaded binary.
-    ///
-    /// Dynamic linking of functions on iPhone OS usually happens "lazily",
-    /// which means that the linking is delayed until the function is first
-    /// called. This is achieved by using stub functions. Instead of calling the
-    /// external function directly, the app code will call a stub function, and
-    /// that stub will either jump to the dynamic linker (which will link in the
-    /// external function and then jump to it), or on subsequent calls, jump
-    /// straight to the external function.
-    ///
-    /// These stubs already exist in the binary, but they need to be rewritten
-/// so that they will invoke our dynamic linker.
     fn setup_lazy_linking(&self, bin: &MachO, mem: &mut Mem) {
         let Some(stubs) = bin.get_section(SectionType::SymbolStubs) else {
             return;
@@ -513,8 +418,6 @@ impl Dyld {
         };
         let entry_size = indirect_info.entry_size;
 
-        // two or three A32 instructions (PIC stub needs one more) followed by
-        // the address or offset of the corresponding __la_symbol_ptr
         let expected_instructions: &[u32] = match entry_size {
             4 => &[],
             12 => Self::SYMBOL_STUB_INSTRUCTIONS.as_slice(),
@@ -533,9 +436,6 @@ impl Dyld {
         for i in 0..stub_count {
             let ptr: MutPtr<u32> = Ptr::from_bits(stubs.addr + i * entry_size);
 
-            // Check that the stub matches the expected pattern.
-            // Some apps (e.g. Thumb-compiled) may have different patterns —
-            // skip them rather than panicking.
             let mut mismatch = false;
             for (j, &instr) in expected_instructions.iter().enumerate() {
                 if mem.read(ptr + j.try_into().unwrap()) != instr {
@@ -556,8 +456,6 @@ impl Dyld {
                 continue;
             }
 
-            // For convenience, make the stub return once the SVC is done
-            // (Otherwise we have to manually update the PC)
             if entry_size == 4 {
                 mem.write(ptr + 0, encode_a32_svc(Self::SVC_LAZY_LINK_RET_FLAG));
             } else {
@@ -565,85 +463,40 @@ impl Dyld {
                 mem.write(ptr + 1, encode_a32_ret());
             }
             if entry_size == 16 {
-                // This is preceded by a return instruction, so if we do execute
-                // it, something has gone wrong.
                 mem.write(ptr + 2, encode_a32_trap());
             }
-            // Leave the __la_symbol_ptr intact in case we want to link it to
-            // a real symbol later.
         }
     }
 
-    /// Link non-lazy symbols for a loaded binary.
-    ///
-    /// These are usually constants, Objective-C classes, or vtable pointers.
-    /// Since the linking must be done upfront, we can't in general delay errors
-    /// about missing implementations until the point of use. For that reason,
-    /// this will spit out a warning to stderr for everything missing, so that
-    /// there's at least some indication about why the emulator might crash.
-    ///
-    /// `bin` is the binary to link non-lazy symbols for, `bins` is the set of
-    /// binaries symbols may be looked up in.
     fn do_non_lazy_linking(&mut self, bin: &MachO, bins: &[MachO], mem: &mut Mem, objc: &mut ObjC) {
         let mut unhandled_relocations: HashMap<&str, Vec<u32>> = HashMap::new();
-        // Cache for Objective-C blocks runtime class descriptors.
-        // All relocation sites for the same name must resolve to the same
-        // non-null guest address so that `block->isa ==
-        // &_NSConcreteGlobalBlock`
-        // identity checks in the blocks runtime work correctly.
-        // Without this, the isa field of every global/stack block is NULL
-        // (0x0),
-        // causing a NULL-page read the first time the ObjC runtime tries to
-        // retain or release a block object.
         let mut block_class_addrs: HashMap<String, u32> = HashMap::new();
-        // Cache for C++ Itanium ABI type_info vtables. All references to the
-        // same vtable symbol must resolve to the same address so that vtable
-        // identity checks in dynamic_cast work correctly.
         let mut cxxabi_vtable_addrs: HashMap<String, u32> = HashMap::new();
         for &(ptr_ptr, ref name) in &bin.external_relocations {
             let ptr_ptr: MutPtr<ConstVoidPtr> = Ptr::from_bits(ptr_ptr);
-            // There will be an existing value at the address, which is an
-            // offset that should be applied to the external symbol's address.
-            // It is often 0, but not always.
             let offset: u32 = mem.read(ptr_ptr).to_bits();
             let target: ConstVoidPtr = if let Some(name) = name.strip_prefix("_OBJC_CLASS_$_") {
-                objc.link_class(name, /* is_metaclass: */ false, mem)
+                objc.link_class(name, false, mem)
                     .cast()
                     .cast_const()
             } else if let Some(name) = name.strip_prefix("_OBJC_METACLASS_$_") {
-                objc.link_class(name, /* is_metaclass: */ true, mem)
+                objc.link_class(name, true, mem)
                     .cast()
                     .cast_const()
             } else if name == "___CFConstantStringClassReference" {
-                // See ns_string::register_constant_strings
                 nil.cast().cast_const()
             } else if name == "___mb_cur_max" {
-                // __mb_cur_max is a pointer to the C locale's max
-                // multibyte character byte count. libstdc++ reads
-                // *__mb_cur_max in locale/string code; if this pointer
-                // is NULL the dereference crashes. Provide a static
-                // value of 1 (single-byte / ASCII locale).
                 let val_ptr: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(val_ptr, 1u32);
                 log_dbg!("Stubbed ___mb_cur_max at {:?}", val_ptr);
                 val_ptr.cast().cast_const()
             } else if name == "dyld_stub_binder" || name == "_dyld_stub_binder" {
-                // In iOS, dyld_stub_binder handles lazy symbol binding.
-                // However, touchHLE resolves lazy symbols entirely via SVC
-                // traps,
-                // bypassing the need for a guest-side binder.
-                // We create a minimal ARM32 function (BX LR) so if it's somehow
-                // called, it just returns safely without executing random
-                // memory.
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
                 log_dbg!("Stubbed dyld_stub_binder at {:?}", fn_ptr);
                 fn_ptr.cast().cast_const()
             } else if name == "__NSConcreteGlobalBlock" || name == "__NSConcreteStackBlock" {
-                // Blocks runtime class descriptor. Allocate a small dummy
-                // object in guest memory so isa != NULL. All sites for the
-                // same symbol share one address (cached above).
                 let addr = *block_class_addrs
                     .entry(name.clone())
                     .or_insert_with(|| mem.alloc(16).to_bits());
@@ -653,60 +506,29 @@ impl Dyld {
                 || name == "__ZTVN10__cxxabiv120__si_class_type_infoE"
                 || name == "__ZTVN10__cxxabiv121__vmi_class_type_infoE"
             {
-                // C++ Itanium ABI type_info vtable. Without this every
-                // type_info object in the app has a NULL vptr, and any call
-                // through the vptr (dynamic_cast, exception type matching,
-                // type_info comparison) lands on address 0 and crashes.
-                //
-                // Layout (32-bit ARM, addend +8 from the symbol so callers
-                // land on the first method):
-                //   +0   offset_to_top   (= 0)
-                //   +4   typeinfo for the vtable's class (= 0; never used)
-                //   +8   ~type_info() complete dtor   -> BX LR stub
-                //   +12  ~type_info() deleting dtor   -> BX LR stub
-                //   +16  __is_pointer_p()             -> returns 0 (false)
-                //   +20  __is_function_p()            -> returns 0 (false)
-                //   +24  __do_catch()                 -> returns 0 (no match)
-                //   +28  __do_upcast()                -> returns 0 (no match)
-                //   +32  reserved
-                //   +36  reserved
                 let addr = *cxxabi_vtable_addrs.entry(name.clone()).or_insert_with(|| {
-                    // Shared method stub: minimal ARM32 function (BX LR)
-                    // returning 0/false for every virtual call.
                     let stub: MutPtr<u32> = mem.alloc(8).cast();
                     mem.write(stub + 0, encode_a32_ret());
                     mem.write(stub + 1, encode_a32_trap());
                     let stub_addr = stub.to_bits();
 
                     let v: MutPtr<u32> = mem.alloc(40).cast();
-                    mem.write(v + 0, 0); // offset_to_top
-                    mem.write(v + 1, 0); // typeinfo
+                    mem.write(v + 0, 0); 
+                    mem.write(v + 1, 0); 
                     for i in 2..10 {
                         mem.write(v + i, stub_addr);
                     }
                     v.to_bits()
                 });
                 log_dbg!("Stubbed C++ vtable {} -> {:#x}", name, addr);
-                Ptr::from_bits(addr)
+                  Ptr::from_bits(addr)
             } else if name == "___gxx_personality_sj0" {
-                // C++ SjLj exception personality routine. Called by the
-                // unwinder for every frame; returning 0 (_URC_NO_REASON)
-                // tells it "no handler here, keep going". touchHLE never
-                // actually invokes the unwinder, but other code may store
-                // this pointer in an LSDA and read it back.
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
                 log_dbg!("Stubbed ___gxx_personality_sj0 -> {:#x}", fn_ptr.to_bits());
                 fn_ptr.cast().cast_const()
             } else if name == "___objc_personality_v0" {
-                // Objective-C exception personality routine. Mirrors the
-                // non-lazy stub above: a guest-code BX LR returning 0
-                // (_URC_NO_REASON) so the unwinder keeps walking instead
-                // of branching to NULL when an iOS 5+ binary places a
-                // pointer to this symbol directly into its __DATA section
-                // via an external relocation (rather than through the
-                // __nl_symbol_ptr table).
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
@@ -716,11 +538,6 @@ impl Dyld {
                 || name == "___cxa_unexpected_handler"
                 || name == "___cxa_new_handler"
             {
-                // Global function-pointer variables: std::terminate_handler,
-                // std::unexpected_handler, std::new_handler. The default
-                // value is a NULL function pointer; the real C++ runtime
-                // checks for NULL and falls back to abort. Provide a single
-                // word of zero-initialised guest memory.
                 let p: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(p, 0);
                 p.cast().cast_const()
@@ -744,19 +561,10 @@ impl Dyld {
                 || name == "__dispatch_main_q"
                 || name == "__dispatch_queue_main"
             {
-                // GCD dispatch_source_type_t / queue-attribute / data-marker
-                // pointers are opaque "type tag" identifiers; touchHLE's
-                // libdispatch implementation never inspects their contents,
-                // only their identity. A small non-NULL allocation satisfies
-                // that contract and prevents NULL-page reads when an app
-                // passes one to dispatch_source_create / dispatch_queue_create
-                // / dispatch_data_create.
                 let p: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(p, 0);
                 p.cast().cast_const()
             } else if name == "_in6addr_any" || name == "_in6addr_loopback" {
-                // `struct in6_addr` is 16 bytes. `in6addr_any` is all zeros
-                // (`::`) and `in6addr_loopback` is `::1` (last byte = 1).
                 let p: MutPtr<u8> = mem.alloc(16).cast();
                 for i in 0..16 {
                     mem.write(p + i, 0);
@@ -766,11 +574,6 @@ impl Dyld {
                 }
                 p.cast().cast_const()
             } else if name == "_NDR_record" {
-                // MIG `NDR_record` is a 12-byte transfer-syntax descriptor
-                // that's part of the (unused-by-touchHLE) Mach IPC stack.
-                // Apps reference the symbol from auto-generated MIG stubs but
-                // never actually transmit the bytes. Provide a zero-filled
-                // slot so the linker doesn't leave a NULL pointer behind.
                 let p: MutPtr<u8> = mem.alloc(12).cast();
                 for i in 0..12 {
                     mem.write(p + i, 0);
@@ -781,13 +584,10 @@ impl Dyld {
                 .flat_map(|other_bin| other_bin.exported_symbols.get(name))
                 .next()
             {
-                // Often used for C++ RTTI
                 Ptr::from_bits(external_addr)
             } else if let Some((symbol, _)) =
                 search_host_dylibs(|dylib| dylib.function_exports, name)
             {
-                // We want the same symbol name to always point to the same
-                // function.
                 let trampoline_ptr = self
                     .create_proc_address_no_inval(mem, symbol)
                     .unwrap()
@@ -799,13 +599,6 @@ impl Dyld {
                 );
                 trampoline_ptr
             } else if let Some((_, template)) = search_host_dylibs(|dylib| dylib.constant_exports, name) {
-                // Constants from host dylibs need late linking (they may
-                // require a full Environment to resolve, e.g. NSString
-                // objects). Store for resolution in do_late_linking().
-                // NOTE: We must NOT skip these — a binary may reference a
-                // constant ONLY via external relocations without a matching
-                // __nl_symbol_ptr entry (e.g. ___sF in Digital Chocolate
-                // games compiled with older toolchains).
                 self.constants_to_link_later.push((ptr_ptr, template));
                 continue;
             } else {
@@ -815,15 +608,11 @@ impl Dyld {
                     .push(ptr_ptr.to_bits());
                 continue;
             };
-            // wrapping_add() is used in case the offset is negative. I haven't
-            // seen it happen, but it would make sense if that is allowed.
             mem.write(
                 ptr_ptr,
                 Ptr::from_bits(target.to_bits().wrapping_add(offset)),
             )
         }
-        // Collecting unhandled relocations for the same symbol onto one line
-        // makes the log output much less spammy.
         for (name, addrs) in unhandled_relocations {
             log!(
                 "Warning: unhandled external relocation {:?} in {:?} at {}",
@@ -860,8 +649,6 @@ impl Dyld {
             }
 
             if symbol == "dyld_stub_binder" || symbol == "_dyld_stub_binder" {
-                // Используем наш паникующий хэндлер, который вы
-                // зарегистрировали в create_proc_address_no_inval
                 let trampoline_ptr = self
                     .create_proc_address_no_inval(mem, symbol)
                     .unwrap()
@@ -876,10 +663,6 @@ impl Dyld {
             }
 
             if let Some((symbol, _)) = search_host_dylibs(|dylib| dylib.function_exports, symbol) {
-                // We want the same symbol name to always point to the same
-                // function. It could point to a specific stub entry, but it's
-                // easier to just create a new function and point all the stub
-                // entries to it.
                 let trampoline_ptr = self
                     .create_proc_address_no_inval(mem, symbol)
                     .unwrap()
@@ -889,22 +672,16 @@ impl Dyld {
                     "Linked non-lazy host function {} at {:?}",
                     symbol,
                     trampoline_ptr
-                    );
+                );
                 log_dbg!("{:?}", self.non_lazy_host_functions);
                 continue;
             }
             if let Some((_, template)) = search_host_dylibs(|dylib| dylib.constant_exports, symbol)
             {
-                // Delay linking of constant until we have a `&mut Environment`,
-                // that makes it much easier to build NSString objects etc.
                 self.constants_to_link_later.push((ptr_ptr, template));
                 continue;
             }
 
-            // Blocks runtime class descriptors in __nl_symbol_ptr.
-            // Must be non-null so block->isa != NULL; otherwise the
-            // first retain/release of any stack block causes a
-            // NULL-page read at 0x0.
             if symbol == "__NSConcreteStackBlock" || symbol == "__NSConcreteGlobalBlock" {
                 let dummy = mem.alloc(16);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
@@ -916,19 +693,6 @@ impl Dyld {
                 continue;
             }
 
-            // C++ / ObjC exception handling symbols. If these are
-            // NULL the C++ unwinder crashes when any @try block is
-            // entered or any ObjC exception is thrown, producing
-            // sequential NULL-page reads followed by UndefinedInst.
-            //
-            // _OBJC_EHTYPE_*: ObjC exception type-info descriptors
-            // used by @catch type matching. A dummy non-null object
-            // is enough to prevent the NULL dereference.
-            //
-            // ___objc_personality_v0: called by _Unwind_RaiseException
-            // for every frame. We install a trivial stub (BX LR) that
-            // returns 0 (_URC_NO_REASON / continue unwinding) so the
-            // unwinder keeps moving instead of branching to 0x0.
             if symbol == "_OBJC_EHTYPE_id" || symbol == "_OBJC_EHTYPE_$_NSException" {
                 let dummy = mem.alloc(32);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
@@ -941,9 +705,6 @@ impl Dyld {
             }
 
             if symbol == "___objc_personality_v0" {
-                // Minimal ARM32 function: BX LR (returns 0 in R0).
-                // Returning _URC_NO_REASON (0) for every frame tells
-                // the unwinder "no handler here, keep searching".
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
@@ -952,8 +713,6 @@ impl Dyld {
                 continue;
             }
 
-            // __mb_cur_max is a pointer-to-int used by libstdc++
-            // locale code. Provide a value of 1 (single-byte locale).
             if symbol == "___mb_cur_max" {
                 let val_ptr: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(val_ptr, 1u32);
@@ -975,7 +734,6 @@ impl Dyld {
                 || symbol == "___cxa_unexpected_handler"
                 || symbol == "___cxa_new_handler"
             {
-                // Default-NULL global handler pointer.
                 let p: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(p, 0);
                 mem.write(ptr_ptr, p.cast().cast_const());
@@ -1002,7 +760,6 @@ impl Dyld {
                 || symbol == "__dispatch_main_q"
                 || symbol == "__dispatch_queue_main"
             {
-                // See the matching branch in the external-relocation loop.
                 let p: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(p, 0);
                 mem.write(ptr_ptr, p.cast().cast_const());
@@ -1042,14 +799,9 @@ impl Dyld {
                 bin.name
             );
         }
-
-        // FIXME: check for internal relocations?
     }
 
-    /// Do linking that can only be done once there is a full [Environment].
-    /// Not to be confused with lazy linking.
     pub fn do_late_linking(env: &mut Environment) {
-        // TODO: do symbols ever appear in __nl_symbol_ptr multiple times?
         let to_link = std::mem::take(&mut env.dyld.constants_to_link_later);
         for (symbol_ptr_ptr, template) in to_link {
             let symbol_ptr: ConstVoidPtr = match template {
@@ -1069,9 +821,6 @@ impl Dyld {
         }
     }
 
-    /// Return a host function that can be called to handle an SVC instruction
-    /// encountered during CPU emulation. If `None` is returned, the execution
-    /// needs to resume at `svc_pc`.
     pub fn get_svc_handler(
         &mut self,
         bins: &[MachO],
@@ -1085,8 +834,6 @@ impl Dyld {
                 self.do_lazy_link(bins, mem, cpu, svc_pc)
             }
             Self::SVC_THREAD_EXIT | Self::SVC_RETURN_TO_HOST => {
-                // These are handled before this dispatch; reaching here
-                // would indicate the SVC numbering scheme is corrupted.
                 log!(
                     "Warning: Dyld::get_svc_handler received SVC #{} (thread exit / return to host) at {:#x}; this should be handled earlier.",
                     svc, svc_pc
@@ -1118,8 +865,6 @@ impl Dyld {
         cpu: &mut Cpu,
         svc_pc: u32,
     ) -> Option<HostFunction> {
-        // Links by restoring the original stub function, then updating
-        // __la_symbol_ptr to the appropriate function.
         fn link_by_restoring_stub(
             mem: &mut Mem,
             cpu: &mut Cpu,
@@ -1133,10 +878,6 @@ impl Dyld {
                 12 => Dyld::SYMBOL_STUB_INSTRUCTIONS.as_slice(),
                 16 => Dyld::PIC_SYMBOL_STUB_INSTRUCTIONS.as_slice(),
                 other => {
-                    // setup_lazy_linking already filters out unsupported
-                    // sizes; if we reach here something is badly out of
-                    // sync. Treat as a 12-byte normal stub to keep things
-                    // moving rather than aborting the host.
                     log!(
                         "Warning: link_by_restoring_stub: unsupported entry size {}; falling back to 12-byte stub.",
                         other
@@ -1146,7 +887,6 @@ impl Dyld {
             };
             let instruction_count: GuestUSize = original_instructions.len().try_into().unwrap();
 
-            // Restore the original stub, which calls the __la_symbol_ptr
             let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
             if entry_size == 4 {
                 mem.write(stub_function_ptr, original_instructions[0] | pic_offset)
@@ -1157,14 +897,10 @@ impl Dyld {
             }
 
             cpu.invalidate_cache_range(stub_function_ptr.to_bits(), instruction_count * 4);
-            // Update the __la_symbol_ptr
             let la_symbol_ptr: MutPtr<u32> = if entry_size == 12 {
-                // Normal stub: absolute address
                 let addr = mem.read(stub_function_ptr + instruction_count);
                 Ptr::from_bits(addr)
             } else {
-                // The PIC (position-independent code) stub uses a
-                // PC-relative offset rather than an absolute address.
                 if entry_size == 4 {
                     let offset = mem.read(stub_function_ptr) & 0xFFF;
                     Ptr::from_bits(stub_function_ptr.to_bits() + offset + 8)
@@ -1198,8 +934,6 @@ impl Dyld {
         let symbol = info.indirect_undef_symbols[idx].as_deref().unwrap();
 
         if let Some(&addr) = self.non_lazy_host_functions.get(symbol) {
-            // The host function was already linked non-lazily, point the
-            // stub and __la_symbol_ptr to the function.
             let (stub_function_ptr, la_symbol_ptr) = link_by_restoring_stub(
                 mem,
                 cpu,
@@ -1215,19 +949,8 @@ impl Dyld {
                 la_symbol_ptr,
                 addr,
             );
-            // The stub jumps to the non-lazy function, which calls the
-            // host function.
             return None;
-        }
-
-        // Prefer guest dylibs (libstdc++.6.dylib, libgcc_s.1.dylib, …) over
-        // host dylib stubs. Apps that bundle their own libstdc++ rely on the
-        // proper guest C++ ABI (`__cxa_throw`, `__cxa_begin_catch`, the SjLj
-        // unwinder, …) reaching the actual library — if a partial host stub
-        // wins the lookup, exception handling silently breaks. This mirrors
-        // what `do_non_lazy_linking` already does for non-lazy bindings, and
-        // matches iOS dyld's behaviour of preferring the app's own linked
-        // dylibs over fallback implementations.
+                }
         for dylib in bins.iter() {
             if let Some(&addr) = dylib.exported_symbols.get(symbol) {
                 let (stub_function_ptr, la_symbol_ptr) =
@@ -1240,22 +963,18 @@ impl Dyld {
                     addr,
                     dylib.name
                 );
-                // Tell the caller it needs to restart execution at svc_pc.
                 return None;
             }
         }
 
         if let Some(&(symbol, f)) = search_host_dylibs(|dylib| dylib.function_exports, symbol) {
-            // Allocate an SVC ID for this host function
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
             let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
-            // Indicate to the handler to return manually after call
             if info.entry_size == 4 {
                 assert!(svc < Self::SVC_LAZY_LINK_RET_FLAG);
                 svc |= Self::SVC_LAZY_LINK_RET_FLAG;
             }
             self.linked_host_functions.push((symbol, f));
-            // Rewrite stub function to call this host function
             let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
             mem.write(stub_function_ptr, encode_a32_svc(svc));
             if info.entry_size != 4 {
@@ -1268,26 +987,55 @@ impl Dyld {
                 symbol,
                 stub_function_ptr
             );
-            // Return the host function so that we can call it now that we're
-            // done.
             return Some(f);
         }
 
-        // Fallback: the symbol isn't implemented by any host dylib and isn't
-        // exported by any loaded guest dylib. Instead of panicking (which kills
-        // the app), install a stub that logs a warning and returns 0. This
-        // lets the emulator keep running for relatively harmless symbols like
-        // `_getuid`, `_geteuid`, `_getpid`, etc.
+        // =========================================================================
+        // HyperHLE Inline Structural Intercept Fallback Upgrades
+        // =========================================================================
+        
+        // 1. Intercept `singleton_pool::is_from` -> Overrides default logic to return 1 instead of 0
+        if symbol.starts_with("_ZN5boost14singleton_pool") && symbol.contains("is_from") {
+            log!("HyperHLE: Intercepted boost::singleton_pool::is_from -> dynamically routing to return 1");
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let f: HostFunction = &(boost_singleton_pool_is_from_override as fn(&mut Environment) -> i32);
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
+
+        // 2. Intercept Constructors (Ctors) -> Retains the structural this_ptr instance inside r0 register
+        if symbol == "_ZN5boost5uuids22basic_random_generatorINS_6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EEEEC2Ev"
+            || symbol == "_ZN5boost9gregorian4dateC2ENS0_9greg_yearENS0_10greg_monthENS0_8greg_dayE"
+            || symbol == "_ZN5boost9date_time16counted_time_repINS_10posix_time33millisec_posix_time_system_configEEC2ERKNS_9gregorian4dateERKNS2_13time_durationE"
+            || symbol.starts_with("_ZN3glf7TlsNodeC2")
+        {
+            log!("HyperHLE: Intercepted Ctor -> Preserving structure this_ptr ({})", symbol);
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let f: HostFunction = &(boost_and_glf_constructor_handler as fn(&mut Environment));
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
+
+        // Fallback: Default system handler for unspecified symbols
         log!(
             "Warning: call to unimplemented function {} at {:#x}; installing return-0 stub",
             symbol,
             svc_pc
         );
-        // `linked_host_functions` requires a `&'static str`, so leak the name.
         let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
         let f: HostFunction = &(unimplemented_function_stub as fn(&mut Environment) -> i32);
-        // Allocate an SVC ID for this stub (same pattern as the host-dylib
-        // branch above).
         let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
         let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
         if info.entry_size == 4 {
@@ -1295,7 +1043,6 @@ impl Dyld {
             svc |= Self::SVC_LAZY_LINK_RET_FLAG;
         }
         self.linked_host_functions.push((leaked_symbol, f));
-        // Rewrite the stub function to trap into our SVC handler.
         let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
         mem.write(stub_function_ptr, encode_a32_svc(svc));
         if info.entry_size != 4 {
@@ -1305,13 +1052,6 @@ impl Dyld {
         Some(f)
     }
 
-    /// Creates a guest function that will call a host function with the name
-    /// `symbol`. This can be used to implement "get proc address" functions.
-    /// Note that no attempt is made to deduplicate or deallocate these, so
-    /// excessive use would create a memory leak.
-    ///
-    /// The name must be the mangled symbol name. Returns [Err] if there's no
-    /// such function.
     pub fn create_proc_address(
         &mut self,
         mem: &mut Mem,
@@ -1319,29 +1059,22 @@ impl Dyld {
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
         let function_ptr = self.create_proc_address_no_inval(mem, symbol)?;
-        // Just in case
         cpu.invalidate_cache_range(function_ptr.addr_without_thumb_bit(), 8);
         Ok(function_ptr)
     }
 
-    /// Internal [Self::create_proc_address] that doesn't invalidate the cache.
-    /// For use before a [Cpu] is available.
     fn create_proc_address_no_inval(
         &mut self,
         mem: &mut Mem,
         symbol: &str,
     ) -> Result<GuestFunction, ()> {
-        // Нативно обрабатываем рудимент ленивой загрузки Apple:
         if symbol == "dyld_stub_binder" || symbol == "_dyld_stub_binder" {
-            // Используем "dyld_stub_binder" (это &'static str), а не переменную
-            // symbol
             let symbol_name = "dyld_stub_binder";
             if let Some(&cached_fn) = self.non_lazy_host_functions.get(symbol_name) {
                 return Ok(cached_fn);
             }
 
             let (_, f) = export_c_func!(dyld_stub_binder(_));
-            // Передаем именно статическую строку
             let function_ptr = self.create_guest_function(mem, symbol_name, f);
             self.non_lazy_host_functions
                 .insert(symbol_name, function_ptr);
@@ -1363,12 +1096,10 @@ impl Dyld {
         symbol: &'static str,
         f: HostFunction,
     ) -> GuestFunction {
-        // Allocate an SVC ID for this host function
         let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
         let svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
         self.linked_host_functions.push((symbol, f));
 
-        // Create guest function to call this host function
         let function_ptr = mem.alloc(8);
         let function_ptr: MutPtr<u32> = function_ptr.cast();
         mem.write(function_ptr + 0, encode_a32_svc(svc));
@@ -1378,22 +1109,27 @@ impl Dyld {
 }
 
 fn dyld_stub_binder(_env: &mut Environment, _arg: u32) {
-    // Under HLE we eagerly bind every lazy symbol at link time, so the
-    // dyld_stub_binder should never be invoked. If a guest binary still
-    // jumps here (e.g. through a hand-rolled lazy-binding scheme), log it
-    // instead of crashing the emulator; the caller will simply see a
-    // no-op return.
     log!(
         "Warning: dyld_stub_binder was called! Under HLE all lazy symbols are bound eagerly, so this is unexpected. Continuing as a no-op."
     );
 }
 
-/// Generic fallback stub for functions referenced by the guest binary but
-/// not implemented by any host dylib. Returns 0 so that calls to things like
-/// `getuid`, `geteuid`, `getpid`, etc. don't panic the emulator.
-///
-/// On ARM32 the return value is placed in `r0`, which matches the C ABI for
-/// `int`/`uid_t`/`pid_t`/pointer return types.
 fn unimplemented_function_stub(_env: &mut Environment) -> i32 {
     0
+}
+
+// =========================================================================
+// HyperHLE Target Host Implementations for Intercepted Symbols
+// =========================================================================
+
+/// Special override logic targeting Boost singleton structures requiring initialization sanity checks
+fn boost_singleton_pool_is_from_override(_env: &mut Environment) -> i32 {
+    1
+}
+
+/// Generic handler for constructors: C++ constructors pass the `this` pointer in register R0
+/// and expect it to be returned in register R0. Leaving the CPU registers completely untouched
+/// safely fulfills this requirement.
+fn boost_and_glf_constructor_handler(_env: &mut Environment) {
+    // Intentionally leaves cpu registers untouched to allow R0 to flow back out safely
 }
