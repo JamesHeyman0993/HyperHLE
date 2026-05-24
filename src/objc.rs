@@ -294,30 +294,14 @@ fn dispatch_once_f(
 
         log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
 
-        // 1. Save the original Link Register (LR) so we know where to return to
-        let old_lr = env.cpu.regs()[14]; // R14 is LR in ARMv7
+        // Bring the CallFromHost execution trait into local scope
+        use crate::abi::CallFromHost;
 
-        // 2. Put the user context pointer into R0 (first argument slot)
-        env.cpu.regs_mut()[0] = context.to_bits();
+        // Pass the user context pointer as the sole argument inside a tuple
+        let args = (context,);
 
-        // 3. Set LR to a special "host return" or exit sequence address if available, 
-        // or 0 to let the CPU loop stop when execution finishes.
-        env.cpu.regs_mut()[14] = 0; 
-
-        // 4. Use the underlying CPU execution wrapper to slide into the address.
-        // In touchHLE, if a direct method isn't exposed, we run the CPU context backend directly:
-        let target_pc = function_ptr.to_bits();
-        
-        log_dbg!("HyperHLE: Running CPU context loop for dispatch_once_f at PC: {:#x}", target_pc);
-        
-        // Let's invoke the CPU run-loop explicitly on the inner backend structure.
-        // Depending on your touchHLE core layout, this uses the run/step method:
-        if let Err(err) = env.cpu.run_until(target_pc, 0) {
-            log!("Warning: dispatch_once_f guest execution failure: {:?}", err);
-        }
-
-        // 5. Restore the original link register state cleanly
-        env.cpu.regs_mut()[14] = old_lr;
+        // Execute the guest code directly via the pointer abstraction layer
+        let _: () = function_ptr.call_from_host(env, args);
     }
 }
 
