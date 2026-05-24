@@ -436,7 +436,8 @@ fn handle_touches_down(
                     let _: () = msg![env; view touchesEnded:dead_touches_set withEvent:event];
                 }
             } else {
-                continue;
+                // HACK REMOVED: Do not continue/skip processing the touch event here if there are no true stuck touches.
+                // Allow the frame sequence to register normally.
             }
         }
     
@@ -722,5 +723,5 @@ fn handle_touches_up(
     }
 
     release(env, pool);
-        }
-                    
+                                          }
+            
