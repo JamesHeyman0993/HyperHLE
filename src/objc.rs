@@ -291,9 +291,9 @@ fn dispatch_once_f(
 
         log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
 
-        // Execute function payload in guest context passing the user-context pointer inside register R0
+        // FIXED: Dereference env.cpu explicit to bypass NullableBox wrapping layers
         let argument_registers = vec![context.to_bits()];
-        if let Err(err) = env.cpu.call_guest(function_ptr.to_bits(), &argument_registers) {
+        if let Err(err) = (*env.cpu).call_guest(function_ptr.to_bits(), &argument_registers) {
             log!("Warning: dispatch_once_f invocation tracking encountered an error block execution thread failure: {:?}", err);
         }
     }
@@ -338,7 +338,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(_Block_object_dispose(_, _)),
     export_c_func!(___objc_personality_v0(_, _, _, _, _)),
     
-        // FIXED: Shifted token signature counts from (_, _) to single guest arguments (_)
+    // FIXED: Shifted token signature counts to single guest arguments (_)
     export_c_func!(class_getName(_)),
     export_c_func!(protocol_getName(_)),
     export_c_func!(objc_lookUpClass(_)),
