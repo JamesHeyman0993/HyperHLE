@@ -114,83 +114,45 @@ pub const CLASSES: ClassExports = objc_classes! {
     let is_power_rangers = bundle_id.contains("powerrangers") || bundle_id.contains("saban");
 
     // --- START HACK ---
-    // If the request is valid, check if it's our target file
-    if request != nil {
+    // Handle both valid requests pointing to localfeed and nil requests from Power Rangers
+    let should_intercept = if request != nil {
         let url: id = msg![env; request URL];
         if url != nil {
             let absolute_url: id = msg![env; url absoluteString];
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
-            
-            if url_str.contains("localfeed.xml") {
-                log!("HACK: Detected localfeed.xml request string. Generating explicit mock data response.");
-
-                if !response_ptr.is_null() {
-                    let mime: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "text/xml".to_string());
-                    autorelease(env, mime);
-                    let encoding: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "utf-8".to_string());
-                    autorelease(env, encoding);
-
-                    // Use standard base NSURLResponse instead of unmapped NSHTTPURLResponse subclass
-                    let mock_response: id = msg_class![env; NSURLResponse alloc];
-                    let mock_response: id = msg![env; mock_response initWithURL:url 
-                                                                       MIMEType:mime 
-                                                          expectedContentLength:256 
-                                                               textEncodingName:encoding];
-                    autorelease(env, mock_response);
-                    env.mem.write(response_ptr, mock_response);
-                }
-
-                if !error_ptr.is_null() {
-                    env.mem.write(error_ptr, nil);
-                }
-
-                let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
-                let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
-                autorelease(env, xml);
-
-                let data: id = msg![env; xml dataUsingEncoding:4];
-                return data;
-            }
+            url_str.contains("localfeed.xml")
+        } else {
+            false
         }
+    } else {
+        is_power_rangers
+    };
+
+    if should_intercept {
+        log!("HACK: Intercepting localfeed / nil request network sequence for Power Rangers. Supplying clean mock payload.");
+
+        if !response_ptr.is_null() {
+            // Allocate a basic NSObject stub instead of an unmapped NSURLResponse subclass
+            // This satisfies 'response != nil' guest checks safely without triggering missing selector panics
+            let mock_response: id = msg_class![env; NSObject new];
+            autorelease(env, mock_response);
+            env.mem.write(response_ptr, mock_response);
+        }
+
+        if !error_ptr.is_null() {
+            env.mem.write(error_ptr, nil);
+        }
+
+        let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
+        let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
+        autorelease(env, xml);
+
+        let data: id = msg![env; xml dataUsingEncoding:4];
+        return data;
     }
-            
-    // Intercept case where request might come across as nil
+
+    // Default fallback for literal nil requests from other apps
     if request == nil {
-        if is_power_rangers {
-            log!("HACK: Caught nil request inside Power Rangers. Injecting safe placeholder URL and data response.");
-
-            if !response_ptr.is_null() {
-                let url_str = crate::frameworks::foundation::ns_string::from_rust_string(env, "http://localhost/localfeed.xml".to_string());
-                autorelease(env, url_str);
-                let fake_url: id = msg_class![env; NSURL URLWithString:url_str];
-                autorelease(env, fake_url);
-
-                let mime: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "text/xml".to_string());
-                autorelease(env, mime);
-                let encoding: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "utf-8".to_string());
-                autorelease(env, encoding);
-
-                let mock_response: id = msg_class![env; NSURLResponse alloc];
-                let mock_response: id = msg![env; mock_response initWithURL:fake_url 
-                                                                   MIMEType:mime 
-                                                      expectedContentLength:256 
-                                                               textEncodingName:encoding];
-                autorelease(env, mock_response);
-                env.mem.write(response_ptr, mock_response);
-            }
-
-            if !error_ptr.is_null() {
-                env.mem.write(error_ptr, nil);
-            }
-
-            let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
-            let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
-            autorelease(env, xml);
-
-            let data: id = msg![env; xml dataUsingEncoding:4];
-            return data;
-        }
-
         log!("NSURLConnection sendSynchronousRequest: nil request — returning empty NSData");
 
         if !response_ptr.is_null() {
@@ -216,8 +178,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     msg_class![env; NSData data]
-}
-     
+                       }
+      
 // MARK: - Asynchronous API
 
 + (id)connectionWithRequest:(id)request
