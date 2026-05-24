@@ -35,6 +35,7 @@ pub mod core_text;
 pub mod core_animation;
 pub mod core_audio;
 pub mod core_audio_types;
+pub mod core_bluetooth;
 pub mod core_foundation;
 pub mod core_graphics;
 pub mod core_location;
