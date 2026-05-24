@@ -361,48 +361,4 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(_Unwind_SjLj_RaiseException(_)),
     export_c_func!(_Unwind_SjLj_Resume(_)),
     export_c_func!(_Unwind_SjLj_Resume_or_Rethrow(_)),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj140EN6glotv316event_new_deleteENSt3__15mutexELj128ELj0EE7is_fromEPv",
-        boost_singleton_pool_is_from(u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj80EN6glotv321event_list_new_deleteENSt3__15mutexELj16ELj0EE7is_fromEPv",
-        boost_singleton_pool_is_from_80(u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj208EN6glotv323async_client_new_deleteENSt3__15mutexELj16ELj0EE7is_fromEPv",
-        boost_singleton_pool_is_from_208(u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EE4seedEv",
-        boost_random_mt_seed()
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZNSt3__16vectorINS_12basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEENS4_IS6_EEE8__appendEm",
-        std_vector_string_append(u32, u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost5uuids22basic_random_generatorINS_6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EEEEC2Ev",
-        boost_uuid_generator_ctor(u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost9gregorian4dateC2ENS0_9greg_yearENS0_10greg_monthENS0_8greg_dayE",
-        boost_gregorian_date_ctor(u32, u32, u32, u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN5boost9date_time16counted_time_repINS_10posix_time33millisec_posix_time_system_configEEC2ERKNS_9gregorian4dateERKNS2_13time_durationE",
-        boost_posix_time_rep_ctor(u32, u32, u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN3glf7TlsNodeC2IPNS_6ThreadEEEPKT_",
-        glf_tls_node_ctor_1(u32, u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN3glf7TlsNodeC2INS_6Thread9NativeTlsEEEPKT_",
-        glf_tls_node_ctor_2(u32, u32)
-    ),
-    crate::dyld::export_c_func_aliased!(
-        "ZN3glf7TlsNodeC2IPNS_11task_detail5GroupEEEPKT_",
-        glf_tls_node_ctor_3(u32, u32)
-    ),
 ];
