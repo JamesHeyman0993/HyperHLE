@@ -516,7 +516,13 @@ impl ObjC {
                 panic!("Missing implementation for class {name}!");
             }
             
-            if is_fake {
+                        if is_fake {
+                // FIX: Intercept FBLoginButton and proxy it to a valid native class
+                if name == "FBLoginButton" {
+                    log!("HyperHLE: Redirecting FBLoginButton template lookups to native UIView compatibility layer.");
+                    return self.link_class_inner("UIView", is_metaclass, mem, use_placeholder);
+                }
+
                 class_host_object = Box::new(FakeClass {
                     name: name.to_string(),
                     is_metaclass: false,
@@ -526,6 +532,7 @@ impl ObjC {
                     is_metaclass: true,
                 });
             } else {
+                            
                 // We don't have a real implementation for this class, use a
                 // placeholder.
                 class_host_object = Box::new(UnimplementedClass {
