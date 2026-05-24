@@ -24,7 +24,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     @implementation GCController : NSObject
 
-        // ==========================================
+            // ==========================================
     // CLASS METHODS (+) MUST GO FIRST
     // ==========================================
     + (bool)respondsToSelector:(SEL)selector {
@@ -34,8 +34,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     + (id)controllers {
         log!("HyperHLE: [GCController controllers] called -> fetching an empty NSArray instance");
-        // Ask the runtime for the NSArray class and invoke [NSArray array]
+        // Dynamically locate the NSArray class template inside the runtime environment
         let array_class = env.objc.get_known_class("NSArray", &mut env.mem);
+        
+        // Execute the native [NSArray array] message allocation
         let empty_array: id = crate::objc::msg![env; array_class array];
         empty_array
     }
