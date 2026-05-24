@@ -405,7 +405,6 @@ fn substitute_classes(
     Some((class_host_object, metaclass_host_object))
 }
      
-
 impl ObjC {
     fn get_class(&self, name: &str, is_metaclass: bool, mem: &Mem) -> Option<Class> {
         let class = self.classes.get(name).copied()?;
