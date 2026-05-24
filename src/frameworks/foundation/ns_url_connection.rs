@@ -125,11 +125,17 @@ pub const CLASSES: ClassExports = objc_classes! {
                 log!("HACK: Detected localfeed.xml request string. Generating explicit mock data response.");
 
                 if !response_ptr.is_null() {
-                    let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
+                    let mime: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "text/xml".to_string());
+                    autorelease(env, mime);
+                    let encoding: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "utf-8".to_string());
+                    autorelease(env, encoding);
+
+                    // Use standard base NSURLResponse instead of unmapped NSHTTPURLResponse subclass
+                    let mock_response: id = msg_class![env; NSURLResponse alloc];
                     let mock_response: id = msg![env; mock_response initWithURL:url 
-                                                                   statusCode:200 
-                                                                  HTTPVersion:nil 
-                                                                 headerFields:nil];
+                                                                       MIMEType:mime 
+                                                          expectedContentLength:256 
+                                                               textEncodingName:encoding];
                     autorelease(env, mock_response);
                     env.mem.write(response_ptr, mock_response);
                 }
@@ -148,24 +154,27 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
             
-    // Foolproof safety net: If the request came in as nil but we are running Power Rangers,
-    // intercept it anyway and supply a clean valid response object and XML content payload.
+    // Intercept case where request might come across as nil
     if request == nil {
         if is_power_rangers {
             log!("HACK: Caught nil request inside Power Rangers. Injecting safe placeholder URL and data response.");
 
             if !response_ptr.is_null() {
-                // Create a valid placeholder string and URL so initialization does not panic
                 let url_str = crate::frameworks::foundation::ns_string::from_rust_string(env, "http://localhost/localfeed.xml".to_string());
                 autorelease(env, url_str);
                 let fake_url: id = msg_class![env; NSURL URLWithString:url_str];
                 autorelease(env, fake_url);
 
-                let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
+                let mime: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "text/xml".to_string());
+                autorelease(env, mime);
+                let encoding: id = crate::frameworks::foundation::ns_string::from_rust_string(env, "utf-8".to_string());
+                autorelease(env, encoding);
+
+                let mock_response: id = msg_class![env; NSURLResponse alloc];
                 let mock_response: id = msg![env; mock_response initWithURL:fake_url 
-                                                               statusCode:200 
-                                                              HTTPVersion:nil 
-                                                             headerFields:nil];
+                                                                   MIMEType:mime 
+                                                      expectedContentLength:256 
+                                                               textEncodingName:encoding];
                 autorelease(env, mock_response);
                 env.mem.write(response_ptr, mock_response);
             }
@@ -323,4 +332,3 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-        
