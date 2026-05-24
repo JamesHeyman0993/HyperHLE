@@ -52,7 +52,7 @@ pub use objects::{
 pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
-use crate::mem::ConstVoidPtr;
+use crate::mem::{ConstPtr, ConstVoidPtr};
 use crate::objc::classes::___objc_personality_v0;
 use crate::Environment;
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
@@ -212,6 +212,64 @@ fn objc_alloc(env: &mut Environment, class_ptr: id) -> id {
     allocated_object
 }
 
+/// Dynamic implementation for class_getName(Class cls) -> const char *
+fn class_getName(env: &mut Environment, class_ptr: id) -> ConstPtr<u8> {
+    if class_ptr == nil {
+        return ConstPtr::from_bits(0);
+    }
+    
+    let class_type = Class::from_bits(class_ptr.to_bits());
+    let class_name = env.objc.get_class_name(class_type);
+    
+    // Convert string to a null-terminated C-string array inside guest context
+    let mut name_bytes = class_name.as_bytes().to_vec();
+    name_bytes.push(0);
+    
+    let len = name_bytes.len() as u32;
+    let guest_alloc = env.mem.alloc(len);
+    env.mem.bytes_at_mut(guest_alloc.cast(), len).copy_from_slice(&name_bytes);
+    
+    guest_alloc.cast().cast_const()
+}
+
+/// Stub implementation for protocol_getName(Protocol *p) -> const char *
+fn protocol_getName(env: &mut Environment, protocol_ptr: id) -> ConstPtr<u8> {
+    log!("Warning: protocol_getName called for address {:?} — returning fallback descriptor", protocol_ptr);
+    let mock_name = "FakedProtocol\0";
+    let len = mock_name.len() as u32;
+    let guest_alloc = env.mem.alloc(len);
+    env.mem.bytes_at_mut(guest_alloc.cast(), len).copy_from_slice(mock_name.as_bytes());
+    
+    guest_alloc.cast().cast_const()
+}
+
+/// Dynamic implementation for objc_lookUpClass(const char *name) -> Class
+fn objc_lookUpClass(env: &mut Environment, name_ptr: ConstPtr<u8>) -> id {
+    if name_ptr.is_null() {
+        return nil;
+    }
+    
+    // Safely pull bytes from emulated layout up to the null-terminator
+    let mut bytes = Vec::new();
+    let mut offset = 0;
+    loop {
+        let current_byte: u8 = env.mem.read(ConstPtr::from_bits(name_ptr.to_bits() + offset));
+        if current_byte == 0 {
+            break;
+        }
+        bytes.push(current_byte);
+        offset += 1;
+    }
+    
+    let class_name = String::from_utf8_lossy(&bytes).into_owned();
+    let resolved_class = env.objc.get_known_class(&class_name, &mut env.mem);
+    
+    log!("HyperHLE: objc_lookUpClass linked descriptor for: {}", class_name);
+    
+    // Cast layout structure cleanly back to dynamic guest raw identifier
+    resolved_class.cast::<crate::objc::objects::objc_object>().cast_mut()
+}
+
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend(_, _)),
     export_c_func!(objc_msgSend_stret(_, _, _)),
@@ -250,4 +308,9 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(method_getTypeEncoding(_, _)),
     export_c_func!(_Block_object_dispose(_, _)),
     export_c_func!(___objc_personality_v0(_, _, _, _, _)),
+    
+    // NEW: iOS 7/8 modern runtime linkage symbols mapped into the guest environment
+    export_c_func!(class_getName(_, _)),
+    export_c_func!(protocol_getName(_, _)),
+    export_c_func!(objc_lookUpClass(_, _)),
 ];
