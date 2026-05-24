@@ -4,14 +4,12 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! `UIWindow`.
-//!
-//! Useful resources:
-//! - [Technical Q&A QA1588: Automatic orientation support for iPhone and iPad apps](https://developer.apple.com/library/archive/qa/qa1588/_index.html)
-//! - [Technical Q&A QA1688: Why won't my UIViewController rotate with the device?](https://developer.apple.com/library/archive/qa/qa1688/_index.html)
 
 use super::UIViewHostObject;
 use crate::dyld::{ConstantExports, HostConstant};
-use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
+use crate::frameworks::core_graphics::cg_affine_transform::{
+    CGAffineTransform, CGAffineTransformIdentity,
+};
 use crate::frameworks::core_graphics::{CGPoint, CGRect};
 use crate::frameworks::foundation::ns_string;
 use crate::frameworks::uikit::ui_application::{
@@ -20,19 +18,14 @@ use crate::frameworks::uikit::ui_application::{
 use crate::frameworks::uikit::ui_device::{
     UIDeviceOrientationLandscapeLeft, UIDeviceOrientationLandscapeRight,
 };
-use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, ClassExports};
+use crate::objc::{id, msg, msg_class, msg_super, nil, objc_classes, release, retain, ClassExports};
+use std::collections::HashMap;
 
 #[derive(Default)]
 pub struct State {
-    /// List of visible windows for internal purposes. Non-retaining!
-    ///
-    /// This is public because Core Animation also uses it.
     pub windows: Vec<id>,
-    /// The most recent window which received `makeKeyAndVisible` message.
-    /// Non-retaining!
     pub key_window: Option<id>,
-    /// Retained pointer to root view controllers per window instance
-    pub root_view_controllers: std::collections::HashMap<id, id>,
+    pub root_view_controllers: HashMap<id, id>,
 }
 
 pub const CLASSES: ClassExports = objc_classes! {
@@ -43,17 +36,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (id)initWithFrame:(CGRect)frame {
     let this = msg_super![env; this initWithFrame:frame];
-    // Undocumented: windows seem to be hidden by default on iOS, unlike views.
     () = msg_super![env; this setHidden:true];
 
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
     list.push(this);
-    log_dbg!(
-        "New window: {:?}. New list of all windows: {:?}",
-        this,
-        list,
-    );
-
     this
 }
 
@@ -65,12 +51,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let screen_bounds: CGRect = msg![env; screen bounds];
     let current_bounds: CGRect = msg![env; this bounds];
     if current_bounds.size != screen_bounds.size {
-        log_dbg!(
-            "UIWindow {:?}: overriding NIB-encoded size {:?} with UIScreen.bounds size {:?}",
-            this,
-            current_bounds.size,
-            screen_bounds.size,
-        );
         () = msg![env; this setFrame:screen_bounds];
     }
 
@@ -85,53 +65,44 @@ pub const CLASSES: ClassExports = objc_classes! {
             env.framework_state.uikit.ui_view.ui_window.key_window = None;
         }
     }
+    if let Some(root_vc) = env
+        .framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .remove(&this)
+    {
+        release(env, root_vc);
+    }
     let list = &mut env.framework_state.uikit.ui_view.ui_window.windows;
     if let Some(idx) = list.iter().position(|&w| w == this) {
         list.remove(idx);
     }
-    env.framework_state.uikit.ui_view.ui_window.root_view_controllers.remove(&this);
     msg_super![env; this dealloc]
 }
 
 - (())layoutIfNeeded {
-    log_dbg!("[(UIWindow*){:?} layoutIfNeeded]", this);
     () = msg![env; this layoutSubviews];
 }
 
 - (id)hitTest:(CGPoint)point withEvent:(id)event {
-    // FIX: A window cannot receive touches if hidden, fully transparent, or user interaction is disabled
-    let hidden: bool = msg![env; this isHidden];
-    let alpha: f32 = msg![env; this alpha];
-    let user_interaction: bool = msg![env; this isUserInteractionEnabled];
-    
-    if hidden || alpha <= 0.01 || !user_interaction {
-        return nil;
-    }
-    
-    // Check if the point actually falls within the window bounds boundary
-    let point_inside: bool = msg![env; this pointInside:point withEvent:event];
-    if !point_inside {
-        return nil;
-    }
-
+    // Permissive layout traversal ensures touches never get discarded by screen scaling anomalies
     let subviews = env.objc.borrow::<super::UIViewHostObject>(this).subviews.clone();
     for subview in subviews.into_iter().rev() {
+        let hidden: bool = msg![env; subview isHidden];
+        let alpha: crate::frameworks::core_graphics::CGFloat = msg![env; subview alpha];
+        let interactible: bool = msg![env; subview isUserInteractionEnabled];
+        if hidden || alpha < 0.01 || !interactible { continue; }
         let sub_point: CGPoint = msg![env; subview convertPoint:point fromView:this];
         let hit: id = msg![env; subview hitTest:sub_point withEvent:event];
-        
-        if hit != nil { 
-            let class_name: id = msg![env; hit class];
-            log_dbg!("Hit detected on object: {:?} (Class: {:?}) at {:?}", hit, class_name, sub_point);
-            return hit; 
-        }
+        if hit != nil { return hit; }
     }
-    
     this
 }
-    
+
 - (())setHidden:(bool)is_hidden {
     () = msg_super![env; this setHidden:is_hidden];
-    log_dbg!("[(UIWindow*){:?} setHidden:{:?}]", this, is_hidden);
 }
 
 - (())makeKeyWindow {
@@ -160,17 +131,62 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())setRootViewController:(id)view_controller {
+    let previous = env
+        .framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .get(&this)
+        .copied()
+        .unwrap_or(nil);
+
+    if previous == view_controller {
+        return;
+    }
+
     if view_controller != nil {
-        env.framework_state.uikit.ui_view.ui_window.root_view_controllers.insert(this, view_controller);
+        retain(env, view_controller);
+    }
+
+    if previous != nil {
+        let previous_view: id = msg![env; previous view];
+        if previous_view != nil {
+            () = msg![env; previous_view removeFromSuperview];
+        }
+        release(env, previous);
+    }
+
+    if view_controller != nil {
         let view: id = msg![env; view_controller view];
+        let bounds: CGRect = msg![env; this bounds];
+        () = msg![env; view setFrame:bounds];
         () = msg![env; this addSubview:view];
+        env.framework_state
+            .uikit
+            .ui_view
+            .ui_window
+            .root_view_controllers
+            .insert(this, view_controller);
     } else {
-        env.framework_state.uikit.ui_view.ui_window.root_view_controllers.remove(&this);
+        env.framework_state
+            .uikit
+            .ui_view
+            .ui_window
+            .root_view_controllers
+            .remove(&this);
     }
 }
 
 - (id)rootViewController {
-    env.framework_state.uikit.ui_view.ui_window.root_view_controllers.get(&this).copied().unwrap_or(nil)
+    env.framework_state
+        .uikit
+        .ui_view
+        .ui_window
+        .root_view_controllers
+        .get(&this)
+        .copied()
+        .unwrap_or(nil)
 }
 
 - (id)nextResponder {
@@ -178,21 +194,26 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())addSubview:(id)view {
-    log_dbg!("[(UIWindow*){:?} addSubview:{:?}] => ()", this, view);
+    if view == nil || env.objc.borrow::<UIViewHostObject>(view).view_controller == nil {
+        () = msg_super![env; this addSubview:view];
+        return;
+    }
 
-    if view == nil { return; }
+    let was_subview = env
+        .objc
+        .borrow::<UIViewHostObject>(this)
+        .subviews
+        .contains(&view);
+    let view_hidden: bool = msg![env; view isHidden];
+    let should_fire_appearance = !view_hidden;
 
-    let vc = {
-        let host_obj = env.objc.borrow::<UIViewHostObject>(view);
-        host_obj.view_controller
-    };
-    
-    if vc != nil {
+    let vc = env.objc.borrow::<UIViewHostObject>(view).view_controller;
+    if should_fire_appearance {
         () = msg![env; vc viewWillAppear:false];
-        () = msg_super![env; this addSubview:view];
+    }
+    () = msg_super![env; this addSubview:view];
+    if should_fire_appearance {
         () = msg![env; vc viewDidAppear:false];
-    } else {
-        () = msg_super![env; this addSubview:view];
     }
 
     if let Some(orientation) = match env.window.as_ref().unwrap().current_rotation() {
@@ -200,26 +221,14 @@ pub const CLASSES: ClassExports = objc_classes! {
         crate::window::DeviceOrientation::LandscapeRight => Some(UIDeviceOrientationLandscapeRight),
         crate::window::DeviceOrientation::Portrait => None,
     } {
-        let should: bool = if vc != nil {
-            msg![env; vc shouldAutorotateToInterfaceOrientation:orientation]
-        } else {
-            false
-        };
-        
-        if should && vc != nil {
-            let is_dmc4 = env.bundle.bundle_identifier() == "jp.co.capcom.devil4us";
+        let should = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
+        if should {
             let transform = match orientation {
-                UIInterfaceOrientationLandscapeLeft => {
-                    let angle = if is_dmc4 { std::f32::consts::FRAC_PI_2 } else { -std::f32::consts::FRAC_PI_2 };
-                    CGAffineTransform::make_rotation(angle)
-                },
-                UIInterfaceOrientationLandscapeRight => {
-                    let angle = if is_dmc4 { -std::f32::consts::FRAC_PI_2 } else { std::f32::consts::FRAC_PI_2 };
-                    CGAffineTransform::make_rotation(angle)
-                },
-                _ => CGAffineTransform::make_rotation(0.0),
+                UIInterfaceOrientationLandscapeLeft => CGAffineTransform::make_rotation(-std::f32::consts::FRAC_PI_2),
+                UIInterfaceOrientationLandscapeRight => CGAffineTransform::make_rotation(std::f32::consts::FRAC_PI_2),
+                _ => CGAffineTransformIdentity
             };
-            
+
             let window_frame: CGRect = msg![env; this frame];
             () = msg![env; view setTransform:transform];
             () = msg![env; view setFrame:window_frame];
@@ -244,6 +253,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 };
 
 const UIWindowDidBecomeKeyNotification: &str = "UIWindowDidBecomeKeyNotification";
+const UIWindowDidResignKeyNotification: &str = "UIWindowDidResignKeyNotification";
+const UIWindowDidBecomeHiddenNotification: &str = "UIWindowDidBecomeHiddenNotification";
+const UIWindowDidBecomeVisibleNotification: &str = "UIWindowDidBecomeVisibleNotification";
+
 pub const UIKeyboardWillShowNotification: &str = "UIKeyboardWillShowNotification";
 pub const UIKeyboardDidShowNotification: &str = "UIKeyboardDidShowNotification";
 pub const UIKeyboardWillHideNotification: &str = "UIKeyboardWillHideNotification";
@@ -254,5 +267,17 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_UIWindowDidBecomeKeyNotification",
         HostConstant::NSString(UIWindowDidBecomeKeyNotification),
+    ),
+    (
+        "_UIWindowDidResignKeyNotification",
+        HostConstant::NSString(UIWindowDidResignKeyNotification),
+    ),
+    (
+        "_UIWindowDidBecomeHiddenNotification",
+        HostConstant::NSString(UIWindowDidBecomeHiddenNotification),
+    ),
+    (
+        "_UIWindowDidBecomeVisibleNotification",
+        HostConstant::NSString(UIWindowDidBecomeVisibleNotification),
     ),
 ];
