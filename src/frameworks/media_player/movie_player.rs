@@ -20,14 +20,14 @@ use std::time::Instant;
 
 #[derive(Default)]
 pub struct State {
-    active_player: Option<id>,
+    pub active_player: Option<id>,
     /// Various apps (e.g. Crash Bandicoot Nitro Kart 3D and Spore Origins)
     /// create or start a player and await some kind of notification, but can't
     /// handle it if that notification happens immediately.
     /// This queue lets us
     /// delay such notifications until the app next returns to the run loop,
     /// which seems to be late enough.
-    pending_notifications: VecDeque<(&'static str, id, Instant)>,
+    pub pending_notifications: VecDeque<(&'static str, id, Instant)>,
 }
 impl State {
     fn get(env: &mut Environment) -> &mut Self {
@@ -238,7 +238,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     // If it's a known crashing title or Power Rangers, skip the initialization placeholder delay entirely.
     if bundle_id.starts_with("jp.co.capcom.res4") 
         || bundle_id.starts_with("com.disney.toystory")
-        || bundle_id.starts_with("com.saban") 
+        || bundle_id.contains("powerrangers")
+        || bundle_id.contains("saban") 
     {
         log!("Bypassing init placeholder notification delay for target app: {}", bundle_id);
     } else {
@@ -284,8 +285,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (id)backgroundColor {
-    msg_class![env;
-UIColor blackColor] // TODO
+    msg_class![env; UIColor blackColor] // TODO
 }
 - (())setBackgroundColor:(id)color { // UIColor*
     todo_objc_setter!(this, color);
@@ -460,19 +460,24 @@ UIColor blackColor] // TODO
     // --- VIDEO COMPLETION BYPASS FOR STALLING / CRASHING TITLES ---
     if bundle_id.starts_with("jp.co.capcom.res4") 
         || bundle_id.starts_with("com.disney.toystory") 
-        || bundle_id.starts_with("com.saban") 
+        || bundle_id.contains("powerrangers")
+        || bundle_id.contains("saban") 
     {
-        log!("Applying Game Hack: Forcing instant loop push bypassing playback state checks for: {}", bundle_id);
-        let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-        current_state.playback_state = MPMoviePlaybackStatePlaying;
+        log!("Applying Game Hack: Instantly posting completion events synchronously to clear video layers for: {}", bundle_id);
         
-        retain(env, this);
-        State::get(env).pending_notifications.push_back((
-            MPMoviePlayerPlaybackDidFinishNotification,
-            this,
-            Instant::now(), // 0ms delay - fire immediately next loop cycle
-        ));
-        return; // Exit early so standard logic doesn't touch this context
+        let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
+        current_state.playback_state = MPMoviePlaybackStateStopped;
+
+        // Directly construct and dispatch the notification instead of scheduling it on the loop queue
+        let center: id = msg_class![env; NSNotificationCenter defaultCenter];
+        let finish_name = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
+
+        let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
+        let reason_key = ns_string::get_static_str(env, "MPMoviePlayerPlaybackDidFinishReasonUserInfoKey");
+        let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
+        
+        let _: () = msg![env; center postNotificationName:finish_name object:this userInfo:user_info];
+        return; 
     }
     // --------------------------------------------------------------
 
@@ -529,9 +534,6 @@ UIColor blackColor] // TODO
     // Store it globally inside framework state context
     State::get(env).active_player = Some(player);
 
-    // REMOVED: Immediate out-of-order notification dispatch. 
-    // The player's deferred 150ms event queue handles this loop cycle safely now.
-
     this
 }
      
@@ -587,4 +589,5 @@ pub(super) fn handle_players(env: &mut Environment) {
         // Release the retain we took when queuing this notification.
         release(env, object);
     }
-}
+         }
+     
