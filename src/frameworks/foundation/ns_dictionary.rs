@@ -368,10 +368,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSDictionary: NSObject
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    assert!(this == env.objc.get_known_class("NSDictionary", &mut env.mem));
-    msg_class![env; _touchHLE_NSDictionary allocWithZone:zone]
+    let base_class = env.objc.get_known_class("NSDictionary", &mut env.mem);
+    
+    if this == base_class {
+        // If allocating the base class directly, route to our concrete implementation
+        msg_class![env; _touchHLE_NSDictionary allocWithZone:zone]
+    } else {
+        // CRITICAL FIX: If a game SDK subclassed NSDictionary, forward the allocation 
+        // up to NSObject so it actually allocates memory instead of looping infinitely!
+        let superclass = env.objc.get_known_class("NSObject", &mut env.mem);
+        msg_super![env; this superclass allocWithZone:zone]
+    }
 }
-
+    
 + (id)dictionary {
     let new_dict: id = msg![env; this alloc];
     let new_dict: id = msg![env; new_dict init];
@@ -524,10 +533,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 @implementation NSMutableDictionary: NSDictionary
 
 + (id)allocWithZone:(NSZonePtr)zone {
-    assert!(this == env.objc.get_known_class("NSMutableDictionary", &mut env.mem));
-    msg_class![env; _touchHLE_NSMutableDictionary allocWithZone:zone]
+    let base_mutable_class = env.objc.get_known_class("NSMutableDictionary", &mut env.mem);
+    
+    if this == base_mutable_class {
+        msg_class![env; _touchHLE_NSMutableDictionary allocWithZone:zone]
+    } else {
+        // Forward up to the parent class structure safely
+        let superclass = env.objc.get_known_class("NSDictionary", &mut env.mem);
+        msg_super![env; this superclass allocWithZone:zone]
+    }
 }
-
+    
 + (id)dictionaryWithCapacity:(NSUInteger)capacity {
     let new: id = msg![env; this alloc];
     let new: id = msg![env; new initWithCapacity:capacity];
