@@ -379,7 +379,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         // CRITICAL FIX: If a game SDK subclassed NSDictionary, forward the allocation 
         // up to NSObject so it actually allocates memory instead of looping infinitely!
         let superclass = env.objc.get_known_class("NSObject", &mut env.mem);
-        msg_super![env; this superclass allocWithZone zone]
+        msg_super![env; this allocWithZone:zone]
     
     }
 }
@@ -543,7 +543,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         // Forward up to the parent class structure safely
         let superclass = env.objc.get_known_class("NSDictionary", &mut env.mem);
-        msg_super![env; this superclass allocWithZone zone]
+        msg_super![env; this allocWithZone:zone]
         
     }
 }
