@@ -31,6 +31,7 @@ pub mod cf_network;
 pub mod common_crypto;
 pub mod core_data;
 pub mod core_telephony;
+pub mod core_text;
 pub mod core_animation;
 pub mod core_audio;
 pub mod core_audio_types;
