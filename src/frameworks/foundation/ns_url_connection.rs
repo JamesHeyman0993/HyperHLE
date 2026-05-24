@@ -138,7 +138,6 @@ pub const CLASSES: ClassExports = objc_classes! {
                     env.mem.write(error_ptr, nil);
                 }
 
-                // A much more robust structural configuration payload that handles common properties game systems check for
                 let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>1</status>\n    <success>true</success>\n    <game_enabled>1</game_enabled>\n    <maintenance>0</maintenance>\n</config>".to_string();
                 let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
                 autorelease(env, xml);
@@ -150,14 +149,20 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
             
     // Foolproof safety net: If the request came in as nil but we are running Power Rangers,
-    // intercept it anyway and supply the successful payload to stop the game from stalling.
+    // intercept it anyway and supply a clean valid response object and XML content payload.
     if request == nil {
         if is_power_rangers {
-            log!("HACK: Caught nil request inside Power Rangers. Forcing mock localfeed.xml data recovery layout.");
+            log!("HACK: Caught nil request inside Power Rangers. Injecting safe placeholder URL and data response.");
 
             if !response_ptr.is_null() {
+                // Create a valid placeholder string and URL so initialization does not panic
+                let url_str = crate::frameworks::foundation::ns_string::from_rust_string(env, "http://localhost/localfeed.xml".to_string());
+                autorelease(env, url_str);
+                let fake_url: id = msg_class![env; NSURL URLWithString:url_str];
+                autorelease(env, fake_url);
+
                 let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
-                let mock_response: id = msg![env; mock_response initWithURL:nil 
+                let mock_response: id = msg![env; mock_response initWithURL:fake_url 
                                                                statusCode:200 
                                                               HTTPVersion:nil 
                                                              headerFields:nil];
@@ -318,4 +323,4 @@ pub const CLASSES: ClassExports = objc_classes! {
 @end
 
 };
-                       
+        
