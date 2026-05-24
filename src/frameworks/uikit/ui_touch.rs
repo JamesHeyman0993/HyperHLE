@@ -152,7 +152,12 @@ pub fn handle_event(env: &mut Environment, event: Event) {
         Event::TouchesDown(map) => handle_touches_down(env, map),
         Event::TouchesMove(map) => handle_touches_move(env, map),
         Event::TouchesUp(map) => handle_touches_up(env, map),
-        _ => unreachable!(),
+        other => {
+            log!(
+                "Warning: ui_touch::handle_event: unsupported event {:?}; ignored.",
+                other
+            );
+        }
     }
 }
 
@@ -290,31 +295,11 @@ fn handle_touches_down(
                 .clone();
 
         let found_window = windows.iter().rev().find_map(|&window| {
-            let hidden: bool = msg![env;
-                window isHidden
-            ];
-
-            if hidden {
-                return None;
-            }
-
-            let alpha: f32 = msg![env;
-                window alpha
-            ];
-
-            if alpha <= 0.01 {
-                return None;
-            }
-
             let location_in_window: CGPoint = msg![env;
                 window convertPoint:location fromWindow:nil
             ];
 
-            let inside: bool = msg![env;
-                window pointInside:location_in_window withEvent:event
-            ];
-
-            if inside {
+            if msg![env; window pointInside:location_in_window withEvent:event] {
                 Some((window, location_in_window))
             } else {
                 None
@@ -399,14 +384,6 @@ fn handle_touches_down(
                 .collect();
 
             if !stuck.is_empty() {
-                log!(
-                    "Cleaning up {} stuck touches for single-touch view {:?}",
-                    stuck.len(),
-                    view
-                );
-
-                let dead_touches_set: id = msg_class![env; NSMutableSet allocWithZone:(crate::mem::MutVoidPtr::null())];
-
                 for fid in stuck {
                     if let Some(t) = env
                         .framework_state
@@ -415,29 +392,11 @@ fn handle_touches_down(
                         .current_touches
                         .remove(&fid)
                     {
-                        {
-                            let host = env.objc.borrow_mut::<UITouchHostObject>(t);
-                            host.phase = UITouchPhaseEnded;
-                        }
-
-                        let _: () = msg![env; dead_touches_set addObject:t];
-
-                        let (v_rel, w_rel) = {
-                            let host = env.objc.borrow::<UITouchHostObject>(t);
-                            (host.view, host.window)
-                        };
-                        if v_rel != nil { release(env, v_rel); }
-                        if w_rel != nil { release(env, w_rel); }
                         release(env, t);
                     }
                 }
-
-                if view != nil {
-                    let _: () = msg![env; view touchesEnded:dead_touches_set withEvent:event];
-                }
             } else {
-                // HACK REMOVED: Do not continue/skip processing the touch event here if there are no true stuck touches.
-                // Allow the frame sequence to register normally.
+                continue;
             }
         }
     
@@ -459,30 +418,7 @@ fn handle_touches_down(
         retain(env, window);
 
         {
-            let (old_view, old_window) = {
-                let t_obj =
-                    env.objc.borrow_mut::<UITouchHostObject>(touch);
-
-                let old_view = t_obj.view;
-                let old_window = t_obj.window;
-
-                t_obj.view = nil;
-                t_obj.window = nil;
-
-                (old_view, old_window)
-            };
-
-            if old_view != nil {
-                release(env, old_view);
-            }
-
-            if old_window != nil {
-                release(env, old_window);
-            }
-
-            let t_obj =
-                env.objc.borrow_mut::<UITouchHostObject>(touch);
-
+            let t_obj = env.objc.borrow_mut::<UITouchHostObject>(touch);
             t_obj.view = view;
             t_obj.window = window;
             t_obj.location = location;
@@ -693,21 +629,6 @@ fn handle_touches_up(
             .current_touches
             .remove(&finger_id);
 
-        let (view_to_release, window_to_release) = {
-            let host =
-                env.objc.borrow::<UITouchHostObject>(touch);
-
-            (host.view, host.window)
-        };
-
-        if view_to_release != nil {
-            release(env, view_to_release);
-        }
-
-        if window_to_release != nil {
-            release(env, window_to_release);
-        }
-
         release(env, touch);
     }
 
@@ -723,5 +644,4 @@ fn handle_touches_up(
     }
 
     release(env, pool);
-                                          }
-            
+            }
