@@ -593,6 +593,10 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+ - (id)initWithObjectsAndKeys:(id)first_object, ...dots {
+    init_with_objects_and_keys(env, this, first_object, dots.start())
+ }
+    
 - (id)initWithDictionary:(id)dictionary {
     init_with_dictionary_common(env, this, dictionary)
 }
