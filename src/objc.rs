@@ -267,7 +267,7 @@ fn objc_lookUpClass(env: &mut Environment, name_ptr: ConstPtr<u8>) -> id {
     log!("HyperHLE: objc_lookUpClass linked descriptor for: {}", class_name);
     
     // Cast layout structure cleanly back to dynamic guest raw identifier
-    resolved_class.cast::<crate::objc::objects::objc_object>().cast_mut()
+    resolved_class.cast::<crate::objc::objects::objc_object>()
 }
 
 /// Functional replacement execution engine for Grand Central Dispatch `dispatch_once_f`
@@ -338,7 +338,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(_Block_object_dispose(_, _)),
     export_c_func!(___objc_personality_v0(_, _, _, _, _)),
     
-    // FIXED: Corrected token signature counts from (_, _) to single guest arguments (_)
+        // FIXED: Shifted token signature counts from (_, _) to single guest arguments (_)
     export_c_func!(class_getName(_)),
     export_c_func!(protocol_getName(_)),
     export_c_func!(objc_lookUpClass(_)),
