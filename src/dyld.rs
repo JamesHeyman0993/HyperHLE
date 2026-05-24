@@ -1028,6 +1028,39 @@ impl Dyld {
             return Some(f);
         }
 
+        // =========================================================================
+        // FIX: Route libc++ std::string mangled names to string.rs implementations
+        // =========================================================================
+        if symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEC1ERKS5_"
+            || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEC1ERKS5_mmRKS4_"
+            || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEED1Ev"
+            || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEaSERKS5_"
+        {
+            log!("HyperHLE: Intercepted libc++ std::string operation -> routing to string.rs: {}", symbol);
+            
+            let f: HostFunction = match symbol {
+                "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEED1Ev" => {
+                    &(crate::libc::string::libcxx_string_destructor as fn(&mut Environment, crate::mem::MutVoidPtr))
+                }
+                "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEaSERKS5_" => {
+                    &(crate::libc::string::libcxx_string_assign as fn(&mut Environment, crate::mem::MutVoidPtr, crate::mem::ConstVoidPtr) -> crate::mem::MutVoidPtr)
+                }
+                _ => { // Both constructor variants map here
+                    &(crate::libc::string::libcxx_string_init as fn(&mut Environment, crate::mem::MutVoidPtr))
+                }
+            };
+
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
+        
         // Fallback: Default system handler for unspecified symbols
         log!(
             "Warning: call to unimplemented function {} at {:#x}; installing return-0 stub",
