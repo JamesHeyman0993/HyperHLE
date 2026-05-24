@@ -33,6 +33,8 @@ pub const CONSTANTS: ConstantExports = &[
     // FIXED: Added missing infinity constants requested by Gumball layout engine
     ("_kCFNumberNegativeInfinity", HostConstant::NullPtr),
     ("_kCFNumberPositiveInfinity", HostConstant::NullPtr),
+    // HyperHLE Patch: Prevent Captain America crash by adding the system timezone relocation symbol
+    ("_timezone", HostConstant::NullPtr), 
 ];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
