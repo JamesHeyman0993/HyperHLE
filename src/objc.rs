@@ -296,7 +296,9 @@ fn dispatch_once_f(
 
         // Execute function payload in guest context passing the user-context pointer inside register R0
         let argument_registers = vec![context.to_bits()];
-        if let Err(err) = (*env.cpu).call_guest(env, function_ptr.to_bits(), &argument_registers) {
+        
+        // FIXED: Call the global ABI module's call_guest function directly instead of calling a method on Cpu
+        if let Err(err) = crate::abi::call_guest(env, function_ptr.to_bits(), &argument_registers) {
             log!("Warning: dispatch_once_f invocation tracking encountered an error block execution thread failure: {:?}", err);
         }
     }
