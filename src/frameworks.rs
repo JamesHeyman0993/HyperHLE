@@ -26,6 +26,7 @@ pub mod address_book;
 pub mod address_book_ui;
 pub mod audio_toolbox;
 pub mod avfoundation;
+pub mod assets_library;
 pub mod carbon_core;
 pub mod cf_network;
 pub mod common_crypto;
