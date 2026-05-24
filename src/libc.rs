@@ -124,6 +124,8 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         time::FUNCTIONS,
         unistd::FUNCTIONS,
         wchar::FUNCTIONS,
+        // HyperHLE Patch: Register the new structural stubs array with the dynamic linker
+        HYPERHLE_APP_STUBS,
     ],
 };
 
@@ -149,3 +151,51 @@ pub struct State {
     mach_vm: mach::vm_map::State,
     mmap: mmap::State,
 }
+
+// =========================================================================
+// HyperHLE App Initialization Overrides (Stops the generic return-0 stubs)
+// =========================================================================
+
+pub fn boost_singleton_pool_is_from_80(_env: &mut crate::Environment, _ptr: u32) -> i32 { 1 }
+pub fn boost_singleton_pool_is_from_208(_env: &mut crate::Environment, _ptr: u32) -> i32 { 1 }
+pub fn boost_uuid_generator_ctor(_env: &mut crate::Environment, this_ptr: u32) -> u32 { this_ptr }
+pub fn boost_gregorian_date_ctor(_env: &mut crate::Environment, this_ptr: u32, _y: u32, _m: u32, _d: u32) -> u32 { this_ptr }
+pub fn boost_posix_time_rep_ctor(_env: &mut crate::Environment, this_ptr: u32, _date_ptr: u32, _duration_ptr: u32) -> u32 { this_ptr }
+pub fn glf_tls_node_ctor_1(_env: &mut crate::Environment, this_ptr: u32, _arg_ptr: u32) -> u32 { this_ptr }
+pub fn glf_tls_node_ctor_2(_env: &mut crate::Environment, this_ptr: u32, _arg_ptr: u32) -> u32 { this_ptr }
+pub fn glf_tls_node_ctor_3(_env: &mut crate::Environment, this_ptr: u32, _arg_ptr: u32) -> u32 { this_ptr }
+
+const HYPERHLE_APP_STUBS: crate::dyld::FunctionExports = &[
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj80EN6glotv321event_list_new_deleteENSt3__15mutexELj16ELj0EE7is_fromEPv",
+        boost_singleton_pool_is_from_80(u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj208EN6glotv323async_client_new_deleteENSt3__15mutexELj16ELj0EE7is_fromEPv",
+        boost_singleton_pool_is_from_208(u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost5uuids22basic_random_generatorINS_6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EEEEC2Ev",
+        boost_uuid_generator_ctor(u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost9gregorian4dateC2ENS0_9greg_yearENS0_10greg_monthENS0_8greg_dayE",
+        boost_gregorian_date_ctor(u32, u32, u32, u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost9date_time16counted_time_repINS_10posix_time33millisec_posix_time_system_configEEC2ERKNS_9gregorian4dateERKNS2_13time_durationE",
+        boost_posix_time_rep_ctor(u32, u32, u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN3glf7TlsNodeC2IPNS_6ThreadEEEPKT_",
+        glf_tls_node_ctor_1(u32, u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN3glf7TlsNodeC2INS_6Thread9NativeTlsEEEPKT_",
+        glf_tls_node_ctor_2(u32, u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN3glf7TlsNodeC2IPNS_11task_detail5GroupEEEPKT_",
+        glf_tls_node_ctor_3(u32, u32)
+    ),
+];
