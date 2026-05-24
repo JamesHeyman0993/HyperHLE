@@ -178,7 +178,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 
     msg_class![env; NSData data]
-                       }
+}
       
 // MARK: - Asynchronous API
 
