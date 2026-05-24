@@ -17,11 +17,13 @@ pub mod ui_action_sheet;
 pub mod ui_activity_indicator_view;
 pub mod ui_application;
 pub mod ui_color;
+pub mod ui_custom_object;
 pub mod ui_device;
 pub mod ui_document;
 pub mod ui_event;
 pub mod ui_font;
 pub mod ui_geometry;
+pub mod ui_gesture_recognizer;
 pub mod ui_graphics;
 pub mod ui_image;
 pub mod ui_image_picker_controller;
@@ -33,8 +35,10 @@ pub mod ui_pasteboard;
 pub mod ui_pinch_gesture_recognizer;
 pub mod ui_popover_controller;
 pub mod ui_responder;
+pub mod ui_rotation_gesture_recognizer;
 pub mod ui_screen;
 pub mod ui_screen_mode;
+pub mod ui_search_bar;
 pub mod ui_split_view_controller;
 pub mod ui_tab_bar_controller;
 pub mod ui_tab_bar_item;
@@ -63,6 +67,18 @@ fn ui_window_level_status_bar(env: &mut Environment) -> ConstVoidPtr {
 fn ui_window_level_alert(env: &mut Environment) -> ConstVoidPtr {
     let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
     env.mem.write(ptr, 2000.0f32.to_bits());
+    ptr.cast().cast_const()
+}
+
+fn ui_scroll_view_deceleration_rate_normal(env: &mut Environment) -> ConstVoidPtr {
+    let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
+    env.mem.write(ptr, 0.998f32.to_bits());
+    ptr.cast().cast_const()
+}
+
+fn ui_scroll_view_deceleration_rate_fast(env: &mut Environment) -> ConstVoidPtr {
+    let ptr: MutPtr<u32> = env.mem.alloc(4).cast();
+    env.mem.write(ptr, 0.99f32.to_bits());
     ptr.cast().cast_const()
 }
 
@@ -104,6 +120,10 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         HostConstant::NSString("UIScreenDidDisconnectNotification"),
     ),
     (
+        "_UIScreenModeDidChangeNotification",
+        HostConstant::NSString("UIScreenModeDidChangeNotification"),
+    ),
+    (
         "_UITrackingRunLoopMode",
         HostConstant::NSString("UITrackingRunLoopMode"),
     ),
@@ -111,7 +131,6 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIApplicationLaunchOptionsLocalNotificationKey",
         HostConstant::NSString("UIApplicationLaunchOptionsLocalNotificationKey"),
     ),
-    // FIXED: Added missing launch option option dictionary constant mappings
     (
         "_UIApplicationLaunchOptionsLocationKey",
         HostConstant::NSString("UIApplicationLaunchOptionsLocationKey"),
@@ -119,6 +138,58 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
     (
         "_UIApplicationLaunchOptionsNewsstandDownloadsKey",
         HostConstant::NSString("UIApplicationLaunchOptionsNewsstandDownloadsKey"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsURLKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsURLKey"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsSourceApplicationKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsSourceApplicationKey"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsAnnotationKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsAnnotationKey"),
+    ),
+    (
+        "_UIApplicationLaunchOptionsRemoteNotificationKey",
+        HostConstant::NSString("UIApplicationLaunchOptionsRemoteNotificationKey"),
+    ),
+    (
+        "_UIPasteboardNameGeneral",
+        HostConstant::NSString("UIPasteboardNameGeneral"),
+    ),
+    (
+        "_UIPasteboardNameFind",
+        HostConstant::NSString("UIPasteboardNameFind"),
+    ),
+    (
+        "_UIPasteboardTypeListString",
+        HostConstant::NSString("public.utf8-plain-text"),
+    ),
+    (
+        "_UIPasteboardTypeListURL",
+        HostConstant::NSString("public.url"),
+    ),
+    (
+        "_UIPasteboardTypeListImage",
+        HostConstant::NSString("public.image"),
+    ),
+    (
+        "_UIPasteboardTypeListColor",
+        HostConstant::NSString("com.apple.uikit.color"),
+    ),
+    (
+        "_UITextViewTextDidChangeNotification",
+        HostConstant::NSString("UITextViewTextDidChangeNotification"),
+    ),
+    (
+        "_UITextViewTextDidBeginEditingNotification",
+        HostConstant::NSString("UITextViewTextDidBeginEditingNotification"),
+    ),
+    (
+        "_UITextViewTextDidEndEditingNotification",
+        HostConstant::NSString("UITextViewTextDidEndEditingNotification"),
     ),
     (
         "_UIWindowLevelNormal",
@@ -140,6 +211,54 @@ pub const CONSTANTS: &[(&str, HostConstant)] = &[
         "_UIApplicationDidChangeStatusBarOrientationNotification",
         HostConstant::NSString("UIApplicationDidChangeStatusBarOrientationNotification"),
     ),
+    (
+        "_UIApplicationWillChangeStatusBarFrameNotification",
+        HostConstant::NSString("UIApplicationWillChangeStatusBarFrameNotification"),
+    ),
+    (
+        "_UIApplicationDidChangeStatusBarFrameNotification",
+        HostConstant::NSString("UIApplicationDidChangeStatusBarFrameNotification"),
+    ),
+    (
+        "_UIApplicationStatusBarFrameUserInfoKey",
+        HostConstant::NSString("UIApplicationStatusBarFrameUserInfoKey"),
+    ),
+    (
+        "_UIApplicationStatusBarOrientationUserInfoKey",
+        HostConstant::NSString("UIApplicationStatusBarOrientationUserInfoKey"),
+    ),
+    (
+        "_UITextAttributeFont",
+        HostConstant::NSString("UITextAttributeFont"),
+    ),
+    (
+        "_UITextAttributeTextColor",
+        HostConstant::NSString("UITextAttributeTextColor"),
+    ),
+    (
+        "_UITextAttributeTextShadowColor",
+        HostConstant::NSString("UITextAttributeTextShadowColor"),
+    ),
+    (
+        "_UITextAttributeTextShadowOffset",
+        HostConstant::NSString("UITextAttributeTextShadowOffset"),
+    ),
+    (
+        "_UIScrollViewDecelerationRateNormal",
+        HostConstant::Custom(ui_scroll_view_deceleration_rate_normal),
+    ),
+    (
+        "_UIScrollViewDecelerationRateFast",
+        HostConstant::Custom(ui_scroll_view_deceleration_rate_fast),
+    ),
+    (
+        "_UIApplicationSignificantTimeChangeNotification",
+        HostConstant::NSString("UIApplicationSignificantTimeChangeNotification"),
+    ),
+    (
+        "_UITableViewSelectionDidChangeNotification",
+        HostConstant::NSString("UITableViewSelectionDidChangeNotification"),
+    ),
 ];
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
@@ -151,10 +270,12 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_activity_indicator_view::CLASSES,
         ui_application::CLASSES,
         ui_color::CLASSES,
+        ui_custom_object::CLASSES,
         ui_device::CLASSES,
         ui_document::CLASSES,
         ui_event::CLASSES,
         ui_font::CLASSES,
+        ui_gesture_recognizer::CLASSES,
         ui_image::CLASSES,
         ui_image_picker_controller::CLASSES,
         ui_keyboard::CLASSES,
@@ -164,6 +285,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ui_pasteboard::CLASSES,
         ui_pinch_gesture_recognizer::CLASSES,
         ui_popover_controller::CLASSES,
+        ui_rotation_gesture_recognizer::CLASSES,
         ui_responder::CLASSES,
         ui_screen_mode::CLASSES,
         ui_screen::CLASSES,
