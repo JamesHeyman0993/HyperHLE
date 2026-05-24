@@ -356,6 +356,7 @@ fn substitute_classes(
     let class_t { data, .. } = mem.read(class.cast());
     let class_rw_t { name, .. } = mem.read(data);
     let name = mem.cstr_at_utf8(name).unwrap();
+
     // Substitute classes that seem to be from various third-party advertising
     // or social network SDKs.
     if !(name.starts_with("AdMob")
@@ -367,8 +368,7 @@ fn substitute_classes(
         || name.starts_with("Tapjoy")
         || name.starts_with("UA")
         || name.starts_with("GAD")
-        || name.starts_with("iSimulate")
-        //|| name == "GCController") // <-- FIXED HACK FOR COCOS2DX / CONTROLLERS
+        || name.starts_with("iSimulate")) 
     {
         // TODO : try to remove when sqlite3 is supported.
         if (bundle.bundle_identifier() == "com.chillingo.defenderchronicles")
@@ -404,6 +404,7 @@ fn substitute_classes(
     });
     Some((class_host_object, metaclass_host_object))
 }
+     
 
 impl ObjC {
     fn get_class(&self, name: &str, is_metaclass: bool, mem: &Mem) -> Option<Class> {
