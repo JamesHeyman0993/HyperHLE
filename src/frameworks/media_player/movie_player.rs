@@ -456,6 +456,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     log!("HACK: Video sequence execution [(MPMoviePlayerController*){:?} play]", this);
     
     let bundle_id = env.bundle.bundle_identifier();
+    let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
     
     // --- VIDEO COMPLETION BYPASS FOR STALLING / CRASHING TITLES ---
     if bundle_id.starts_with("jp.co.capcom.res4") 
@@ -463,32 +464,33 @@ pub const CLASSES: ClassExports = objc_classes! {
         || bundle_id.contains("powerrangers")
         || bundle_id.contains("saban") 
     {
-        log!("Applying Game Hack: Instantly posting completion events synchronously to clear video layers for: {}", bundle_id);
+        log!("Applying Game Hack: Scheduling ASYNCHRONOUS completion event for: {}", bundle_id);
         
-        let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-        current_state.playback_state = MPMoviePlaybackStateStopped;
-
-        // Directly construct and dispatch the notification instead of scheduling it on the loop queue
-        let center: id = msg_class![env; NSNotificationCenter defaultCenter];
-        let finish_name = ns_string::get_static_str(env, MPMoviePlayerPlaybackDidFinishNotification);
-
-        let reason_num: id = msg_class![env; NSNumber numberWithInt:0i32];
-        let reason_key = ns_string::get_static_str(env, "MPMoviePlayerPlaybackDidFinishReasonUserInfoKey");
-        let user_info: id = msg_class![env; NSDictionary dictionaryWithObject:reason_num forKey:reason_key];
-        
-        let _: () = msg![env; center postNotificationName:finish_name object:this userInfo:user_info];
+        if current_state.playback_state != MPMoviePlaybackStateStopped {
+            current_state.playback_state = MPMoviePlaybackStateStopped;
+            
+            // Retain the video controller object so it doesn't drop while in queue
+            retain(env, this);
+            
+            // Queue the finished notification with a tiny 5ms delay.
+            // This lets the main engine loop cycle once, cleanly entering the scene
+            // before we immediately tell it the video is over.
+            State::get(env).pending_notifications.push_back((
+                MPMoviePlayerPlaybackDidFinishNotification,
+                this,
+                Instant::now() + std::time::Duration::from_millis(5),
+            ));
+        }
         return; 
     }
     // --------------------------------------------------------------
 
-    let mut current_state = env.objc.borrow_mut::<MPMoviePlayerControllerHostObject>(this);
-    
+    // Default playback logic for other regular apps
     if current_state.playback_state != MPMoviePlaybackStatePlaying {
         current_state.playback_state = MPMoviePlaybackStatePlaying;
         
         retain(env, this);
         
-        // Default safe delay for other titles (Spore Origins, etc.)
         State::get(env).pending_notifications.push_back((
             MPMoviePlayerPlaybackDidFinishNotification,
             this,
