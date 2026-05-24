@@ -265,9 +265,17 @@ pub fn init_with_objects_and_keys(
     mut va_args: VaList,
 ) -> id {
     let first_key: id = va_args.next(env);
-    assert!(first_key != nil);
-
+    
     let mut host_object = <DictionaryHostObject as Default>::default();
+
+    // Safe handling: If the first key is nil, log a warning and return an empty dictionary shell
+    if first_key == nil {
+        log!("Warning: initWithObjectsAndKeys called with a nil key for object ({:?}). Bypassing initialization to prevent engine panic.", first_object);
+        *env.objc.borrow_mut(this) = host_object;
+        return this;
+    }
+
+    // Otherwise insert the valid first pair safely
     host_object.insert(env, first_key, first_object, /* copy_key: */ true);
 
     loop {
@@ -276,6 +284,10 @@ pub fn init_with_objects_and_keys(
             break;
         }
         let key: id = va_args.next(env);
+        if key == nil {
+            log!("Warning: Variadic initWithObjectsAndKeys sequence cut short due to a misaligned nil key reference.");
+            break;
+        }
         host_object.insert(env, key, object, /* copy_key: */ true);
     }
 
