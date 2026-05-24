@@ -297,11 +297,10 @@ fn dispatch_once_f(
         // Bring the CallFromHost execution trait into local scope
         use crate::abi::CallFromHost;
 
-        // Define a function signature that uses the correct C ABI representation 
-        // to match against touchHLE's internal `CallFromHost` implementations.
-        type GuestInitFn = unsafe extern "C" fn(&mut Environment, MutVoidPtr);
+        // Define a standard safe Rust function pointer type layout
+        type GuestInitFn = fn(&mut Environment, MutVoidPtr);
 
-        // Reconstruct the value safely using standard integer casting rather than transmuting bits directly
+        // Safely upcast the 32-bit address to host pointer size before converting
         let target_address = function_ptr.to_bits() as usize;
         let guest_call: GuestInitFn = unsafe { std::mem::transmute(target_address) };
 
