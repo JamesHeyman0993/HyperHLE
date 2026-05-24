@@ -201,8 +201,8 @@ fn objc_alloc(env: &mut Environment, class_ptr: id) -> id {
         return nil;
     }
     
-    // Wrap the raw pointer into the Class structural type expected by the runtime helper
-    let class_type = Class::from_raw(class_ptr);
+    // Use from_bits to reconstruct the Class pointer from the raw integer bits
+    let class_type = Class::from_bits(class_ptr.to_bits());
     let class_name = env.objc.get_class_name(class_type);
     
     log!("HyperHLE: Intercepted _objc_alloc optimization invocation for class: {}", class_name);
