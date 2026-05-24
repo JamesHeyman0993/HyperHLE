@@ -52,7 +52,7 @@ pub use objects::{
 pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
-use crate::mem::{ConstPtr, ConstVoidPtr};
+use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr};
 use crate::objc::classes::___objc_personality_v0;
 use crate::Environment;
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
@@ -270,6 +270,35 @@ fn objc_lookUpClass(env: &mut Environment, name_ptr: ConstPtr<u8>) -> id {
     resolved_class.cast::<crate::objc::objects::objc_object>().cast_mut()
 }
 
+/// Functional replacement execution engine for Grand Central Dispatch `dispatch_once_f`
+fn dispatch_once_f(
+    env: &mut Environment,
+    predicate_ptr: MutPtr<i32>,
+    context: MutVoidPtr,
+    function_ptr: ConstPtr<u8>,
+) {
+    if predicate_ptr.is_null() || function_ptr.is_null() {
+        return;
+    }
+
+    let predicate_val: i32 = env.mem.read(predicate_ptr);
+
+    // Apple Specification status value: -1 means initialization complete. 
+    // 0 means unexecuted block sequence layout.
+    if predicate_val != -1 {
+        // Set context flag immediately to lock execution path
+        env.mem.write(predicate_ptr, -1);
+
+        log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
+
+        // Execute function payload in guest context passing the user-context pointer inside register R0
+        let argument_registers = vec![context.to_bits()];
+        if let Err(err) = env.cpu.call_guest(function_ptr.to_bits(), &argument_registers) {
+            log!("Warning: dispatch_once_f invocation tracking encountered an error block execution thread failure: {:?}", err);
+        }
+    }
+}
+
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend(_, _)),
     export_c_func!(objc_msgSend_stret(_, _, _)),
@@ -309,8 +338,11 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(_Block_object_dispose(_, _)),
     export_c_func!(___objc_personality_v0(_, _, _, _, _)),
     
-    // NEW: iOS 7/8 modern runtime linkage symbols mapped into the guest environment
-    export_c_func!(class_getName(_, _)),
-    export_c_func!(protocol_getName(_, _)),
-    export_c_func!(objc_lookUpClass(_, _)),
+    // FIXED: Corrected token signature counts from (_, _) to single guest arguments (_)
+    export_c_func!(class_getName(_)),
+    export_c_func!(protocol_getName(_)),
+    export_c_func!(objc_lookUpClass(_)),
+
+    // NEW: Added missing multi-threading initialization synchronization engine hooks
+    export_c_func!(dispatch_once_f(_, _, _)),
 ];
