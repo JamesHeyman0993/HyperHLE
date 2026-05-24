@@ -305,6 +305,21 @@ fn _Unwind_SjLj_Resume_or_Rethrow(env: &mut Environment, _exc: MutVoidPtr) -> i3
     0
 }
 
+// 1. Boost Memory Pool: Tells the game "Yes, this memory belongs here"
+pub fn boost_singleton_pool_is_from(_env: &mut Environment, _ptr: u32) -> i32 {
+    1 
+}
+
+// 2. Boost Random Number: Safe no-op stub
+pub fn boost_random_mt_seed(_env: &mut Environment) {
+    // Intentionally left empty
+}
+
+// 3. C++ Vector Append: Logs calls so you can see if it corrupts the game state
+pub fn std_vector_string_append(_env: &mut Environment, _vector_ptr: u32, _count: u32) {
+    log!("Warning: std::vector<string>::__append stub called.");
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(__cxa_atexit(_, _, _)),
     export_c_func!(__cxa_finalize(_)),
@@ -324,4 +339,16 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(_Unwind_SjLj_RaiseException(_)),
     export_c_func!(_Unwind_SjLj_Resume(_)),
     export_c_func!(_Unwind_SjLj_Resume_or_Rethrow(_)),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost14singleton_poolINS_18pool_allocator_tagELj140EN6glotv316event_new_deleteENSt3__15mutexELj128ELj0EE7is_fromEPv",
+        boost_singleton_pool_is_from(u32)
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZN5boost6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EE4seedEv",
+        boost_random_mt_seed()
+    ),
+    crate::dyld::export_c_func_aliased!(
+        "ZNSt3__16vectorINS_12basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEENS4_IS6_EEE8__appendEm",
+        std_vector_string_append(u32, u32)
+    ),
 ];
