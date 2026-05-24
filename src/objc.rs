@@ -201,8 +201,10 @@ fn objc_alloc(env: &mut Environment, class_ptr: id) -> id {
         return nil;
     }
     
-    // Get the name of the class for debugging visibility
-    let class_name = env.objc.get_class_name(class_ptr, &env.mem).unwrap_or_else(|| "Unknown".to_string());
+    // Wrap the raw pointer into the Class structural type expected by the runtime helper
+    let class_type = Class::from_raw(class_ptr);
+    let class_name = env.objc.get_class_name(class_type);
+    
     log!("HyperHLE: Intercepted _objc_alloc optimization invocation for class: {}", class_name);
     
     // Execute standard touchHLE object instance allocation: [class_ptr alloc]
