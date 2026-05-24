@@ -160,22 +160,9 @@ pub const CLASSES: ClassExports = objc_classes! {
 + (Class)layerClass { env.objc.get_known_class("CALayer", &mut env.mem) }
 
 // MARK: - Class-level animation block API
-//
-// touchHLE does not currently animate the visual side of these UIView
-// animation blocks (positions/opacity/transforms snap immediately to their
-// final value). However, a correct implementation **must** still call the
-// configured `setAnimationDidStopSelector:` on the configured
-// `setAnimationDelegate:` once the would-be animation finishes, otherwise
-// games that drive their state machine off animation completion callbacks
-// (very common — e.g. fade-in/fade-out transitions, splash → menu hand-offs)
-// hang forever waiting for the callback. We therefore record the parameters
-// of each block and schedule a one-shot NSTimer at `commitAnimations` that
-// fires the callback after `delay + duration` seconds.
 
 + (())beginAnimations:(id)animationID context:(MutPtr<()>)context {
     let block = std::mem::take(&mut env.framework_state.uikit.ui_view.animation_block);
-    // If a previous block was opened but never committed, drop it. This
-    // matches what apps typically expect: starting a new block resets state.
     if block.in_block {
         log_dbg!(
             "Warning: nested/uncommitted UIView animation block discarded \
@@ -293,7 +280,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     if animations != nil {
         let invoke_addr: u32 = env.mem.read(animations.cast::<u32>() + 3u32);
         if invoke_addr != 0 {
-            // We use transmute to bypass the private field of the SEL tuple struct
             let invoke_sel: SEL = unsafe { std::mem::transmute(crate::mem::ConstPtr::<u8>::from_bits(invoke_addr)) };
             let _: () = msg_send_no_type_checking(env, (animations, invoke_sel));
         }
@@ -363,10 +349,6 @@ pub const CLASSES: ClassExports = objc_classes! {
     let _: () = msg_send_no_type_checking(env, (delegate, sel, animation_id, finished, context));
 }
 
-// Visual properties of animation blocks that touchHLE does not animate.
-// These are intentionally no-ops, but they must remain present so that the
-// app's calls don't fall through to the dynamic dispatcher's "unimplemented
-// selector" path.
 + (())setAnimationCurve:(NSInteger)_curve { }
 + (())setAnimationBeginsFromCurrentState:(bool)_from { }
 + (())setAnimationRepeatAutoreverses:(bool)_autoreverses { }
@@ -486,7 +468,6 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (NSInteger)contentMode { env.objc.borrow::<UIViewHostObject>(this).content_mode }
 - (())setContentMode:(NSInteger)content_mode { env.objc.borrow_mut::<UIViewHostObject>(this).content_mode = content_mode; }
-
 - (NSUInteger)autoresizingMask { env.objc.borrow::<UIViewHostObject>(this).autoresizing_mask }
 - (())setAutoresizingMask:(NSUInteger)mask { env.objc.borrow_mut::<UIViewHostObject>(this).autoresizing_mask = mask; }
 
@@ -509,7 +490,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)isUserInteractionEnabled { env.objc.borrow::<UIViewHostObject>(this).user_interaction_enabled }
-- (())setUserInteractionEnabled:(bool)enabled { env.objc.borrow_mut::<UIViewHostObject>(this).user_interaction_enabled = enabled; }
+    - (())setUserInteractionEnabled:(bool)enabled { env.objc.borrow_mut::<UIViewHostObject>(this).user_interaction_enabled = enabled; }
 
 - (bool)isAnimating { env.objc.borrow::<UIViewHostObject>(this).is_animating }
 - (())startAnimation {
@@ -528,34 +509,21 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())setExclusiveTouch:(bool)exclusive { env.objc.borrow_mut::<UIViewHostObject>(this).exclusive_touch = exclusive; }
 
 - (())layoutSubviews {
-    // 1. Only proceed if we actually have subviews to manage
     let subviews_count = env.objc.borrow::<UIViewHostObject>(this).subviews.len();
     if subviews_count == 0 { return; }
 
-    // 2. Get the parent bounds once
     let bounds: CGRect = msg![env; this bounds];
-
-    // 3. Clone subview IDs
     let subviews = env.objc.borrow::<UIViewHostObject>(this).subviews.clone();
 
     for subview in subviews {
         let mask = env.objc.borrow::<UIViewHostObject>(subview).autoresizing_mask;
-        
-        // Only touch the subview if it actually has instructions to resize (mask > 0).
-        // This prevents the "Black Screen" on games that don't need manual layout.
         if mask != 0 {
-            // Instead of setNeedsLayout (which can loop), we just ensure the frame matches.
-            // Many early iOS games expect the subview to fill the parent.
             let _: () = msg![env; subview setFrame:bounds];
         }
     }
 }
        
 // MARK: - Gesture recognizers
-//
-// These methods just track recognizers in a `Vec<id>`. Gesture recognition is
-// not dispatched; this is enough to keep games from crashing on startup when
-// they wire up `UIPinchGestureRecognizer` / `UITapGestureRecognizer` etc.
 
 - (())addGestureRecognizer:(id)recognizer {
     if recognizer == nil { return; }
@@ -585,9 +553,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, array)
 }
 
-- (())setGestureRecognizers:(id)recognizers { // NSArray*
-    // Per Apple docs: replaces the current set of recognizers. Iterate the
-    // existing list, release each, replace, retain new ones.
+- (())setGestureRecognizers:(id)recognizers {
     let old: Vec<id> =
         env.objc.borrow::<UIViewHostObject>(this).gesture_recognizers.clone();
     for r in old { release(env, r); }
@@ -836,14 +802,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     () = msg![env; layer setBackgroundColor:cg_color];
 }
 
-// Some apps (notably Google Mobile 0.1.337) call -setLineBreakMode: on plain
-// UIView subclasses that contain a UILabel, expecting the view to proxy the
-// call. UIKit itself silently ignored this on iOS 2.x, so we mirror that by
-// making UIView accept (and discard) the call.
 - (())setLineBreakMode:(i32)_mode { }
 - (i32)lineBreakMode { 0 }
-// Same treatment for a couple of other label-style setters that iOS 2.x apps
-// sometimes invoke on container views.
 - (())setTextAlignment:(i32)_align { }
 - (i32)textAlignment { 0 }
 
@@ -861,11 +821,17 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
-- (())setNeedsLayout { }
+- (())setNeedsLayout {
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    let _: () = msg![env; layer setNeedsLayout];
+}
     
 - (())layoutIfNeeded {
-    // This stops the infinite loop crash
+    let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
+    let _: () = msg![env; layer layoutIfNeeded];
+    let _: () = msg![env; this layoutSubviews];
 }
+
 - (CGRect)bounds {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer bounds]
@@ -920,8 +886,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let layer = env.objc.borrow::<UIViewHostObject>(this).layer;
     msg![env; layer containsPoint:point]
 }
-
-- (bool)isUncontrolled {
+    - (bool)isUncontrolled {
     env.objc.borrow::<UIViewHostObject>(this).is_uncontrolled
 }
 
