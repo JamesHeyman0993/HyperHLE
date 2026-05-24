@@ -121,33 +121,35 @@ pub const CLASSES: ClassExports = objc_classes! {
             let url_str = crate::frameworks::foundation::ns_string::to_rust_string(env, absolute_url);
             
             if url_str.contains("localfeed.xml") {
-                log!("HACK: Detected localfeed.xml request. Returning fake XML.");
+                log!("HACK: Detected localfeed.xml request. Generating structural responses.");
 
+                // Create a dummy mock response mapping so the game can verify status/headers
                 if !response_ptr.is_null() {
-                    env.mem.write(response_ptr, nil);
+                    let mock_response: id = msg_class![env; NSHTTPURLResponse alloc];
+                    let mock_response: id = msg![env; mock_response initWithURL:url 
+                                                                   statusCode:200 
+                                                                  HTTPVersion:nil 
+                                                                 headerFields:nil];
+                    autorelease(env, mock_response);
+                    env.mem.write(response_ptr, mock_response);
                 }
 
                 if !error_ptr.is_null() {
                     env.mem.write(error_ptr, nil);
                 }
 
-                // Fake XML string
-                let xml = crate::frameworks::foundation::ns_string::from_rust_string(
-                    env,
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?><root></root>".to_string(),
-                );
-                
-                let xml = autorelease(env, xml);
+                // Well-formed base config framework payload
+                let xml_str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<config>\n    <status>success</status>\n</config>".to_string();
+                let xml = crate::frameworks::foundation::ns_string::from_rust_string(env, xml_str);
+                autorelease(env, xml);
 
-                // Convert NSString -> NSData
+                // Convert NSString -> NSData (4 = NSUTF8StringEncoding)
                 let data: id = msg![env; xml dataUsingEncoding:4];
 
-                // Return XML bytes
                 return data;
             }
         }
     }
-            
     // --- END HACK ---
 
     // Default behavior for everything else (which currently fails)
@@ -156,7 +158,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
         if !response_ptr.is_null() {
             env.mem.write(response_ptr, nil);
-        }
+                }
 
         if !error_ptr.is_null() {
             env.mem.write(error_ptr, nil);
