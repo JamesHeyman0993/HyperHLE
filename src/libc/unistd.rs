@@ -366,6 +366,13 @@ fn chmod(env: &mut Environment, path: ConstPtr<u8>, _mode: u32) -> i32 {
     0
 }
 
+use crate::abi::VaList; // Ensure this is imported at the top if not already, though it's safer here
+
+pub fn ts_syscall(_env: &mut Environment, syscall_number: i32, _va_args: VaList) -> i32 {
+    log!("Game triggered raw _syscall number: {}", syscall_number);
+    0 // Return a generic success status (0) to allow execution to proceed
+}
+
 pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(sleep(_)),
     export_c_func!(usleep(_)),
@@ -384,4 +391,5 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(fork()),
     export_c_func!(sbrk(_)),
     export_c_func!(chmod(_, _)),
+    crate::dyld::export_c_func_aliased!("syscall", ts_syscall(i32, VaList)),
 ];
