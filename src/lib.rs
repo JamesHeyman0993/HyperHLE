@@ -84,11 +84,22 @@ pub extern "C" fn SDL_main(
             echo!("Panic: {}", payload);
         }
     }));
-    // Empty args: brings up app picker.
-    match main([String::new()].into_iter()) {
-        Ok(_) => echo!("touchHLE finished"),
-        Err(e) => echo!("touchHLE errored: {e:?}"),
-    }
+
+    // Spawn a fresh host thread with an 8MB stack size limit to avoid Android's JNI cap
+    let handle = std::thread::Builder::new()
+        .name("touchHLE_LargeStack".to_string())
+        .stack_size(8 * 1024 * 1024) // 8MB Headroom
+        .spawn(|| {
+            // Empty args: brings up app picker.
+            match main([String::new()].into_iter()) {
+                Ok(_) => echo!("touchHLE finished"),
+                Err(e) => echo!("touchHLE errored: {e:?}"),
+            }
+        })
+        .unwrap();
+
+    // Force the original tiny SDL thread to wait right here until our large thread finishes
+    let _ = handle.join();
     0
 }
 
