@@ -63,7 +63,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     // FIX: Using your dynamic ObjC registry loader instead of the nonexistent lookup method
     let glk_view_class = env.objc.get_known_class("GLKView", &mut env.mem)
-        .cast::<crate::objc::objects::objc_object>();
+        .cast::<crate::objc::objc_object>();
         
     let glk_view: id = msg![env; glk_view_class alloc];
     let glk_view: id = msg![env; glk_view initWithFrame:screen_bounds context:current_context];
