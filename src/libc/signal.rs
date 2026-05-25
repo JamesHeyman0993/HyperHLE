@@ -26,12 +26,10 @@ fn sigaction(env: &mut Environment, signum: i32, act: ConstVoidPtr, old_act: Mut
     set_errno(env, 0);
     
     // If Mono wants to see the previous handler configuration, 
-    // safely zero it out so it doesn't try to parse random uninitialized memory.
+    // safely zero it out using the supported .write() API.
     if !old_act.is_null() {
-        // Assuming a standard Darwin/BSD sigaction struct size fallback (approx 12-16 bytes minimum)
-        // We write zeroes to clear out the sa_handler, sa_mask, and sa_flags.
         let zero_buf = [0u8; 16];
-        env.mem.write_bytes(old_act, &zero_buf);
+        env.mem.write(old_act.cast(), zero_buf);
     }
     
     0
