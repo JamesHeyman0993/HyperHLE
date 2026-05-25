@@ -833,12 +833,13 @@ pub const CLASSES: ClassExports = objc_classes! {
         let initialized_str: id = msg![
             env; 
             new_str 
-            initWithCharacters:(utf16.as_ptr()) 
+            initWithCharacters:(crate::mem::ConstPtr::from_raw(utf16.as_ptr())) 
             length:(utf16.len() as NSUInteger)
         ];
         initialized_str
     })
     .collect();
+    
     let array = ns_array::from_vec(env, component_ns_strings);
     autorelease(env, array)
 }
