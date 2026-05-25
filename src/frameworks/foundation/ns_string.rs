@@ -839,7 +839,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         initialized_str
     })
     .collect();
-    
+     
     let array = ns_array::from_vec(env, component_ns_strings);
     autorelease(env, array)
 }
