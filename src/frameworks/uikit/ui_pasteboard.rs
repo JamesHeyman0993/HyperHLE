@@ -182,6 +182,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)valueForPasteboardType:(id)pasteboard_type { // id, NSString*
+    // Безопасно перенаправляем логику на существующий буфер данных типа
+    msg![env; this dataForPasteboardType:pasteboard_type]
+}
+
 - (())setData:(id)data forPasteboardType:(id)pasteboard_type { // NSData*, NSString*
     if pasteboard_type == nil {
         return;
