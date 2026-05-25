@@ -195,7 +195,7 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (())show {
-    log!("UIAlertView show (SDL2 dialog)");
+    log!("HyperHLE: Intercepted UIAlertView show. Auto-dismissing to bypass scheduler deadlock thread blocks.");
     env.objc.borrow_mut::<UIAlertViewHostObject>(this).visible = true;
 
     let (title, message, buttons, cancel_index) = {
@@ -210,28 +210,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         ns_string::to_rust_string(env, message).into_owned()
     } else { "".into() };
 
-    let btn_count: NSUInteger = msg![env; buttons count];
-    let mut btn_strings: Vec<String> = Vec::new();
-    for i in 0..btn_count {
-        let btn: id = msg![env; buttons objectAtIndex:i];
-        btn_strings.push(if btn != nil {
-            ns_string::to_rust_string(env, btn).into_owned()
-        } else { format!("Button {}", i) });
-    }
-    if btn_strings.is_empty() { btn_strings.push("OK".into()); }
+    log!("UIAlertView intercepted contents: [{}] - {}", title_str, message_str);
 
-    let btn_refs: Vec<&str> = btn_strings.iter().map(|s| s.as_str()).collect();
-    let clicked = window::show_alert_dialog(env, &title_str, &message_str, &btn_refs);
-
-    let dismiss_index = if clicked >= 0 && (clicked as NSUInteger) < btn_count {
-        clicked as NSInteger
-    } else if cancel_index >= 0 {
+    // Default to the cancel button index if configured, otherwise fall back to index 0
+    let dismiss_index = if cancel_index >= 0 {
         cancel_index
-    } else { 0 };
+    } else {
+        0
+    };
 
+    // Trigger full programmatic dismissal life-cycle and delegate notifications immediately
     let _: () = msg![env; this dismissWithClickedButtonIndex:dismiss_index animated:false];
 }
-
+    
 - (())dismissWithClickedButtonIndex:(NSInteger)button_index animated:(bool)_animated {
     env.objc.borrow_mut::<UIAlertViewHostObject>(this).visible = false;
     let delegate = env.objc.borrow::<UIAlertViewHostObject>(this).delegate;
