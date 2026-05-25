@@ -26,9 +26,9 @@ fn sigaction(env: &mut Environment, signum: i32, act: ConstVoidPtr, old_act: Mut
     set_errno(env, 0);
     
     if !old_act.is_null() {
-        // Safely access the mutable slice of guest memory and zero it out
-        if let Some(slice) = unsafe { env.mem.bytes_at_mut(old_act.cast(), 16) } {
-            slice.fill(0);
+        // bytes_at_mut returns a direct &mut [u8] slice, not an Option
+        unsafe {
+            env.mem.bytes_at_mut(old_act.cast(), 16).fill(0);
         }
     }
     
