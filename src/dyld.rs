@@ -869,9 +869,8 @@ impl Dyld {
             mem.write(stub_function_ptr, encode_a32_svc(svc));
             cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
             return Some(f);
-        }
-
-        if symbol == "_dyld_get_image_header" || symbol == "__dyld_get_image_header" {
+            }
+         if symbol == "_dyld_get_image_header" || symbol == "__dyld_get_image_header" {
             let f: HostFunction = &(dyld_get_image_header_intercept as fn(&mut Environment, u32) -> crate::mem::ConstVoidPtr);
             let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
@@ -1118,4 +1117,4 @@ fn cc_sha256_intercept(
     }
 
     md_ptr
-    }
+            }
