@@ -521,7 +521,7 @@ impl Dyld {
                     v.to_bits()
                 });
                 log_dbg!("Stubbed C++ vtable {} -> {:#x}", name, addr);
-                  Ptr::from_bits(addr)
+                Ptr::from_bits(addr)
             } else if name == "___gxx_personality_sj0" {
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
@@ -856,9 +856,8 @@ impl Dyld {
                 Some(f)
             }
         }
-    }
-
-    fn do_lazy_link(
+                }
+fn do_lazy_link(
         &mut self,
         bins: &[MachO],
         mem: &mut Mem,
@@ -950,7 +949,7 @@ impl Dyld {
                 addr,
             );
             return None;
-                }
+        }
         for dylib in bins.iter() {
             if let Some(&addr) = dylib.exported_symbols.get(symbol) {
                 let (stub_function_ptr, la_symbol_ptr) =
@@ -1080,6 +1079,22 @@ impl Dyld {
             cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
             return Some(f);
         }
+
+        // =========================================================================
+        // FIX: Route dyld image header lookups safely without triggers
+        // =========================================================================
+        if symbol == "_dyld_get_image_header" || symbol == "__dyld_get_image_header" {
+            let f: HostFunction = &(dyld_get_image_header_intercept as fn(&mut Environment, u32) -> crate::mem::ConstVoidPtr);
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
         
         // Fallback: Default system handler for unspecified symbols
         log!(
@@ -1186,3 +1201,13 @@ fn boost_singleton_pool_is_from_override(_env: &mut Environment) -> i32 {
 fn boost_and_glf_constructor_handler(_env: &mut Environment) {
     // Intentionally leaves cpu registers untouched to allow R0 to flow back out safely
 }
+
+// =========================================================================
+// Explicit Dyld System Core Intercepts
+// =========================================================================
+
+/// Explicit intercept for macOS/iOS `_dyld_get_image_header` system calls.
+fn dyld_get_image_header_intercept(_env: &mut Environment, image_index: u32) -> crate::mem::ConstVoidPtr {
+    log_dbg!("_dyld_get_image_header query requested for image index: {}", image_index);
+    crate::mem::Ptr::null()
+    }
