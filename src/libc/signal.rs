@@ -25,11 +25,11 @@ const SIG_DFL: u32 = 0;
 fn sigaction(env: &mut Environment, signum: i32, act: ConstVoidPtr, old_act: MutVoidPtr) -> i32 {
     set_errno(env, 0);
     
-    // If Mono wants to see the previous handler configuration, 
-    // safely zero it out using the supported .write() API.
     if !old_act.is_null() {
-        let zero_buf = [0u8; 16];
-        env.mem.write(old_act.cast(), zero_buf);
+        // Safely access the mutable slice of guest memory and zero it out
+        if let Some(slice) = unsafe { env.mem.bytes_at_mut(old_act.cast(), 16) } {
+            slice.fill(0);
+        }
     }
     
     0
