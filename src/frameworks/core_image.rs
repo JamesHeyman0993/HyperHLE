@@ -1,0 +1,232 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+//! Stub for `CoreImage.framework/CoreImage`.
+//!
+//! CoreImage is the GPU-accelerated image-processing framework. iOS 5+
+//! apps reach a handful of `CIContext` / `CIFilter` constants by Mach-O
+//! symbol lookup even when they don't actually run any filters (they're
+//! often referenced from defensive `if (kCISomething != nil)` guards).
+//! Without a [crate::dyld::HostDylib] entry for these names, the linker
+//! leaves them NULL and the first dereference takes down the emulator.
+
+use crate::dyld::{ConstantExports, FunctionExports, HostConstant};
+
+pub const CONSTANTS: ConstantExports = &[
+    // CIContext options.
+    (
+        "_kCIContextWorkingColorSpace",
+        HostConstant::NSString("kCIContextWorkingColorSpace"),
+    ),
+    (
+        "_kCIContextOutputColorSpace",
+        HostConstant::NSString("kCIContextOutputColorSpace"),
+    ),
+    (
+        "_kCIContextUseSoftwareRenderer",
+        HostConstant::NSString("kCIContextUseSoftwareRenderer"),
+    ),
+    (
+        "_kCIContextPriorityRequestLow",
+        HostConstant::NSString("kCIContextPriorityRequestLow"),
+    ),
+    (
+        "_kCIContextOutputPremultiplied",
+        HostConstant::NSString("kCIContextOutputPremultiplied"),
+    ),
+    (
+        "_kCIContextHighQualityDownsample",
+        HostConstant::NSString("kCIContextHighQualityDownsample"),
+    ),
+    // CIFilter input keys (the most common ones).
+    (
+        "_kCIInputImageKey",
+        HostConstant::NSString("inputImage"),
+    ),
+    (
+        "_kCIInputBackgroundImageKey",
+        HostConstant::NSString("inputBackgroundImage"),
+    ),
+    (
+        "_kCIInputTimeKey",
+        HostConstant::NSString("inputTime"),
+    ),
+    (
+        "_kCIInputTransformKey",
+        HostConstant::NSString("inputTransform"),
+    ),
+    (
+        "_kCIInputScaleKey",
+        HostConstant::NSString("inputScale"),
+    ),
+    (
+        "_kCIInputAspectRatioKey",
+        HostConstant::NSString("inputAspectRatio"),
+    ),
+    (
+        "_kCIInputCenterKey",
+        HostConstant::NSString("inputCenter"),
+    ),
+    (
+        "_kCIInputRadiusKey",
+        HostConstant::NSString("inputRadius"),
+    ),
+    (
+        "_kCIInputAngleKey",
+        HostConstant::NSString("inputAngle"),
+    ),
+    (
+        "_kCIInputRefractionKey",
+        HostConstant::NSString("inputRefraction"),
+    ),
+    (
+        "_kCIInputWidthKey",
+        HostConstant::NSString("inputWidth"),
+    ),
+    (
+        "_kCIInputSharpnessKey",
+        HostConstant::NSString("inputSharpness"),
+    ),
+    (
+        "_kCIInputIntensityKey",
+        HostConstant::NSString("inputIntensity"),
+    ),
+    (
+        "_kCIInputEVKey",
+        HostConstant::NSString("inputEV"),
+    ),
+    (
+        "_kCIInputSaturationKey",
+        HostConstant::NSString("inputSaturation"),
+    ),
+    (
+        "_kCIInputColorKey",
+        HostConstant::NSString("inputColor"),
+    ),
+    (
+        "_kCIInputBrightnessKey",
+        HostConstant::NSString("inputBrightness"),
+    ),
+    (
+        "_kCIInputContrastKey",
+        HostConstant::NSString("inputContrast"),
+    ),
+    (
+        "_kCIInputGradientImageKey",
+        HostConstant::NSString("inputGradientImage"),
+    ),
+    (
+        "_kCIInputMaskImageKey",
+        HostConstant::NSString("inputMaskImage"),
+    ),
+    (
+        "_kCIInputTargetImageKey",
+        HostConstant::NSString("inputTargetImage"),
+    ),
+    (
+        "_kCIInputExtentKey",
+        HostConstant::NSString("inputExtent"),
+    ),
+    // CIFilter output key.
+    (
+        "_kCIOutputImageKey",
+        HostConstant::NSString("outputImage"),
+    ),
+    // Common filter category constants.
+    (
+        "_kCICategoryDistortionEffect",
+        HostConstant::NSString("CICategoryDistortionEffect"),
+    ),
+    (
+        "_kCICategoryGeometryAdjustment",
+        HostConstant::NSString("CICategoryGeometryAdjustment"),
+    ),
+    (
+        "_kCICategoryCompositeOperation",
+        HostConstant::NSString("CICategoryCompositeOperation"),
+    ),
+    (
+        "_kCICategoryHalftoneEffect",
+        HostConstant::NSString("CICategoryHalftoneEffect"),
+    ),
+    (
+        "_kCICategoryColorAdjustment",
+        HostConstant::NSString("CICategoryColorAdjustment"),
+    ),
+    (
+        "_kCICategoryColorEffect",
+        HostConstant::NSString("CICategoryColorEffect"),
+    ),
+    (
+        "_kCICategoryTransition",
+        HostConstant::NSString("CICategoryTransition"),
+    ),
+    (
+        "_kCICategoryTileEffect",
+        HostConstant::NSString("CICategoryTileEffect"),
+    ),
+    (
+        "_kCICategoryGenerator",
+        HostConstant::NSString("CICategoryGenerator"),
+    ),
+    (
+        "_kCICategoryReduction",
+        HostConstant::NSString("CICategoryReduction"),
+    ),
+    (
+        "_kCICategoryGradient",
+        HostConstant::NSString("CICategoryGradient"),
+    ),
+    (
+        "_kCICategoryStylize",
+        HostConstant::NSString("CICategoryStylize"),
+    ),
+    (
+        "_kCICategorySharpen",
+        HostConstant::NSString("CICategorySharpen"),
+    ),
+    (
+        "_kCICategoryBlur",
+        HostConstant::NSString("CICategoryBlur"),
+    ),
+    (
+        "_kCICategoryVideo",
+        HostConstant::NSString("CICategoryVideo"),
+    ),
+    (
+        "_kCICategoryStillImage",
+        HostConstant::NSString("CICategoryStillImage"),
+    ),
+    (
+        "_kCICategoryInterlaced",
+        HostConstant::NSString("CICategoryInterlaced"),
+    ),
+    (
+        "_kCICategoryNonSquarePixels",
+        HostConstant::NSString("CICategoryNonSquarePixels"),
+    ),
+    (
+        "_kCICategoryHighDynamicRange",
+        HostConstant::NSString("CICategoryHighDynamicRange"),
+    ),
+    (
+        "_kCICategoryBuiltIn",
+        HostConstant::NSString("CICategoryBuiltIn"),
+    ),
+    (
+        "_kCIAttributeFilterName",
+        HostConstant::NSString("CIAttributeFilterName"),
+    ),
+    (
+        "_kCIAttributeFilterDisplayName",
+        HostConstant::NSString("CIAttributeFilterDisplayName"),
+    ),
+    (
+        "_kCIAttributeFilterCategories",
+        HostConstant::NSString("CIAttributeFilterCategories"),
+    ),
+];
+
+pub const FUNCTIONS: FunctionExports = &[];
