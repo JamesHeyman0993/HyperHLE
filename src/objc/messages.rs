@@ -790,7 +790,7 @@ pub use crate::msg_super;
 /// ```
 #[macro_export]
 macro_rules! msg_class {
-    [$receiver_class:ident $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
+    [$env:expr; $receiver_class:ident $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
         {
             let class = $env.objc.get_known_class(
                 stringify!($receiver_class),
@@ -798,9 +798,20 @@ macro_rules! msg_class {
             );
             $crate::objc::msg![$env; class $name $(: $arg1 $($($namen)?: $argn)*)?]
         }
-    }
+    };
+    // Fallback for space-separated syntax just in case other files use it
+    [$receiver_class:ident $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
+        {
+            let class = env.objc.get_known_class(
+                stringify!($receiver_class),
+                &mut env.mem
+            );
+            $crate::objc::msg![env; class $name $(: $arg1 $($($namen)?: $argn)*)?]
+        }
+    };
 }
 pub use crate::msg_class;
+
 // #[macro_export] is weird...
 
 /// Shorthand for `let _: id = msg![env; object retain];`
