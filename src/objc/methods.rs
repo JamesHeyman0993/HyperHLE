@@ -97,7 +97,7 @@ pub type GuestIMP = GuestFunction;
 /// The name, field names and field layout are based on what Ghidra
 /// outputs.
 #[repr(C, packed)]
-pub(super) struct method_list_t {
+pub struct method_list_t {  // Changed from pub(super) to pub
     entsize: GuestUSize,
     count: GuestUSize,
     // entries follow the struct
