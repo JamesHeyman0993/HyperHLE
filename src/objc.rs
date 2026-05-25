@@ -1,7 +1,6 @@
 /*
  * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0.
- * If a copy of the MPL was not distributed with this
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Objective-C runtime.
@@ -63,7 +62,6 @@ use messages::{
     objc_msgSendSuper2, objc_msgSendSuper2_stret, objc_msgSend_stret, MsgSendSignature,
     MsgSendSuperSignature,
 };
-use methods::method_list_t;
 use objects::{objc_object, HostObjectEntry};
 use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
 use selectors::sel_registerName;
@@ -78,7 +76,7 @@ pub(crate) fn objc_msgSend(env: &mut Environment, receiver: id, selector: SEL) {
 /// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
 /// `allocWithZone:` and similar methods. Its value is always ignored.
 ///
-/// [fossil type]: https://en.wiktionary.org/wiki/fossil_word
+/// [fossil type]: https://en.wikitionary.org/wiki/fossil_word
 pub type NSZonePtr = crate::mem::MutVoidPtr;
 
 /// Main type holding Objective-C runtime state.
@@ -310,6 +308,22 @@ fn dispatch_once_f(
     }
 }
 
+/// Runtime helper implementation for copy properties synthesizing on iOS 6.0+ objects
+fn objc_setProperty_nonatomic_copy(
+    env: &mut Environment,
+    obj: id,
+    _cmd: id,
+    offset: usize,
+    value: id,
+) {
+    if obj != nil {
+        let target_address = obj.cast::<u8>().wrapping_add(offset);
+        env.mem.write(target_address.cast(), value);
+        retain(env, value);
+        log_dbg!("HyperHLE: objc_setProperty_nonatomic_copy stored value reference at offset {}", offset);
+    }
+}
+
 const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_msgSend(_, _)),
     export_c_func!(objc_msgSend_stret(_, _, _)),
@@ -335,6 +349,7 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_release(_)),
     export_c_func!(objc_retainAutorelease(_)),
     export_c_func!(objc_setProperty_nonatomic(_)),
+    export_c_func!(objc_setProperty_nonatomic_copy(_)), // Added runtime export listing mapping here
     export_c_func!(objc_exception_throw(_)),
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch(_)),
@@ -357,3 +372,4 @@ const FUNCTIONS: FunctionExports = &[
     // NEW: Added missing multi-threading initialization synchronization engine hooks
     export_c_func!(dispatch_once_f(_, _, _)),
 ];
+    
