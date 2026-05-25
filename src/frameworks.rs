@@ -61,6 +61,7 @@ pub mod mobile_core_services;
 pub mod openal;
 pub mod opengles;
 pub mod security;
+pub mod social;
 pub mod store_kit;
 pub mod system_configuration;
 pub mod tw_tweet_compose_view_controller;
