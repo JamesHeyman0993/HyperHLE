@@ -49,12 +49,13 @@ fn getifaddrs(env: &mut Environment, ifap: MutPtr<MutPtr<ifaddrs>>) -> i32 {
         return -1;
     }
 
-    // Force the emulator to report a standard network subsystem error (-1).
-    // This tells the guest game that there are absolutely no network hardware
-    // configurations available, bypassing ad overlay loads.
-    log!("getifaddrs(): Faking completely offline state to bypass ad overlays.");
-    set_errno(env, ENXIO);
-    -1
+    log!("getifaddrs(): Faking active network subsystem with an empty interface list.");
+    
+    // Write a null pointer to the output address to indicate a valid, empty list.
+    env.mem.write(ifap, MutPtr::null());
+    
+    // Return 0 to indicate the system successfully checked the network interfaces.
+    0
 }
 
 /// `void freeifaddrs(struct ifaddrs *ifa)`
