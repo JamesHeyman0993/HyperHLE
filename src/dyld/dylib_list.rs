@@ -188,6 +188,15 @@ pub const ACCELERATE: super::HostDylib = super::HostDylib {
     function_exports: &[frameworks::accelerate::FUNCTIONS],
 };
 
+// UserVoice (stub — added to expose UserVoice interface primitives to dynamic loading maps)
+pub const USER_VOICE: super::HostDylib = super::HostDylib {
+    path: "/System/Library/Frameworks/UserVoice.framework/UserVoice",
+    aliases: &[],
+    class_exports: &[frameworks::user_voice::CLASSES],
+    constant_exports: &[],
+    function_exports: &[],
+};
+
 /// The single list of host dylibs that the linker (and Objective-C runtime)
 /// searches through.
 pub const DYLIB_LIST: &[&super::HostDylib] = &[
@@ -242,6 +251,7 @@ pub const DYLIB_LIST: &[&super::HostDylib] = &[
     &frameworks::core_bluetooth::DYLIB,
     &frameworks::gl_kit::DYLIB,
     &frameworks::image_io::DYLIB,
+    &USER_VOICE, // Added global runtime link reference registry inclusion hook here
 ];
 
 #[cfg(test)]
@@ -326,4 +336,4 @@ mod tests {
             }
         }
     }
-}
+    }
