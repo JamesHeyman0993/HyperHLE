@@ -826,11 +826,19 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     }
     components.push(current_component);
-    let class = env.objc.get_known_class("_touchHLE_NSString", &mut env.mem);
-    let component_ns_strings: Vec<id> = components.drain(..).map(|utf16| {
-        let host_object = Box::new(StringHostObject::Utf16(utf16));
-        env.objc.alloc_object(class, host_object, &mut env.mem)
-    }).collect();
+    let component_ns_strings: Vec<id> = components
+    .drain(..)
+    .map(|utf16| {
+        let new_str: id = msg_class![env; NSString alloc];
+        let initialized_str: id = msg![
+            env; 
+            new_str 
+            initWithCharacters:(utf16.as_ptr()) 
+            length:(utf16.len() as NSUInteger)
+        ];
+        initialized_str
+    })
+    .collect();
     let array = ns_array::from_vec(env, component_ns_strings);
     autorelease(env, array)
 }
