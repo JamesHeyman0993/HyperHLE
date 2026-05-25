@@ -159,6 +159,31 @@ fn objc_msgSend_inner(
         }
     }
     let _guard = DepthGuard;
+
+    // --- DIAGNOSTIC ADDITION START ---
+    // If we're getting critically close to crashing/bailing out, dump the sequence
+    if depth > 110 {
+        let sel_str = selector.as_str(&env.mem);
+        let class_isa = super2.unwrap_or_else(|| ObjC::read_isa(receiver, &env.mem));
+        let mut class_name = "Unknown Class".to_string();
+        if class_isa != nil {
+            if let Some(host_obj) = env.objc.get_host_object(class_isa) {
+                if let Some(co) = host_obj.as_any().downcast_ref::<super::ClassHostObject>() {
+                    class_name = co.name.clone();
+                } else if let Some(uc) = host_obj.as_any().downcast_ref::<super::UnimplementedClass>() {
+                    class_name = format!("Unimplemented({})", uc.name);
+                } else if let Some(fc) = host_obj.as_any().downcast_ref::<super::FakeClass>() {
+                    class_name = format!("Fake({})", fc.name);
+                }
+            }
+        }
+        log!(
+            "CRITICAL STACK DEEPENING [depth={}]: [{:?} (class: {}) {}]",
+            depth, receiver, class_name, sel_str
+        );
+    }
+    // --- DIAGNOSTIC ADDITION END ---
+
     if depth > MAX_DEPTH {
         log!(
             "Warning: objc_msgSend recursion limit ({}) exceeded while dispatching \"{}\" to {:?}; bailing out with a nil return.",
@@ -482,7 +507,7 @@ pub(super) fn objc_msgSendSuper2_stret(
 /// See `impl_HostIMP` for implementations. See also [MsgSendSuperSignature].
 pub trait MsgSendSignature: 'static {
     /// Get the [TypeId] and a human-readable description for this signature.
-    fn type_info() -> (TypeId, &'static str) {
+fn type_info() -> (TypeId, &'static str) {
         #[cfg(debug_assertions)]
         let type_name = std::any::type_name::<Self>();
         // Avoid wasting space on type names in release builds.
@@ -525,7 +550,7 @@ impl<
         P1: 'static,
         P2: 'static,
         P3: 'static,
-        P4: 'static,
+     P4: 'static,
         P5: 'static,
         P6: 'static,
         P7: 'static,
@@ -765,7 +790,7 @@ pub use crate::msg_super;
 /// ```
 #[macro_export]
 macro_rules! msg_class {
-    [$env:expr; $receiver_class:ident $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
+    [$receiver_class:ident $name:ident $(: $arg1:tt $($($namen:ident)?: $argn:tt)*)?] => {
         {
             let class = $env.objc.get_known_class(
                 stringify!($receiver_class),
