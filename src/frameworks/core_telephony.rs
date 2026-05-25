@@ -6,6 +6,7 @@
 //! CoreTelephony framework stubs.
 
 use crate::objc::{objc_classes, ClassExports, id};
+use crate::dyld::{ConstantExports, FunctionExports}; // Added missing import for types
 
 // Satisfy the macro's need for a 'void' type
 type void = ();
@@ -28,10 +29,14 @@ pub const CLASSES: ClassExports = objc_classes! {
     @end
 };
 
+// FIXED: Added missing public constants and functions matrices required by dylib_list.rs
+pub const CONSTANTS: ConstantExports = &[];
+pub const FUNCTIONS: FunctionExports = &[];
+
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
     path: "/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony",
     aliases: &[],
     class_exports: &[CLASSES],
-    constant_exports: &[],
-    function_exports: &[],
+    constant_exports: &[CONSTANTS], // Updated to use local fixed array
+    function_exports: &[FUNCTIONS], // Updated to use local fixed array
 };
