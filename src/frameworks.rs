@@ -29,6 +29,7 @@ pub mod accounts;
 pub mod audio_toolbox;
 pub mod avfoundation;
 pub mod assets_library;
+pub mod captive_network;
 pub mod carbon_core;
 pub mod cf_http_message;
 pub mod cf_network;
