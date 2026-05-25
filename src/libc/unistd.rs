@@ -282,10 +282,17 @@ fn readlink(
     );
 
     // Most files and paths in touchHLE are NOT symbolic links.
-    // Return EINVAL to indicate "not a symbolic link" which prevents infinite loops.
-    // This is the correct POSIX behavior for non-symlink paths.
-    set_errno(env, EINVAL);
-    -1
+    // Return 0 to indicate the symlink target is an empty string (i.e., not a valid symlink).
+    // This prevents infinite retry loops while providing a valid response.
+    if buf_size > 0 {
+        // Write a single null byte to indicate empty target
+        env.mem.write(buf, 0u8);
+        0 // Return 0 bytes written (empty symlink)
+    } else {
+        // Buffer is too small
+        set_errno(env, EINVAL);
+        -1
+    }
 }
 
 fn getdtablesize(_env: &mut Environment) -> i32 {
