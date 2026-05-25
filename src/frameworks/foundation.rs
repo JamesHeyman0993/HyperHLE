@@ -52,6 +52,7 @@ pub mod ns_keyed_unarchiver;
 pub mod ns_locale;
 pub mod ns_lock;
 pub mod ns_log;
+pub mod ns_mach_port; // Added NSMachPort module
 pub mod ns_metadata_query;
 pub mod ns_notification;
 pub mod ns_notification_center;
@@ -321,6 +322,7 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_keyed_unarchiver::CLASSES,
         ns_locale::CLASSES,
         ns_lock::CLASSES,
+        ns_mach_port::CLASSES, // Exposed NSMachPort classes here
         ns_metadata_query::CLASSES,
         ns_notification::CLASSES,
         ns_notification_center::CLASSES,
@@ -446,4 +448,3 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(NSGetSizeAndAlignment(_, _, _)),
     export_c_func!(CFStringGetCharactersPtr(_)),
 ];
-                        
