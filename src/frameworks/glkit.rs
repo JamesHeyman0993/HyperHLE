@@ -6,6 +6,7 @@
 //! `GLKit.framework` — Stubs for iOS 5.0+ graphics view controllers.
 
 use crate::frameworks::core_graphics::{CGPoint, CGRect, CGSize};
+use crate::frameworks::foundation::NSInteger; // Use your project's specific i32 typedef
 use crate::objc::{
     id, msg, msg_super, nil, objc_classes, retain, release, ClassExports, HostObject, NSZonePtr,
 };
@@ -13,7 +14,7 @@ use crate::Environment;
 
 // --- GLKViewController ---
 pub struct GLKViewControllerHostObject {
-    preferred_frames_per_second: isize,
+    preferred_frames_per_second: NSInteger,
 }
 impl HostObject for GLKViewControllerHostObject {}
 
@@ -42,11 +43,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
-- (isize)preferredFramesPerSecond {
+- (NSInteger)preferredFramesPerSecond {
     env.objc.borrow::<GLKViewControllerHostObject>(this).preferred_frames_per_second
 }
 
-- (())setPreferredFramesPerSecond:(isize)fps {
+- (())setPreferredFramesPerSecond:(NSInteger)fps {
     env.objc.borrow_mut::<GLKViewControllerHostObject>(this).preferred_frames_per_second = fps;
 }
 
@@ -60,7 +61,10 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let current_context: id = nil; 
 
-    let glk_view_class = env.objc.lookup_class("GLKView").unwrap();
+    // FIX: Using your dynamic ObjC registry loader instead of the nonexistent lookup method
+    let glk_view_class = env.objc.get_known_class("GLKView", &mut env.mem)
+        .cast::<crate::objc::objects::objc_object>();
+        
     let glk_view: id = msg![env; glk_view_class alloc];
     let glk_view: id = msg![env; glk_view initWithFrame:screen_bounds context:current_context];
 
@@ -110,13 +114,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 - (())display {
     log_dbg!("GLKView display requested");
-    let (delegate, context) = {
+    let (delegate, _context) = {
         let h = env.objc.borrow::<GLKViewHostObject>(this);
         (h.delegate, h.context)
     };
 
     if delegate != nil {
-        if let Some(sel) = env.objc.lookup_selector("glkView:drawInRect:") {
+        if let Some(_sel) = env.objc.lookup_selector("glkView:drawInRect:") {
             let frame: CGRect = msg![env; this frame];
             let _: () = msg![env; delegate glkView:this drawInRect:frame];
         }
