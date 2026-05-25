@@ -209,9 +209,13 @@ fn objc_setProperty_nonatomic_copy(
     value: id,
 ) {
     if obj != nil {
-        // FIXED: Replaced non-existent wrapping_add method on Ptr structure with plain address offset math addition
+        // Compute structural memory offset address
         let target_address = ConstPtr::<u8>::from_bits(obj.to_bits() + offset as u32);
-        env.mem.write(target_address.cast_mut(), value);
+        
+        // FIXED: Explicitly cast target location wrapper to MutPtr<id> so env.mem.write knows it's handling an object handle pointer type
+        let target_ptr: MutPtr<id> = target_address.cast_mut().cast();
+        env.mem.write(target_ptr, value);
+        
         retain(env, value);
         log_dbg!("HyperHLE: objc_setProperty_nonatomic_copy stored value reference at offset {}", offset);
     }
@@ -242,8 +246,8 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_release(_)),
     export_c_func!(objc_retainAutorelease(_)),
     export_c_func!(objc_setProperty_nonatomic(_)),
-    // FIXED: expanded macro signature to explicitly match the 4 trailing argument slots of the function
-    export_c_func!(objc_setProperty_nonatomic_copy(_, _, _, _, _)), 
+    // FIXED: Changed argument slots match count from 5 to 4 wildcards to strictly conform to function trailing arguments layout
+    export_c_func!(objc_setProperty_nonatomic_copy(_, _, _, _)), 
     export_c_func!(objc_exception_throw(_)),
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch(_)),
