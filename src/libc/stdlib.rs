@@ -328,6 +328,26 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
     let name_bytes = env.mem.cstr_at(name).to_vec(); // Copy to Vec to free the memory borrow
     let name_str = std::str::from_utf8(&name_bytes).unwrap_or("");
 
+    // --- Intercept Mono WAPI Process Handle Offset (Cached Persistent Workaround) ---
+    if name_str == "_WAPI_PROCESS_HANDLE_OFFSET" {
+        if !env.env_vars.contains_key(&name_bytes) {
+            log!("HyperHLE: First-time seeding _WAPI_PROCESS_HANDLE_OFFSET into persistent map.");
+            let val = "0";
+            let val_bytes = std::ffi::CString::new(val).unwrap();
+            let bytes = val_bytes.as_bytes_with_nul();
+            
+            let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
+            if !guest_ptr.is_null() {
+                env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
+                env.env_vars.insert(name_bytes.clone(), guest_ptr);
+            }
+        }
+        
+        if let Some(&value) = env.env_vars.get(&name_bytes) {
+            return value;
+        }
+    }
+
     // --- Intercept Mono and Path requests ---
     if name_str == "MONO_CFG_DIR" || name_str == "MONO_CONFIG" || name_str == "HOME" || name_str == "TMPDIR" {
         let path = env.bundle.executable_path(); 
@@ -351,25 +371,6 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
 
         let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
         env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
-
-        return guest_ptr.cast();
-    }
-
-        // --- Intercept Mono WAPI Process Handle Offset (Fixes Unity/Mono threading crashes) ---
-    if name_str == "_WAPI_PROCESS_HANDLE_OFFSET" {
-        log!("HyperHLE: Providing persistent dummy value '0' for _WAPI_PROCESS_HANDLE_OFFSET");
-        let val = "0";
-        let val_bytes = std::ffi::CString::new(val).unwrap();
-        let bytes = val_bytes.as_bytes_with_nul();
-
-        // FIX: Using a large, clean allocation block that isn't cleared by the short-term allocator
-        let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
-        env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
-
-        // We explicitly prevent the underlying tracker from reclaiming this pointer immediately
-        if !guest_ptr.is_null() {
-            log_dbg!("HyperHLE: allocated permanent offset string at {:?}", guest_ptr);
-        }
 
         return guest_ptr.cast();
     }
