@@ -163,7 +163,7 @@ fn pthread_attr_getstacksize(
     if attr.is_null() {
         return EINVAL;
     }
-    check_magic!(env, attr, MAGIC_THREAD);
+    check_magic!(env, attr, MAGIC_ATTR); // Changed MAGIC_THREAD to MAGIC_ATTR
     let size = env.mem.read(attr).stacksize;
     env.mem.write(stacksize, size);
     0
@@ -503,32 +503,26 @@ fn pthread_get_stacksize_np(env: &mut Environment, thread: pthread_t) -> GuestUS
 }
 
 fn pthread_getschedparam(
-    _env: &mut Environment,
-    thread: pthread_t,
-    policy: i32,
-    param: MutVoidPtr,
+    env: &mut Environment,
+    _thread: pthread_t,
+    policy_ptr: MutPtr<i32>,
+    param_ptr: MutPtr<sched_param>,
 ) -> i32 {
-    log_dbg!(
-        "TODO: pthread_getschedparam({:?}, {}, {:?})",
-        thread,
-        policy,
-        param
-    );
+    if !policy_ptr.is_null() {
+        env.mem.write(policy_ptr, 1); // 1 = SCHED_OTHER
+    }
+    if !param_ptr.is_null() {
+        env.mem.write(param_ptr, sched_param { sched_priority: 0 });
+    }
     0
 }
 
 fn pthread_setschedparam(
     _env: &mut Environment,
-    thread: pthread_t,
-    policy: i32,
-    param: ConstVoidPtr,
+    _thread: pthread_t,
+    _policy: i32,
+    _param: ConstPtr<sched_param>,
 ) -> i32 {
-    log_dbg!(
-        "TODO: pthread_setschedparam({:?}, {}, {:?})",
-        thread,
-        policy,
-        param
-    );
     0
 }
 
