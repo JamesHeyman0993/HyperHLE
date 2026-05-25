@@ -2522,10 +2522,11 @@ pub fn CFStringGetCharactersPtr(env: &mut Environment, the_string: id) -> ConstP
     let constant_utf16_class = env
         .objc
         .get_known_class("_touchHLE_NSString_CFConstantString_UTF16", &mut env.mem);
+        
     if class == constant_utf16_class {
         let cfstr: cfstringStruct = env.mem.read(the_string.cast());
         cfstr.bytes.cast()
     } else {
         Ptr::null()
     }
-                            }
+}
