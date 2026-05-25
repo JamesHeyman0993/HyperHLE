@@ -2097,9 +2097,8 @@ pub fn get_static_str(env: &mut Environment, from: &'static str) -> id {
     if let Some(&existing) = State::get(env).static_str_pool.get(from) {
         existing
     } else {
-        se {
         let new = msg_class![env; _touchHLE_NSString_Static alloc];
-        *env.objc.borrow_mut(new) = StringHostObject::Utf8(Cow::Borrowed(from));
+        *env.objc.borrow_mut(new) = StringHostObject::Utf8(std::borrow::Cow::Borrowed(from));
         State::get(env).static_str_pool.insert(from, new);
         new
     }
