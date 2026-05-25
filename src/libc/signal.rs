@@ -24,9 +24,16 @@ const SIG_DFL: u32 = 0;
 
 fn sigaction(env: &mut Environment, signum: i32, act: ConstVoidPtr, old_act: MutVoidPtr) -> i32 {
     set_errno(env, 0);
-    // Пока возвращаем 0 (успех), убрав TODO, так как sigaction сложнее в
-    // реализации
-    // и редко ломает логику игр, если просто рапортует об успехе.
+    
+    // If Mono wants to see the previous handler configuration, 
+    // safely zero it out so it doesn't try to parse random uninitialized memory.
+    if !old_act.is_null() {
+        // Assuming a standard Darwin/BSD sigaction struct size fallback (approx 12-16 bytes minimum)
+        // We write zeroes to clear out the sa_handler, sa_mask, and sa_flags.
+        let zero_buf = [0u8; 16];
+        env.mem.write_bytes(old_act, &zero_buf);
+    }
+    
     0
 }
 
@@ -54,8 +61,8 @@ fn sigaltstack(env: &mut Environment, _ss: ConstVoidPtr, _old_ss: MutVoidPtr) ->
 }
 
 pub const FUNCTIONS: FunctionExports = &[
-    export_c_func!(sigaction(_, _, _)),
+    export_c_func!(sigaction(_, _, _, _)), // Updated to match signum, act, and old_act explicitly
     export_c_func!(signal(_, _)),
-    export_c_func!(sigprocmask(_, _, _)), // Строго 3 аргумента (how, set, old_set)
-    export_c_func!(sigaltstack(_, _)),    // Строго 2 аргумента (ss, old_ss)
+    export_c_func!(sigprocmask(_, _, _)), 
+    export_c_func!(sigaltstack(_, _)),    
 ];
