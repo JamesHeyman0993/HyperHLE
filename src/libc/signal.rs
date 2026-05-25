@@ -61,7 +61,7 @@ fn sigaltstack(env: &mut Environment, _ss: ConstVoidPtr, _old_ss: MutVoidPtr) ->
 }
 
 pub const FUNCTIONS: FunctionExports = &[
-    export_c_func!(sigaction(_, _, _, _)), // Updated to match signum, act, and old_act explicitly
+    export_c_func!(sigaction(_, _, _)),
     export_c_func!(signal(_, _)),
     export_c_func!(sigprocmask(_, _, _)), 
     export_c_func!(sigaltstack(_, _)),    
