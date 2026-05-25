@@ -52,6 +52,7 @@ pub mod foundation;
 pub mod game_controller;
 pub mod game_kit;
 pub mod gl_kit;
+pub mod image_io;
 pub mod libbz2;
 pub mod libicucore;
 pub mod libsqlite3;
