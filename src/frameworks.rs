@@ -42,6 +42,7 @@ pub mod core_audio_types;
 pub mod core_bluetooth;
 pub mod core_foundation;
 pub mod core_graphics;
+pub mod core_image;
 pub mod core_location;
 pub mod core_media;
 pub mod core_motion;
