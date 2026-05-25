@@ -4,19 +4,6 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 //! Objective-C runtime.
-//!
-//! Apple's [Programming with Objective-C](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/ProgrammingWithObjectiveC/Introduction/Introduction.html)
-//! is a useful introduction to the language from a user's perspective.
-//! There are further resources in the child modules of this module, but they
-//! are more implementation-specific.
-//!
-//! The strategy for this emulator will be to provide our own implementations of
-//! an Objective-C runtime and libraries for it (Foundation etc). These
-//! implementations will be "host code": Rust code forming part of the emulator,
-//! not emulated code. The runtime will need to be able to handle classes that
-//! originate from the guest app, classes defined by the host, and sometimes
-//! classes that are both (considering Objective-C's support for inheritance,
-//! categories and dynamic class editing).
 
 use crate::dyld::{export_c_func, ConstantExports, FunctionExports, HostConstant, HostDylib};
 use crate::MutexId;
@@ -44,18 +31,16 @@ pub use messages::{
     autorelease, msg, msg_class, msg_send, msg_send_no_type_checking, msg_send_super2, msg_super,
     objc_super, release, retain,
 };
-// FIXED: Added method_list_t re-export here so classes.rs can resolve super::method_list_t cleanly
 pub use methods::{HostIMP, IMP, method_list_t};
 pub use objects::{
-    id, impl_HostObject_with_superclass, nil, AnyHostObject, HostObject, TrivialHostObject,
-};
+    id, impl_HostObject_with_superclass, nil, objc_object, AnyHostObject, HostObject, TrivialHostObject,
+}; // FIXED: Exported objc_object publicly here
 pub use properties::todo_objc_setter;
 pub use selectors::{selector, SEL};
 
 use crate::mem::{ConstPtr, ConstVoidPtr, MutPtr, MutVoidPtr};
 use crate::objc::classes::___objc_personality_v0;
 use crate::Environment;
-// NEW: Import the execution trait required to use `.call_guest()` on the CPU context
 use crate::abi::CallFromHost;
 
 use classes::{ClassHostObject, FakeClass, UnimplementedClass};
@@ -63,50 +48,23 @@ use messages::{
     objc_msgSendSuper2, objc_msgSendSuper2_stret, objc_msgSend_stret, MsgSendSignature,
     MsgSendSuperSignature,
 };
-use objects::{objc_object, HostObjectEntry};
+use objects::HostObjectEntry;
 use properties::{ivar_list_t, objc_copyStruct, objc_getProperty, objc_setProperty};
 use selectors::sel_registerName;
 use synchronization::{objc_sync_enter, objc_sync_exit};
 
-/// Публичная обёртка над `messages::objc_msgSend` (которая `pub(super)`),
-/// экспортируемая внутри крейта.
 pub(crate) fn objc_msgSend(env: &mut Environment, receiver: id, selector: SEL) {
     messages::objc_msgSend(env, receiver, selector)
 }
 
-/// Typedef for `NSZone *`. This is a [fossil type] found in the signature of
-/// `allocWithZone:` and similar methods. Its value is always ignored.
-///
-/// [fossil type]: https://en.wikitionary.org/wiki/fossil_word
 pub type NSZonePtr = crate::mem::MutVoidPtr;
 
-/// Main type holding Objective-C runtime state.
 pub struct ObjC {
-    /// Known selectors (interned method name strings).
     selectors: HashMap<String, SEL>,
-
-    /// Mapping of known (guest) object pointers to their host objects.
-    ///
-    /// If an object isn't in this map, we will consider it not to exist.
     objects: HashMap<id, HostObjectEntry>,
-
-    /// Known classes.
-    ///
-    /// Look at the `isa` to get the metaclass for a class.
     classes: HashMap<String, Class>,
-
-    /// Mutexes used in @synchronized blocks (objc_sync_enter/exit).
     sync_mutexes: HashMap<id, MutexId>,
-
-    /// Temporary storage for optional type information when sending a message.
-    /// Type information isn't part of the `objc_msgSend` ABI, so an alternative
-    /// channel is needed.
     message_type_info: Option<(std::any::TypeId, &'static str)>,
-
-    /// Set of classes that have already had `+initialize` sent to them
-    /// (or were determined not to need it). Used to implement Apple's lazy
-    /// `+initialize` dispatch contract:
-    /// <https://developer.apple.com/documentation/objectivec/nsobject/1418639-initialize>
     pub(super) initialized_classes: HashSet<Class>,
 }
 
@@ -122,7 +80,6 @@ impl ObjC {
         }
     }
 
-    /// Returns the name of a selector, panicking if it is unknown.
     pub fn get_selector_name(&self, sel: SEL) -> &str {
         self.selectors
             .iter()
@@ -141,53 +98,23 @@ pub const DYLIB: HostDylib = HostDylib {
 };
 
 const CONSTANTS: ConstantExports = &[
-    // We don't use these in our Objective-C runtime, but exporting useless
-    // symbols for these silences the warning about the unhandled relocation,
-    // and avoids a linker error for the integration tests.
     ("__objc_empty_vtable", HostConstant::NullPtr),
     ("__objc_empty_cache", HostConstant::NullPtr),
     ("_OBJC_EHTYPE_$_NSException", HostConstant::NullPtr),
     ("_OBJC_EHTYPE_id", HostConstant::NullPtr),
-    // FIXED: Added companion constant mapping for the unwinder routine to prevent dyld relocation dropouts
     ("___objc_personality_v0", HostConstant::NullPtr),
-    // `NSObject`'s only ivar (`isa`) lives at offset 0 in the object layout
-    // on 32-bit iOS, so resolving the ivar-offset symbol to a 4-byte zero
-    // gives any binary that does `obj + _OBJC_IVAR_$_NSObject.isa` the
-    // correct address (i.e. the object base).
     ("_OBJC_IVAR_$_NSObject.isa", HostConstant::NullPtr),
     ("_kCFTypeArrayCallBacks", HostConstant::NullPtr),
-    (
-        "_NSHTTPCookieDomain",
-        HostConstant::NSString("NSHTTPCookieDomain"),
-    ),
-    (
-        "_NSHTTPCookieValue",
-        HostConstant::NSString("NSHTTPCookieValue"),
-    ),
-    (
-        "_NSHTTPCookieName",
-        HostConstant::NSString("NSHTTPCookieName"),
-    ),
-    (
-        "_NSHTTPCookiePath",
-        HostConstant::NSString("NSHTTPCookiePath"),
-    ),
+    ("_NSHTTPCookieDomain", HostConstant::NSString("NSHTTPCookieDomain")),
+    ("_NSHTTPCookieValue", HostConstant::NSString("NSHTTPCookieValue")),
+    ("_NSHTTPCookieName", HostConstant::NSString("NSHTTPCookieName")),
+    ("_NSHTTPCookiePath", HostConstant::NSString("NSHTTPCookiePath")),
     ("_NSKeyValueChangeNewKey", HostConstant::NSString("new")),
 ];
 
-/// Block support is iOS 4+, but it seems like Block Runtime Helpers
-/// could still be called on even if minimal iOS version is set to 3.x?
-///
-/// ref. <https://clang.llvm.org/docs/Block-ABI-Apple.html#runtime-helper-functions>
 fn _Block_object_dispose(_env: &mut Environment, object: ConstVoidPtr, flags: i32) {
-    // `BLOCK_FIELD_IS_BYREF` flag defines an on stack structure holding
-    // the __block variable. It is _probably_ safe to ignore.
-    // TODO: properly implement for block support
-    assert!(flags == 8); // BLOCK_FIELD_IS_BYREF
-    log!(
-        "Warning: Ignoring _Block_object_dispose({:?}, BLOCK_FIELD_IS_BYREF)",
-        object
-    );
+    assert!(flags == 8);
+    log!("Warning: Ignoring _Block_object_dispose({:?}, BLOCK_FIELD_IS_BYREF)", object);
 }
 
 fn objc_retainAutorelease(env: &mut Environment, obj: id) -> id {
@@ -202,56 +129,40 @@ fn objc_alloc(env: &mut Environment, class_ptr: id) -> id {
     if class_ptr == nil {
         return nil;
     }
-    
-    // Use from_bits to reconstruct the Class pointer from the raw integer bits
     let class_type = Class::from_bits(class_ptr.to_bits());
     let class_name = env.objc.get_class_name(class_type);
-    
     log!("HyperHLE: Intercepted _objc_alloc optimization invocation for class: {}", class_name);
-    
-    // Execute standard touchHLE object instance allocation: [class_ptr alloc]
     let allocated_object: id = crate::objc::msg![env; class_ptr alloc];
     allocated_object
 }
 
-/// Dynamic implementation for class_getName(Class cls) -> const char *
 fn class_getName(env: &mut Environment, class_ptr: id) -> ConstPtr<u8> {
     if class_ptr == nil {
         return ConstPtr::from_bits(0);
     }
-    
     let class_type = Class::from_bits(class_ptr.to_bits());
     let class_name = env.objc.get_class_name(class_type);
-    
-    // Convert string to a null-terminated C-string array inside guest context
     let mut name_bytes = class_name.as_bytes().to_vec();
     name_bytes.push(0);
-    
     let len = name_bytes.len() as u32;
     let guest_alloc = env.mem.alloc(len);
     env.mem.bytes_at_mut(guest_alloc.cast(), len).copy_from_slice(&name_bytes);
-    
     guest_alloc.cast().cast_const()
 }
 
-/// Stub implementation for protocol_getName(Protocol *p) -> const char *
 fn protocol_getName(env: &mut Environment, protocol_ptr: id) -> ConstPtr<u8> {
     log!("Warning: protocol_getName called for address {:?} — returning fallback descriptor", protocol_ptr);
     let mock_name = "FakedProtocol\0";
     let len = mock_name.len() as u32;
     let guest_alloc = env.mem.alloc(len);
     env.mem.bytes_at_mut(guest_alloc.cast(), len).copy_from_slice(mock_name.as_bytes());
-    
     guest_alloc.cast().cast_const()
 }
 
-/// Dynamic implementation for objc_lookUpClass(const char *name) -> Class
 fn objc_lookUpClass(env: &mut Environment, name_ptr: ConstPtr<u8>) -> id {
     if name_ptr.is_null() {
         return nil;
     }
-    
-    // Safely pull bytes from emulated layout up to the null-terminator
     let mut bytes = Vec::new();
     let mut offset = 0;
     loop {
@@ -262,17 +173,12 @@ fn objc_lookUpClass(env: &mut Environment, name_ptr: ConstPtr<u8>) -> id {
         bytes.push(current_byte);
         offset += 1;
     }
-    
     let class_name = String::from_utf8_lossy(&bytes).into_owned();
     let resolved_class = env.objc.get_known_class(&class_name, &mut env.mem);
-    
     log!("HyperHLE: objc_lookUpClass linked descriptor for: {}", class_name);
-    
-    // Cast layout structure cleanly back to dynamic guest raw identifier
-    resolved_class.cast::<crate::objc::objects::objc_object>()
+    resolved_class.cast::<objc_object>()
 }
 
-/// Functional replacement execution engine for Grand Central Dispatch `dispatch_once_f`
 fn dispatch_once_f(
     env: &mut Environment,
     predicate_ptr: MutPtr<i32>,
@@ -282,34 +188,19 @@ fn dispatch_once_f(
     if predicate_ptr.is_null() || function_ptr.is_null() {
         return;
     }
-
     let predicate_val: i32 = env.mem.read(predicate_ptr);
-
-    // Apple Specification status value: -1 means initialization complete. 
-    // 0 means unexecuted block sequence layout.
     if predicate_val != -1 {
-        // Set context flag immediately to lock execution path
         env.mem.write(predicate_ptr, -1);
-
         log!("HyperHLE: dispatch_once_f invoking guest initialization callback at {:?}", function_ptr);
-
-        // Bring the CallFromHost execution trait into local scope
         use crate::abi::CallFromHost;
-
-        // Define a standard safe Rust function pointer type layout
         type GuestInitFn = fn(&mut Environment, MutVoidPtr);
-
-        // Safely upcast the 32-bit address to host pointer size before converting
         let target_address = function_ptr.to_bits() as usize;
         let guest_call: GuestInitFn = unsafe { std::mem::transmute(target_address) };
-
-        // Pass the user context pointer as the sole argument inside a tuple
         let args = (context,);
         let _: () = guest_call.call_from_host(env, args);
     }
 }
 
-/// Runtime helper implementation for copy properties synthesizing on iOS 6.0+ objects
 fn objc_setProperty_nonatomic_copy(
     env: &mut Environment,
     obj: id,
@@ -318,8 +209,9 @@ fn objc_setProperty_nonatomic_copy(
     value: id,
 ) {
     if obj != nil {
-        let target_address = obj.cast::<u8>().wrapping_add(offset);
-        env.mem.write(target_address.cast(), value);
+        // FIXED: Replaced non-existent wrapping_add method on Ptr structure with plain address offset math addition
+        let target_address = ConstPtr::<u8>::from_bits(obj.to_bits() + offset as u32);
+        env.mem.write(target_address.cast_mut(), value);
         retain(env, value);
         log_dbg!("HyperHLE: objc_setProperty_nonatomic_copy stored value reference at offset {}", offset);
     }
@@ -350,7 +242,8 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(objc_release(_)),
     export_c_func!(objc_retainAutorelease(_)),
     export_c_func!(objc_setProperty_nonatomic(_)),
-    export_c_func!(objc_setProperty_nonatomic_copy(_)), // Added runtime export listing mapping here
+    // FIXED: expanded macro signature to explicitly match the 4 trailing argument slots of the function
+    export_c_func!(objc_setProperty_nonatomic_copy(_, _, _, _, _)), 
     export_c_func!(objc_exception_throw(_)),
     export_c_func!(objc_begin_catch(_)),
     export_c_func!(objc_end_catch(_)),
@@ -364,12 +257,8 @@ const FUNCTIONS: FunctionExports = &[
     export_c_func!(method_getTypeEncoding(_, _)),
     export_c_func!(_Block_object_dispose(_, _)),
     export_c_func!(___objc_personality_v0(_, _, _, _, _)),
-    
-    // FIXED: Shifted token signature counts to single guest arguments (_)
     export_c_func!(class_getName(_)),
     export_c_func!(protocol_getName(_)),
     export_c_func!(objc_lookUpClass(_)),
-
-    // NEW: Added missing multi-threading initialization synchronization engine hooks
     export_c_func!(dispatch_once_f(_, _, _)),
 ];
