@@ -44,7 +44,8 @@ pub use messages::{
     autorelease, msg, msg_class, msg_send, msg_send_no_type_checking, msg_send_super2, msg_super,
     objc_super, release, retain,
 };
-pub use methods::{HostIMP, IMP};
+// FIXED: Added method_list_t re-export here so classes.rs can resolve super::method_list_t cleanly
+pub use methods::{HostIMP, IMP, method_list_t};
 pub use objects::{
     id, impl_HostObject_with_superclass, nil, AnyHostObject, HostObject, TrivialHostObject,
 };
@@ -372,4 +373,3 @@ const FUNCTIONS: FunctionExports = &[
     // NEW: Added missing multi-threading initialization synchronization engine hooks
     export_c_func!(dispatch_once_f(_, _, _)),
 ];
-    
