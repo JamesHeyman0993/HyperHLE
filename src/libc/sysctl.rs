@@ -22,10 +22,10 @@ static SYSCTL_VALUES: [((i32, i32), &str, SysInfoType); 27] = [ // Changed size 
     ((6,25), "hw.activecpu" , SysInfoType::Int32(1)), 
     ((0,0), "hw.cputype" , SysInfoType::Int32(12)),
     ((0,0), "hw.cpusubtype" , SysInfoType::Int32(6)),
-    ((6,15), "hw.cpufrequency" , SysInfoType::Int64(412000000)),
-    ((6,16), "hw.cpufrequency_max", SysInfoType::Int64(412000000)),
-    ((6,14), "hw.busfrequency" , SysInfoType::Int64(103000000)),
-
+        ((6,15), "hw.cpufrequency" , SysInfoType::Int32(412000000)),
+    ((6,16), "hw.cpufrequency_max", SysInfoType::Int32(412000000)),
+    ((6,14), "hw.busfrequency" , SysInfoType::Int32(103000000)),
+    
     // --- ADD THE THREE LINES BELOW ---
     ((0,0), "hw.physicalcpu_max", SysInfoType::Int32(1)),
     ((0,0), "hw.logicalcpu_max", SysInfoType::Int32(1)),
