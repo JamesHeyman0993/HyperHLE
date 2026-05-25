@@ -58,8 +58,20 @@ fn opendir(env: &mut Environment, filename: ConstPtr<u8>) -> MutPtr<DIR> {
     // TODO: handle errno properly
     set_errno(env, 0);
 
-    let path_string = env.mem.cstr_at_utf8(filename).unwrap().to_owned();
-    log_dbg!("opendir: filename {}", path_string);
+    if filename.is_null() {
+        return Ptr::null();
+    }
+
+    let mut path_string = env.mem.cstr_at_utf8(filename).unwrap().to_owned();
+    log_dbg!("opendir: raw filename input: {}", path_string);
+
+    // Marmalade / C++ standard runtimes use "." or empty values to scan the current directory bundle.
+    // Translate these into absolute paths touchHLE's GuestPath subsystem can parse.
+    if path_string == "." || path_string.is_empty() {
+        path_string = "/".to_string(); // Points to the root virtualized bundle container
+        log!("HyperHLE: Normalized relative opendir path to absolute virtual root '/'");
+    }
+
     let guest_path = GuestPath::new(&path_string);
     let is_dir = env.fs.is_dir(guest_path);
     if is_dir {
@@ -73,6 +85,7 @@ fn opendir(env: &mut Environment, filename: ConstPtr<u8>) -> MutPtr<DIR> {
         State::get_mut(env).read_dirs.insert(dir, Vec::new());
         dir
     } else {
+        log!("Warning: opendir target path is not a valid directory resource: {:?}", path_string);
         Ptr::null()
     }
 }
