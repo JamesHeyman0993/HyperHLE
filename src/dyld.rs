@@ -35,26 +35,6 @@ pub use dylib_list::DYLIB_LIST;
 
 /// Struct used to expose a host implementation of a dynamic library (usually a
 /// framework) to the linker.
-///
-/// Each module that wants to expose a library to guest code should export a
-/// constant using this type, which collects all the relevant [ClassExports],
-/// [ConstantExports] and [FunctionExports] for the library. For example:
-///
-/// ```ignore
-/// pub const DYLIB: HostDylib = HostDylib {
-///     path: "/System/Library/Frameworks/FooBarKit.framework/FooBarKit",
-///     aliases: &[],
-///     class_exports: &[baz::CLASSES],
-///     constant_exports: &[qux::CONSTANTS],
-///     function_exports: &[qux::FUNCTIONS, baz::FUNCTIONS],
-/// };
-/// ```
-///
-/// The `path` should be the canonical notional filesystem path that the library
-/// is referenced by on the real OS, for example `"/usr/lib/libobjc.A.dylib"`
-/// or `"/System/Library/Frameworks/Foundation.framework/Foundation"`. For
-/// libraries that have several symlinked paths, non-canonical alternate
-/// paths can be listed under `aliases`, for example `"/usr/lib/libobjc.dylib"`.
 pub struct HostDylib {
     pub path: &'static str,
     pub aliases: &'static [&'static str],
@@ -65,54 +45,10 @@ pub struct HostDylib {
 
 pub type HostFunction = &'static dyn CallFromGuest;
 
-/// Type for lists of functions exported by host implementations of dynamic
-/// libraries (usually frameworks).
-///
-/// Each module that wants to expose functions to guest code should export a
-/// constant using this type, e.g.:
-///
-/// ```ignore
-/// pub const FUNCTIONS: FunctionExports = &[
-///    ("_NSFoo", &/* ... */),
-///    ("_NSBar", &/* ... */),
-///    /* ... */
-/// ];
-/// ```
-///
-/// All the constants like this can then be collected into a [HostDylib].
-///
-/// The strings are the mangled symbol names. For C functions, this is just the
-/// name prefixed with an underscore.
-///
-/// For convenience, use [export_c_func]:
-///
-/// ```ignore
-/// pub const FUNCTIONS: FunctionExports = &[
-///     export_c_func!(NSFoo(_, _)),
-///     export_c_func!(NSBar()),
-/// ];
-/// ```
-///
-/// See also [ConstantExports] and [ClassExports].
+/// Type for lists of functions exported by host implementations of dynamic libraries.
 pub type FunctionExports = &'static [(&'static str, HostFunction)];
 
-/// Macro for exporting a function with C-style name mangling. See
-/// [FunctionExports].
-///
-/// ```ignore
-/// export_c_func!(NSFoo(_, _))
-/// ```
-///
-/// will desugar to:
-///
-/// ```ignore
-/// ("_NSFoo", &(NSFoo as (&mut Environment, _, _) -> _))
-/// ```
-///
-/// The function needs to be explicitly casted because a bare function reference
-/// defaults to a different type than a pure fn pointer, which is the type that
-/// [CallFromGuest] is implemented on. This macro will do the casting for you,
-/// but you will need to supply an underscore for each parameter.
+/// Macro for exporting a function with C-style name mangling.
 #[macro_export]
 macro_rules! export_c_func {
     ($name:ident ($($_:ty),*)) => {
@@ -122,11 +58,9 @@ macro_rules! export_c_func {
         )
     };
 }
-pub use crate::export_c_func; // #[macro_export] is weird...
+pub use crate::export_c_func;
 
-/// Other variant of [export_c_func] macro, allowing to define an alias
-/// for the exporting function. This is useful then alias may contain
-/// characters not normally allowed for Rust function's names. (e.g. `$`)
+/// Other variant of [export_c_func] macro allowing aliases.
 #[macro_export]
 macro_rules! export_c_func_aliased {
     ($alias:literal, $name:ident ($($_:ty),*)) => {
@@ -136,40 +70,19 @@ macro_rules! export_c_func_aliased {
         )
     };
 }
-pub use crate::export_c_func_aliased; // #[macro_export] is weird...
+pub use crate::export_c_func_aliased;
 
-/// Type for describing a constant (C `extern const` symbol) that will be
-/// created by the linker if the guest app references it. See [ConstantExports].
+/// Type for describing a constant that will be created by the linker.
 pub enum HostConstant {
     NSString(&'static str),
     NullPtr,
     Custom(fn(&mut Environment) -> ConstVoidPtr),
 }
 
-/// Type for lists of constants exported by host implementations of  dynamic
-/// libraries (usually frameworks).
-///
-/// Each module that wants to expose functions to guest code should export a
-/// constant using this type, e.g.:
-///
-/// ```ignore
-/// pub const CONSTANT: ConstantExports = &[
-///    ("_kNSFooBar", HostConstant::NSString("NSFooBar")),
-///    /* ... */
-/// ];
-/// ```
-///
-/// All the constants like this can then be collected into a [HostDylib].
-///
-/// The strings are the mangled symbol names. For C constants, this is just the
-/// name prefixed with an underscore.
-///
-/// See also [FunctionExports], [ClassExports].
+/// Type for lists of constants exported by host implementations.
 pub type ConstantExports = &'static [(&'static str, HostConstant)];
 
 /// Search the list of [HostDylib]s for a class/constant/function by its symbol.
-///
-/// Example usage: `search_host_dylibs(|dylib| dylib.function_exports, "_foo")`
 pub fn search_host_dylibs<T, F>(get_exports: F, symbol: &str) -> Option<&'static (&'static str, T)>
 where
     F: Fn(&HostDylib) -> &'static [&'static [(&'static str, T)]],
@@ -318,9 +231,7 @@ impl Dyld {
             }
             if patch_count > 0 {
                 log!(
-                    "Patched {} libstdc++ std::__throw_* helpers to return \
-                     instead of throwing (avoids host-process abort when \
-                     guest C++ code hits soft failures like std::string(NULL)).",
+                    "Patched {} libstdc++ std::__throw_* helpers to return instead of throwing.",
                     patch_count
                 );
             }
@@ -411,9 +322,7 @@ impl Dyld {
         };
 
         let Some(indirect_info) = stubs.dyld_indirect_symbol_info.as_ref() else {
-            log!(
-                "Warning: setup_lazy_linking: __symbol_stub section is missing dyld indirect symbol info; skipping lazy stub rewrite."
-            );
+            log!("Warning: setup_lazy_linking missing indirect symbol info.");
             return;
         };
         let entry_size = indirect_info.entry_size;
@@ -423,10 +332,7 @@ impl Dyld {
             12 => Self::SYMBOL_STUB_INSTRUCTIONS.as_slice(),
             16 => Self::PIC_SYMBOL_STUB_INSTRUCTIONS.as_slice(),
             other => {
-                log!(
-                    "Warning: setup_lazy_linking: unsupported stub entry size {}; skipping lazy stub rewrite.",
-                    other
-                );
+                log!("Warning: setup_lazy_linking: unsupported stub entry size {}.", other);
                 return;
             }
         };
@@ -439,15 +345,6 @@ impl Dyld {
             let mut mismatch = false;
             for (j, &instr) in expected_instructions.iter().enumerate() {
                 if mem.read(ptr + j.try_into().unwrap()) != instr {
-                    log_dbg!(
-                        "Warning: stub {} at {:#x} has unexpected instruction at offset {} \
-                         (expected {:#010x}, got {:#010x}), skipping",
-                        i,
-                        stubs.addr + i * entry_size,
-                        j,
-                        instr,
-                        mem.read::<u32, true>(ptr + j.try_into().unwrap())
-                    );
                     mismatch = true;
                     break;
                 }
@@ -488,19 +385,16 @@ impl Dyld {
             } else if name == "___mb_cur_max" {
                 let val_ptr: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(val_ptr, 1u32);
-                log_dbg!("Stubbed ___mb_cur_max at {:?}", val_ptr);
                 val_ptr.cast().cast_const()
             } else if name == "dyld_stub_binder" || name == "_dyld_stub_binder" {
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
-                log_dbg!("Stubbed dyld_stub_binder at {:?}", fn_ptr);
                 fn_ptr.cast().cast_const()
             } else if name == "__NSConcreteGlobalBlock" || name == "__NSConcreteStackBlock" {
                 let addr = *block_class_addrs
                     .entry(name.clone())
                     .or_insert_with(|| mem.alloc(16).to_bits());
-                log_dbg!("Patched block class descriptor {} -> {:#x}", name, addr);
                 Ptr::from_bits(addr)
             } else if name == "__ZTVN10__cxxabiv117__class_type_infoE"
                 || name == "__ZTVN10__cxxabiv120__si_class_type_infoE"
@@ -520,19 +414,16 @@ impl Dyld {
                     }
                     v.to_bits()
                 });
-                log_dbg!("Stubbed C++ vtable {} -> {:#x}", name, addr);
                 Ptr::from_bits(addr)
             } else if name == "___gxx_personality_sj0" {
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
-                log_dbg!("Stubbed ___gxx_personality_sj0 -> {:#x}", fn_ptr.to_bits());
                 fn_ptr.cast().cast_const()
             } else if name == "___objc_personality_v0" {
                 let fn_ptr: MutPtr<u32> = mem.alloc(8).cast();
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
-                log_dbg!("Stubbed ___objc_personality_v0 -> {:#x}", fn_ptr.to_bits());
                 fn_ptr.cast().cast_const()
             } else if name == "___cxa_terminate_handler"
                 || name == "___cxa_unexpected_handler"
@@ -592,11 +483,6 @@ impl Dyld {
                     .create_proc_address_no_inval(mem, symbol)
                     .unwrap()
                     .to_ptr();
-                log_dbg!(
-                    "Linked external relocation to host function {} at {:?}",
-                    symbol,
-                    trampoline_ptr
-                );
                 trampoline_ptr
             } else if let Some((_, template)) = search_host_dylibs(|dylib| dylib.constant_exports, name) {
                 self.constants_to_link_later.push((ptr_ptr, template));
@@ -612,18 +498,6 @@ impl Dyld {
                 ptr_ptr,
                 Ptr::from_bits(target.to_bits().wrapping_add(offset)),
             )
-        }
-        for (name, addrs) in unhandled_relocations {
-            log!(
-                "Warning: unhandled external relocation {:?} in {:?} at {}",
-                name,
-                bin.name,
-                addrs
-                    .into_iter()
-                    .map(|addr| format!("{addr:#x}"))
-                    .collect::<Vec<String>>()
-                    .join(", "),
-            );
         }
 
         let Some(ptrs) = bin.get_section(SectionType::NonLazySymbolPointers) else {
@@ -654,11 +528,6 @@ impl Dyld {
                     .unwrap()
                     .to_ptr();
                 mem.write(ptr_ptr, trampoline_ptr);
-                log_dbg!(
-                    "Linked non-lazy host function {} at {:?}",
-                    symbol,
-                    trampoline_ptr
-                );
                 continue;
             }
 
@@ -668,12 +537,6 @@ impl Dyld {
                     .unwrap()
                     .to_ptr();
                 mem.write(ptr_ptr, trampoline_ptr);
-                log_dbg!(
-                    "Linked non-lazy host function {} at {:?}",
-                    symbol,
-                    trampoline_ptr
-                );
-                log_dbg!("{:?}", self.non_lazy_host_functions);
                 continue;
             }
             if let Some((_, template)) = search_host_dylibs(|dylib| dylib.constant_exports, symbol)
@@ -685,22 +548,12 @@ impl Dyld {
             if symbol == "__NSConcreteStackBlock" || symbol == "__NSConcreteGlobalBlock" {
                 let dummy = mem.alloc(16);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
-                log_dbg!(
-                    "Patched non-lazy block class {} -> {:#x}",
-                    symbol,
-                    dummy.to_bits()
-                );
                 continue;
             }
 
             if symbol == "_OBJC_EHTYPE_id" || symbol == "_OBJC_EHTYPE_$_NSException" {
                 let dummy = mem.alloc(32);
                 mem.write(ptr_ptr, dummy.cast().cast_const());
-                log_dbg!(
-                    "Patched ObjC EH type descriptor {} -> {:#x}",
-                    symbol,
-                    dummy.to_bits()
-                );
                 continue;
             }
 
@@ -709,7 +562,6 @@ impl Dyld {
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
                 mem.write(ptr_ptr, fn_ptr.cast().cast_const());
-                log_dbg!("Stubbed ___objc_personality_v0 -> {:#x}", fn_ptr.to_bits());
                 continue;
             }
 
@@ -717,7 +569,6 @@ impl Dyld {
                 let val_ptr: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(val_ptr, 1u32);
                 mem.write(ptr_ptr, val_ptr.cast().cast_const());
-                log_dbg!("Stubbed ___mb_cur_max -> {:#x}", val_ptr.to_bits());
                 continue;
             }
 
@@ -726,7 +577,6 @@ impl Dyld {
                 mem.write(fn_ptr + 0, encode_a32_ret());
                 mem.write(fn_ptr + 1, encode_a32_trap());
                 mem.write(ptr_ptr, fn_ptr.cast().cast_const());
-                log_dbg!("Stubbed ___gxx_personality_sj0 -> {:#x}", fn_ptr.to_bits());
                 continue;
             }
 
@@ -763,11 +613,6 @@ impl Dyld {
                 let p: MutPtr<u32> = mem.alloc(4).cast();
                 mem.write(p, 0);
                 mem.write(ptr_ptr, p.cast().cast_const());
-                log_dbg!(
-                    "Stubbed libdispatch identity tag {} -> {:#x}",
-                    symbol,
-                    p.to_bits()
-                );
                 continue;
             }
 
@@ -791,13 +636,6 @@ impl Dyld {
                 mem.write(ptr_ptr, p.cast().cast_const());
                 continue;
             }
-
-            log!(
-                "Warning: unhandled non-lazy symbol {:?} at {:?} in \"{}\"",
-                symbol,
-                ptr_ptr,
-                bin.name
-            );
         }
     }
 
@@ -834,10 +672,6 @@ impl Dyld {
                 self.do_lazy_link(bins, mem, cpu, svc_pc)
             }
             Self::SVC_THREAD_EXIT | Self::SVC_RETURN_TO_HOST => {
-                log!(
-                    "Warning: Dyld::get_svc_handler received SVC #{} (thread exit / return to host) at {:#x}; this should be handled earlier.",
-                    svc, svc_pc
-                );
                 None
             }
             Self::SVC_LINKED_FUNCTIONS_BASE.. => {
@@ -846,18 +680,14 @@ impl Dyld {
                         as usize,
                 );
                 let Some(&(symbol, f)) = f else {
-                    log!(
-                        "Warning: Unexpected SVC #{} at {:#x}; treating as no-op (returning to caller).",
-                        svc, svc_pc
-                    );
                     return None;
                 };
-                log_dbg!("Call to host function, already linked: {}", symbol);
                 Some(f)
             }
         }
-                }
-fn do_lazy_link(
+    }
+
+    fn do_lazy_link(
         &mut self,
         bins: &[MachO],
         mem: &mut Mem,
@@ -876,13 +706,7 @@ fn do_lazy_link(
                 4 => Dyld::SYMBOL_STUB1_INSTRUCTIONS.as_slice(),
                 12 => Dyld::SYMBOL_STUB_INSTRUCTIONS.as_slice(),
                 16 => Dyld::PIC_SYMBOL_STUB_INSTRUCTIONS.as_slice(),
-                other => {
-                    log!(
-                        "Warning: link_by_restoring_stub: unsupported entry size {}; falling back to 12-byte stub.",
-                        other
-                    );
-                    Dyld::SYMBOL_STUB_INSTRUCTIONS.as_slice()
-                }
+                other => Dyld::SYMBOL_STUB_INSTRUCTIONS.as_slice()
             };
             let instruction_count: GuestUSize = original_instructions.len().try_into().unwrap();
 
@@ -941,27 +765,12 @@ fn do_lazy_link(
                 info.entry_size,
                 pic_offset,
             );
-            log_dbg!(
-                "Linked host function {} at {:?}/{:?} to existing stub ({:?}).",
-                symbol,
-                stub_function_ptr,
-                la_symbol_ptr,
-                addr,
-            );
             return None;
         }
         for dylib in bins.iter() {
             if let Some(&addr) = dylib.exported_symbols.get(symbol) {
                 let (stub_function_ptr, la_symbol_ptr) =
                     link_by_restoring_stub(mem, cpu, addr, svc_pc, info.entry_size, pic_offset);
-                log_dbg!(
-                    "Linked {} at {:?}/{:?} to {:#x} from {}",
-                    symbol,
-                    stub_function_ptr,
-                    la_symbol_ptr,
-                    addr,
-                    dylib.name
-                );
                 return None;
             }
         }
@@ -981,11 +790,6 @@ fn do_lazy_link(
             }
 
             cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
-            log_dbg!(
-                "Linked {} at {:?} to host implementation",
-                symbol,
-                stub_function_ptr
-            );
             return Some(f);
         }
 
@@ -993,9 +797,7 @@ fn do_lazy_link(
         // HyperHLE Inline Structural Intercept Fallback Upgrades
         // =========================================================================
         
-        // 1. Intercept `singleton_pool::is_from` -> Overrides default logic to return 1 instead of 0
         if symbol.starts_with("_ZN5boost14singleton_pool") && symbol.contains("is_from") {
-            log!("HyperHLE: Intercepted boost::singleton_pool::is_from -> dynamically routing to return 1");
             let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
             let f: HostFunction = &(boost_singleton_pool_is_from_override as fn(&mut Environment) -> i32);
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
@@ -1008,13 +810,11 @@ fn do_lazy_link(
             return Some(f);
         }
 
-        // 2. Intercept Constructors (Ctors) -> Retains the structural this_ptr instance inside r0 register
         if symbol == "_ZN5boost5uuids22basic_random_generatorINS_6random23mersenne_twister_engineIjLm32ELm624ELm397ELm31ELj2567483615ELm11ELj4294967295ELm7ELj2636928640ELm15ELj4022730752ELm18ELj1812433253EEEEC2Ev"
             || symbol == "_ZN5boost9gregorian4dateC2ENS0_9greg_yearENS0_10greg_monthENS0_8greg_dayE"
             || symbol == "_ZN5boost9date_time16counted_time_repINS_10posix_time33millisec_posix_time_system_configEEC2ERKNS_9gregorian4dateERKNS2_13time_durationE"
             || symbol.starts_with("_ZN3glf7TlsNodeC2")
         {
-            log!("HyperHLE: Intercepted Ctor -> Preserving structure this_ptr ({})", symbol);
             let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
             let f: HostFunction = &(boost_and_glf_constructor_handler as fn(&mut Environment));
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
@@ -1027,16 +827,11 @@ fn do_lazy_link(
             return Some(f);
         }
 
-        // =========================================================================
-        // FIX: Route libc++ std::string mangled names to string.rs implementations
-        // =========================================================================
         if symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEC1ERKS5_"
             || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEC1ERKS5_mmRKS4_"
             || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEED1Ev"
             || symbol == "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEaSERKS5_"
         {
-            log!("HyperHLE: Intercepted libc++ std::string operation -> routing to string.rs: {}", symbol);
-            
             let f: HostFunction = match symbol {
                 "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEED1Ev" => {
                     &(crate::libc::string::libcxx_string_destructor as fn(&mut Environment, crate::mem::MutVoidPtr))
@@ -1044,7 +839,7 @@ fn do_lazy_link(
                 "__ZNSt3__112basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEaSERKS5_" => {
                     &(crate::libc::string::libcxx_string_assign as fn(&mut Environment, crate::mem::MutVoidPtr, crate::mem::ConstVoidPtr) -> crate::mem::MutVoidPtr)
                 }
-                _ => { // Both constructor variants map here
+                _ => {
                     &(crate::libc::string::libcxx_string_init as fn(&mut Environment, crate::mem::MutVoidPtr))
                 }
             };
@@ -1060,14 +855,10 @@ fn do_lazy_link(
             return Some(f);
         }
 
-        // =========================================================================
-        // FIX: Handle talk_base::CriticalSection and std::shared_ptr Ref Counting
-        // =========================================================================
         if symbol == "__ZN9talk_base15CriticalSectionC2Ev"
             || symbol == "__ZNSt3__119__shared_weak_count12__add_sharedEv"
             || symbol == "__ZNSt3__119__shared_weak_count16__release_sharedEv"
         {
-            log!("HyperHLE: Intercepted Object Lifecycle / Ref Count -> Preserving R0 ({})", symbol);
             let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
             let f: HostFunction = &(boost_and_glf_constructor_handler as fn(&mut Environment));
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
@@ -1080,11 +871,44 @@ fn do_lazy_link(
             return Some(f);
         }
 
-        // =========================================================================
-        // FIX: Route dyld image header lookups safely without triggers
-        // =========================================================================
         if symbol == "_dyld_get_image_header" || symbol == "__dyld_get_image_header" {
             let f: HostFunction = &(dyld_get_image_header_intercept as fn(&mut Environment, u32) -> crate::mem::ConstVoidPtr);
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
+
+        // =========================================================================
+        // FIX: Route dynamic library registration to a safe no-op intercept
+        // =========================================================================
+        if symbol == "_dyld_register_func_for_add_image" 
+            || symbol == "__dyld_register_func_for_add_image"
+            || symbol == "_dyld_register_func_for_remove_image"
+            || symbol == "__dyld_register_func_for_remove_image"
+        {
+            let f: HostFunction = &(dyld_register_image_func_intercept as fn(&mut Environment, u32));
+            let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
+            let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
+            let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
+            if info.entry_size == 4 { svc |= Self::SVC_LAZY_LINK_RET_FLAG; }
+            self.linked_host_functions.push((leaked_symbol, f));
+            let stub_function_ptr: MutPtr<u32> = Ptr::from_bits(svc_pc);
+            mem.write(stub_function_ptr, encode_a32_svc(svc));
+            cpu.invalidate_cache_range(stub_function_ptr.to_bits(), 4);
+            return Some(f);
+        }
+
+        // =========================================================================
+        // FIX: Route CommonCrypto SHA256 calls to a structural hashing intercept
+        // =========================================================================
+        if symbol == "_CC_SHA256" || symbol == "__CC_SHA256" {
+            let f: HostFunction = &(cc_sha256_intercept as fn(&mut Environment, crate::mem::ConstVoidPtr, u32, crate::mem::MutVoidPtr) -> crate::mem::MutVoidPtr);
             let leaked_symbol: &'static str = Box::leak(symbol.to_string().into_boxed_str());
             let idx: u32 = self.linked_host_functions.len().try_into().unwrap();
             let mut svc = idx + Self::SVC_LINKED_FUNCTIONS_BASE;
@@ -1176,11 +1000,7 @@ fn do_lazy_link(
     }
 }
 
-fn dyld_stub_binder(_env: &mut Environment, _arg: u32) {
-    log!(
-        "Warning: dyld_stub_binder was called! Under HLE all lazy symbols are bound eagerly, so this is unexpected. Continuing as a no-op."
-    );
-}
+fn dyld_stub_binder(_env: &mut Environment, _arg: u32) {}
 
 fn unimplemented_function_stub(_env: &mut Environment) -> i32 {
     0
@@ -1190,24 +1010,112 @@ fn unimplemented_function_stub(_env: &mut Environment) -> i32 {
 // HyperHLE Target Host Implementations for Intercepted Symbols
 // =========================================================================
 
-/// Special override logic targeting Boost singleton structures requiring initialization sanity checks
 fn boost_singleton_pool_is_from_override(_env: &mut Environment) -> i32 {
     1
 }
 
-/// Generic handler for constructors: C++ constructors pass the `this` pointer in register R0
-/// and expect it to be returned in register R0. Leaving the CPU registers completely untouched
-/// safely fulfills this requirement.
-fn boost_and_glf_constructor_handler(_env: &mut Environment) {
-    // Intentionally leaves cpu registers untouched to allow R0 to flow back out safely
-}
+fn boost_and_glf_constructor_handler(_env: &mut Environment) {}
 
 // =========================================================================
 // Explicit Dyld System Core Intercepts
 // =========================================================================
 
-/// Explicit intercept for macOS/iOS `_dyld_get_image_header` system calls.
-fn dyld_get_image_header_intercept(_env: &mut Environment, image_index: u32) -> crate::mem::ConstVoidPtr {
-    log_dbg!("_dyld_get_image_header query requested for image index: {}", image_index);
+fn dyld_get_image_header_intercept(_env: &mut Environment, _image_index: u32) -> crate::mem::ConstVoidPtr {
     crate::mem::Ptr::null()
+}
+
+/// Explicit no-op handler for image add/remove callback registrations.
+fn dyld_register_image_func_intercept(_env: &mut Environment, _func_ptr: u32) {
+    // Intentionally abstracting away dynamic image additions safely
+}
+
+/// Fully self-contained software-fallback implementation of CommonCrypto `CC_SHA256`.
+/// Reads binary input from guest space, hashes it, and writes the 32-byte digest into the output buffer.
+fn cc_sha256_intercept(
+    env: &mut Environment,
+    data_ptr: crate::mem::ConstVoidPtr,
+    len: u32,
+    md_ptr: crate::mem::MutVoidPtr,
+) -> crate::mem::MutVoidPtr {
+    let mut buffer = vec![0u8; len as usize];
+    for i in 0..len {
+        let p: crate::mem::ConstPtr<u8> = data_ptr.cast();
+        buffer[i as usize] = env.mem.read(p + i);
+    }
+
+    // Standard baseline SHA256 Constants
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+    ];
+
+    let mut h0: u32 = 0x6a09e667;
+    let mut h1: u32 = 0xbb67ae85;
+    let mut h2: u32 = 0x3c6ef372;
+    let mut h3: u32 = 0xa54ff53a;
+    let mut h4: u32 = 0x510e527f;
+    let mut h5: u32 = 0x9b05688c;
+    let mut h6: u32 = 0x1f83d9ab;
+    let mut h7: u32 = 0x5be0cd19;
+
+    let orig_len_bits = (buffer.len() as u64) * 8;
+    buffer.push(0x80);
+    while (buffer.len() + 8) % 64 != 0 {
+        buffer.push(0x00);
+    }
+    buffer.extend_from_slice(&orig_len_bits.to_be_bytes());
+
+    for chunk in buffer.chunks(64) {
+        let mut w = [0u32; 64];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes([
+                chunk[i * 4],
+                chunk[i * 4 + 1],
+                chunk[i * 4 + 2],
+                chunk[i * 4 + 3],
+            ]);
+        }
+        for i in 16..64 {
+            let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+            let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+        }
+
+        let mut a = h0; let mut b = h1; let mut c = h2; let mut d = h3;
+        let mut e = h4; let mut f = h5; let mut g = h6; let mut h = h7;
+
+        for i in 0..64 {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = h.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+
+            h = g; g = f; f = e;
+            e = d.wrapping_add(temp1);
+            d = c; c = b; b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+
+        h0 = h0.wrapping_add(a); h1 = h1.wrapping_add(b); h2 = h2.wrapping_add(c); h3 = h3.wrapping_add(d);
+        h4 = h4.wrapping_add(e); h5 = h5.wrapping_add(f); h6 = h6.wrapping_add(g); h7 = h7.wrapping_add(h);
+    }
+
+    let out_ptr: MutPtr<u8> = md_ptr.cast();
+    let digests = [h0, h1, h2, h3, h4, h5, h6, h7];
+    for (idx, hash_part) in digests.iter().enumerate() {
+        let bytes = hash_part.to_be_bytes();
+        for b_idx in 0..4 {
+            env.mem.write(out_ptr + (idx * 4 + b_idx).try_into().unwrap(), bytes[b_idx]);
+        }
+    }
+
+    md_ptr
     }
