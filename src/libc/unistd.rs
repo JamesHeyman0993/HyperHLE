@@ -273,36 +273,17 @@ fn readlink(
 ) -> GuestISize {
     let path_str = env.mem.cstr_at_utf8(path).unwrap_or_default().to_owned();
 
-    // Catch the base paths AND the deep paths to prevent the infinite loop
-    if path_str == "/var" 
-        || path_str == "/var/mobile" 
-        || path_str.starts_with("/var/mobile/Applications") 
-        || path_str.starts_with("/var/mobile/Containers") 
-    {
-        log!("HyperHLE: Intercepted readlink for path: {}", path_str);
-        
-        let bytes = path_str.as_bytes();
-        let len = bytes.len();
-        let max_len = buf_size as usize;
-        
-        // Ensure we don't overflow the guest's buffer
-        if len >= max_len {
-            set_errno(env, EINVAL);
-            return -1;
-        }
-
-        env.mem.bytes_at_mut(buf, len as GuestUSize).copy_from_slice(bytes);
-        return len as GuestISize;
-    }
-
-    log!(
-        "TODO: readlink({:?} '{}', {:?}, {}) -> -1",
+    log_dbg!(
+        "readlink({:?} '{}', {:?}, {})",
         path,
         path_str,
         buf,
         buf_size,
     );
-    
+
+    // Most files and paths in touchHLE are NOT symbolic links.
+    // Return EINVAL to indicate "not a symbolic link" which prevents infinite loops.
+    // This is the correct POSIX behavior for non-symlink paths.
     set_errno(env, EINVAL);
     -1
 }
