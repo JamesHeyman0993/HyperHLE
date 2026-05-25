@@ -354,6 +354,19 @@ fn getenv(env: &mut Environment, name: ConstPtr<u8>) -> MutPtr<u8> {
 
         return guest_ptr.cast();
     }
+
+    // --- Intercept Mono WAPI Process Handle Offset (Fixes Unity/Mono threading crashes) ---
+    if name_str == "_WAPI_PROCESS_HANDLE_OFFSET" {
+        log!("HyperHLE: Providing dummy value '0' for _WAPI_PROCESS_HANDLE_OFFSET");
+        let val = "0";
+        let val_bytes = std::ffi::CString::new(val).unwrap();
+        let bytes = val_bytes.as_bytes_with_nul();
+
+        let guest_ptr: MutPtr<u8> = env.mem.alloc(bytes.len() as u32).cast();
+        env.mem.bytes_at_mut(guest_ptr, bytes.len() as u32).copy_from_slice(bytes);
+
+        return guest_ptr.cast();
+    }
     
     // Look up in the existing environment variables map
     let Some(&value) = env.env_vars.get(&name_bytes) else {
