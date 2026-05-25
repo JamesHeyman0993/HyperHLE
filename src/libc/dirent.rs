@@ -65,6 +65,12 @@ fn opendir(env: &mut Environment, filename: ConstPtr<u8>) -> MutPtr<DIR> {
     let mut path_string = env.mem.cstr_at_utf8(filename).unwrap().to_owned();
     log_dbg!("opendir: raw filename input: {}", path_string);
 
+    // --- Intercept POSIX shared memory searches for Mono ---
+    if path_string == "/dev/shm" || path_string == "/dev/shm/" {
+        log!("HyperHLE: Intercepted Mono /dev/shm/ scan. Redirecting to empty virtual root.");
+        path_string = "/".to_string(); 
+    }
+
     // Marmalade / C++ standard runtimes use "." or empty values to scan the current directory bundle.
     // Translate these into absolute paths touchHLE's GuestPath subsystem can parse.
     if path_string == "." || path_string.is_empty() {
