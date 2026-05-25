@@ -48,6 +48,7 @@ pub mod core_video;
 pub mod foundation;
 pub mod game_controller;
 pub mod game_kit;
+pub mod gl_kit;
 pub mod libbz2;
 pub mod libicucore;
 pub mod libsqlite3;
@@ -64,7 +65,6 @@ pub mod system_configuration;
 pub mod tw_tweet_compose_view_controller;
 pub mod uikit;
 pub mod user_voice; // Added UserVoice module
-pub mod glkit;
 
 /// Container for state of various child modules
 #[derive(Default)]
