@@ -368,7 +368,7 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
             let s = s.to_string();
             from_rust_string(env, s)
         }
-        Value::Integer(int) => {
+                Value::Integer(int) => {
             #[allow(clippy::clone_on_copy)]
             let int = int.clone();
             // Similar logic to deserialize_plist()
@@ -376,14 +376,17 @@ fn unarchive_key(env: &mut Environment, unarchiver: id, key: Uid) -> id {
             // TODO: is this the correct order of preference? does it matter?
             if let Some(int64) = int.as_signed() {
                 let longlong: i64 = int64;
-                msg![env; number initWithLongLong:longlong]
+                let initialized_number: id = msg![env; number initWithLongLong:longlong];
+                initialized_number
             } else if let Some(uint64) = int.as_unsigned() {
                 let ulonglong: u64 = uint64;
-                msg![env; number initWithUnsignedLongLong:ulonglong]
+                let initialized_number: id = msg![env; number initWithUnsignedLongLong:ulonglong];
+                initialized_number
             } else {
                 unreachable!(); // according to plist crate docs
             }
-        }
+                }
+        
         _ => unimplemented!("Unarchive: {:#?}", item),
     };
 
