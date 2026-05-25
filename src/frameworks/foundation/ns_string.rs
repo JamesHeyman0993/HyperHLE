@@ -829,14 +829,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     let component_ns_strings: Vec<id> = components
     .drain(..)
     .map(|utf16| {
-        let new_str: id = msg_class![env; NSString alloc];
-        let initialized_str: id = msg![
-            env; 
-            new_str 
-            initWithCharacters:(crate::mem::ConstPtr::from_raw(utf16.as_ptr())) 
-            length:(utf16.len() as NSUInteger)
-        ];
-        initialized_str
+        // Convert the UTF-16 code units safely back to a Rust String
+        let rust_str = String::from_utf16(&utf16).unwrap_or_default();
+        
+        // Let touchHLE's built-in utility create a perfectly formatted,
+        // initialized Objective-C NSString wrapper object
+        from_rust_string(env, rust_str)
     })
     .collect();
      
