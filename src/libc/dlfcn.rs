@@ -105,10 +105,10 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
         .create_proc_address(&mut env.mem, &mut env.cpu, &symbol_formatted)
     {
         Ok(addr) => Ptr::from_bits(addr.addr_with_thumb_bit()),
-        Err(_) => {
+                Err(_) => {
             // --- AUTOMATED WILDCARD INTERCEPT FALLBACK ---
             // Теперь lower_sym безопасно читает из выделенной строки без конфликтов заимствования.
-                                    let lower_sym = symbol_str.to_lowercase();
+            let lower_sym = symbol_str.to_lowercase();
             if lower_sym.contains("iap") || 
                lower_sym.contains("kontagent") || 
                lower_sym.contains("playhaven") || 
@@ -116,7 +116,8 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
                lower_sym.contains("analytics") ||
                lower_sym.contains("etcetera") ||
                lower_sym.contains("sha256") ||    // <-- Added to catch _CC_SHA256
-               lower_sym.contains("cc_sha") {      // <-- Added to catch variant naming conventions
+               lower_sym.contains("cc_sha") ||    // <-- Added to catch variant naming conventions
+               lower_sym.contains("gamecenter") { // <-- ADDED: Catches __gameCenterIsGameCenterAvailable
                 
                 log!("dlsym: Intercepted missing Unity native plugin hook '{}'. Re-routing to zero-stub safely.", symbol_str);
                 
@@ -132,7 +133,7 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
                 symbol_formatted
             );
             Ptr::null()
-        }
+                }
     }
 }
 
