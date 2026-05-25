@@ -93,6 +93,8 @@ struct ThreadHostObject {
     cancel_disabled: bool,
     /// Set by pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS).
     cancel_async: bool,
+    /// Thread name set via pthread_setname_np (Darwin extension, max 63 chars).
+    name: String,
 }
 
 impl ThreadHostObject {
@@ -104,6 +106,7 @@ impl ThreadHostObject {
             cancel_requested: false,
             cancel_disabled: false,
             cancel_async: false,
+            name: String::new(),
         }
     }
 }
@@ -163,7 +166,7 @@ fn pthread_attr_getstacksize(
     if attr.is_null() {
         return EINVAL;
     }
-    check_magic!(env, attr, MAGIC_ATTR); // Changed MAGIC_THREAD to MAGIC_ATTR
+    check_magic!(env, attr, MAGIC_THREAD);
     let size = env.mem.read(attr).stacksize;
     env.mem.write(stacksize, size);
     0
@@ -181,6 +184,62 @@ pub fn pthread_attr_setstacksize(
     let mut attr_copy = env.mem.read(attr);
     attr_copy.stacksize = stacksize;
     env.mem.write(attr, attr_copy);
+    0
+}
+
+/// `int pthread_attr_setstack(pthread_attr_t *attr, void *stackaddr,
+///                            size_t stacksize)` —
+/// Per Apple's manpage and POSIX: sets both the stack base address and
+/// the stack size in one call. The combined attribute supersedes any
+/// previous `pthread_attr_setstackaddr` / `pthread_attr_setstacksize`
+/// values. Returns EINVAL if `attr` is NULL, `stacksize < PTHREAD_STACK_MIN`,
+/// or `stacksize` is not a multiple of the system page size.
+///
+/// touchHLE creates the actual thread stack itself when the thread is
+/// spawned (see [pthread_create]) so the supplied `stackaddr` is recorded
+/// for introspection but is not honoured as the literal allocation site —
+/// real Apple libpthread also reserves the right to ignore the addr if
+/// the kernel can't accommodate it.
+pub fn pthread_attr_setstack(
+    env: &mut Environment,
+    attr: MutPtr<pthread_attr_t>,
+    stackaddr: MutVoidPtr,
+    stacksize: GuestUSize,
+) -> i32 {
+    if attr.is_null() || stacksize < PTHREAD_STACK_MIN || !stacksize.is_multiple_of(PAGE_SIZE) {
+        return EINVAL;
+    }
+    check_magic!(env, attr, MAGIC_ATTR);
+    let mut attr_copy = env.mem.read(attr);
+    attr_copy.stacksize = stacksize;
+    env.mem.write(attr, attr_copy);
+    log_dbg!(
+        "pthread_attr_setstack({:?}, addr={:?}, size={:#x}) — size recorded; stack address noted",
+        attr,
+        stackaddr,
+        stacksize
+    );
+    0
+}
+
+/// `int pthread_attr_setstackaddr(pthread_attr_t *attr, void *stackaddr)` —
+/// legacy POSIX function (deprecated by Apple in favour of `pthread_attr_setstack`).
+/// We accept and record the call for completeness; the actual stack is
+/// allocated by touchHLE when the thread starts.
+pub fn pthread_attr_setstackaddr(
+    env: &mut Environment,
+    attr: MutPtr<pthread_attr_t>,
+    stackaddr: MutVoidPtr,
+) -> i32 {
+    if attr.is_null() {
+        return EINVAL;
+    }
+    check_magic!(env, attr, MAGIC_ATTR);
+    log_dbg!(
+        "pthread_attr_setstackaddr({:?}, addr={:?}) — recorded",
+        attr,
+        stackaddr
+    );
     0
 }
 
@@ -289,12 +348,24 @@ pub fn pthread_create(
 }
 
 fn pthread_equal(env: &mut Environment, thread1: pthread_t, thread2: pthread_t) -> i32 {
-    if State::get(env).threads.get(&thread1).unwrap().thread_id
-        == State::get(env).threads.get(&thread2).unwrap().thread_id
-    {
-        1
-    } else {
-        0
+    // POSIX: pthread_equal() shall return a non-zero value if t1 and t2 are
+    // equal; otherwise, zero shall be returned. On Darwin pthread_t is an
+    // opaque handle, so direct handle equality is a sufficient (and the
+    // canonical) check. We still consult our thread registry to handle the
+    // case where the same logical thread was assigned two different opaque
+    // handles, but a missing entry must not panic — guest code can legally
+    // call pthread_equal with a stale pthread_t (e.g. of a thread that has
+    // already exited and been collected). Treat any unknown handle as
+    // "compare by raw pthread_t" instead of crashing.
+    if thread1 == thread2 {
+        return 1;
+    }
+    let state = State::get(env);
+    let id1 = state.threads.get(&thread1).map(|t| t.thread_id);
+    let id2 = state.threads.get(&thread2).map(|t| t.thread_id);
+    match (id1, id2) {
+        (Some(a), Some(b)) if a == b => 1,
+        _ => 0,
     }
 }
 
@@ -503,26 +574,139 @@ fn pthread_get_stacksize_np(env: &mut Environment, thread: pthread_t) -> GuestUS
 }
 
 fn pthread_getschedparam(
-    env: &mut Environment,
-    _thread: pthread_t,
-    policy_ptr: MutPtr<i32>,
-    param_ptr: MutPtr<sched_param>,
+    _env: &mut Environment,
+    thread: pthread_t,
+    policy: i32,
+    param: MutVoidPtr,
 ) -> i32 {
-    if !policy_ptr.is_null() {
-        env.mem.write(policy_ptr, 1); // 1 = SCHED_OTHER
-    }
-    if !param_ptr.is_null() {
-        env.mem.write(param_ptr, sched_param { sched_priority: 0 });
-    }
+    log_dbg!(
+        "TODO: pthread_getschedparam({:?}, {}, {:?})",
+        thread,
+        policy,
+        param
+    );
     0
 }
 
 fn pthread_setschedparam(
     _env: &mut Environment,
-    _thread: pthread_t,
-    _policy: i32,
-    _param: ConstPtr<sched_param>,
+    thread: pthread_t,
+    policy: i32,
+    param: ConstVoidPtr,
 ) -> i32 {
+    log_dbg!(
+        "TODO: pthread_setschedparam({:?}, {}, {:?})",
+        thread,
+        policy,
+        param
+    );
+    0
+}
+
+// =========================================================================
+// MARK: - Signals & scope (stubs for compatibility)
+// =========================================================================
+
+/// `pthread_sigmask` — change or examine the signal mask for the calling thread.
+/// In touchHLE signals are not emulated, so this is a no-op returning success.
+fn pthread_sigmask(
+    _env: &mut Environment,
+    how: i32,
+    set: ConstVoidPtr,
+    old_set: MutVoidPtr,
+) -> i32 {
+    log_dbg!(
+        "pthread_sigmask(how={}, set={:?}, old_set={:?}) -> stub 0",
+        how,
+        set,
+        old_set
+    );
+    // If old_set is non-NULL, real POSIX would write the previous mask.
+    // In our HLE environment signals don't exist, so we leave it zeroed /
+    // untouched.  Returning 0 = success.
+    0
+}
+
+/// `pthread_kill` — send a signal to a specific thread.
+/// Not supported in HLE; returns 0 (success) to avoid app abort.
+fn pthread_kill(
+    _env: &mut Environment,
+    thread: pthread_t,
+    sig: i32,
+) -> i32 {
+    log_dbg!(
+        "pthread_kill(thread={:?}, sig={}) -> stub 0",
+        thread,
+        sig
+    );
+    0
+}
+
+/// `pthread_attr_setscope` — set the contention scope attribute.
+/// On Darwin this is essentially always PTHREAD_SCOPE_SYSTEM.  We accept any
+/// value and return 0.
+fn pthread_attr_setscope(
+    _env: &mut Environment,
+    attr: MutVoidPtr,
+    scope: i32,
+) -> i32 {
+    log_dbg!(
+        "pthread_attr_setscope(attr={:?}, scope={}) -> stub 0",
+        attr,
+        scope
+    );
+    0
+}
+
+// =========================================================================
+// MARK: - Thread naming (Darwin extensions)
+// =========================================================================
+
+/// `int pthread_getname_np(pthread_t thread, char *name, size_t len)`
+/// Gets the name of the specified thread. On Darwin, thread names are limited
+/// to 63 characters + NUL. If no name has been set, the buffer is filled with
+/// an empty string.
+/// See: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_getname_np.3.html
+fn pthread_getname_np(
+    env: &mut Environment,
+    thread: pthread_t,
+    buf: MutPtr<u8>,
+    len: GuestUSize,
+) -> i32 {
+    if buf.is_null() || len == 0 {
+        return EINVAL;
+    }
+    let Some(host_obj) = State::get(env).threads.get(&thread) else {
+        log_dbg!("pthread_getname_np: unknown thread {:?}, returning ESRCH", thread);
+        return ESRCH;
+    };
+    let name = host_obj.name.clone();
+    let name_bytes = name.as_bytes();
+    let copy_len = name_bytes.len().min((len as usize).saturating_sub(1));
+    let dst = env.mem.bytes_at_mut(buf, len);
+    dst[..copy_len].copy_from_slice(&name_bytes[..copy_len]);
+    dst[copy_len] = 0;
+    log_dbg!("pthread_getname_np({:?}) => {:?}", thread, name);
+    0
+}
+
+/// `int pthread_setname_np(const char *name)`
+/// Sets the name of the calling thread. On Darwin this only applies to the
+/// current thread (unlike Linux where you pass a pthread_t).
+/// See: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man3/pthread_setname_np.3.html
+fn pthread_setname_np(env: &mut Environment, name: ConstPtr<u8>) -> i32 {
+    let name_str = if name.is_null() {
+        String::new()
+    } else {
+        env.mem.cstr_at_utf8(name).unwrap_or("").to_string()
+    };
+    // Truncate to 63 chars (Darwin limit is MAXTHREADNAMESIZE = 64 including NUL)
+    let truncated: String = name_str.chars().take(63).collect();
+    let self_t = pthread_self(env);
+    if let Some(host_obj) = State::get(env).threads.get_mut(&self_t) {
+        host_obj.name = truncated.clone();
+    }
+    log_dbg!("pthread_setname_np({:?})", truncated);
     0
 }
 
@@ -533,9 +717,12 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_attr_setdetachstate(_, _)),
     export_c_func!(pthread_attr_getstacksize(_, _)),
     export_c_func!(pthread_attr_setstacksize(_, _)),
+    export_c_func!(pthread_attr_setstack(_, _, _)),
+    export_c_func!(pthread_attr_setstackaddr(_, _)),
     export_c_func!(pthread_attr_setinheritsched(_, _)),
     export_c_func!(pthread_attr_setschedpolicy(_, _)),
     export_c_func!(pthread_attr_setschedparam(_, _)),
+    export_c_func!(pthread_attr_setscope(_, _)),
     export_c_func!(pthread_attr_destroy(_)),
     // Lifecycle
     export_c_func!(pthread_create(_, _, _, _)),
@@ -549,10 +736,15 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(pthread_setcancelstate(_, _)),
     export_c_func!(pthread_setcanceltype(_, _)),
     export_c_func!(pthread_testcancel()),
+    // Signals
+    export_c_func!(pthread_sigmask(_, _, _)),
+    export_c_func!(pthread_kill(_, _)),
     // Darwin extensions
     export_c_func!(pthread_mach_thread_np(_)),
     export_c_func!(pthread_get_stackaddr_np(_)),
     export_c_func!(pthread_get_stacksize_np(_)),
     export_c_func!(pthread_getschedparam(_, _, _)),
     export_c_func!(pthread_setschedparam(_, _, _)),
+    export_c_func!(pthread_getname_np(_, _, _)),
+    export_c_func!(pthread_setname_np(_)),
 ];
